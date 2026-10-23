@@ -1,0 +1,20 @@
+# Local Terraform working files
+.terraform/
+.terraform.tfstate.lock.info
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfplan.*
+crash.log
+crash.*.log
+
+# Local overrides and real variable files (examples are tracked)
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+terraform.tfvars
+*.auto.tfvars
+**/*.tfvars
+!**/*.tfvars.example
+.env

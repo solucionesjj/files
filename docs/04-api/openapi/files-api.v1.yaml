@@ -1,0 +1,3151 @@
+openapi: 3.1.0
+info:
+  title: Files API
+  version: 1.0.0
+  description: |
+    Secure file storage, transfer, and integration API.
+
+    Authentication:
+    - Portal users: Microsoft Entra ID delegated bearer token (`userAuth`).
+    - Integrations: Entra ID client-credentials bearer token or API key (`integrationAuth`).
+    - Public link visitors: link token + separate 8-character download key.
+
+    All errors use RFC 9457 `application/problem+json` with a stable `code`.
+    Downloads are streamed by the API; public/private/owner downloads require a
+    short-lived, single-use grant. See `docs/04-api/api-conventions.md`.
+  contact:
+    name: Files Platform Team
+  license:
+    name: Proprietary
+    url: https://files.example.com/terms
+
+servers:
+  - url: https://files.example.com/v1
+    description: Production
+  - url: http://localhost:8080/v1
+    description: Local development
+
+tags:
+  - name: Meta
+    description: Identity and portal bootstrap endpoints.
+  - name: Portal files
+    description: Human-owned file management.
+  - name: Portal links
+    description: Link creation, revocation, and statistics.
+  - name: Public links
+    description: Anonymous link metadata and key redemption.
+  - name: Downloads
+    description: Short-lived grants and content streaming.
+  - name: Integrations
+    description: Machine-to-machine upload, retrieval, and deletion.
+  - name: Admin
+    description: Integrations, credentials, policies, and settings.
+  - name: Audit
+    description: Audit events and usage reporting.
+
+security:
+  - userAuth: []
+
+paths:
+  /config:
+    get:
+      tags: [Meta]
+      operationId: getPortalConfig
+      summary: Portal bootstrap configuration
+      security: []
+      responses:
+        '200':
+          description: Public, non-sensitive configuration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PortalConfig'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /me:
+    get:
+      tags: [Meta]
+      operationId: getMe
+      summary: Current identity and permissions
+      responses:
+        '200':
+          description: Effective identity.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Me'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /portal/files:
+    get:
+      tags: [Portal files]
+      operationId: listMyFiles
+      summary: Search and list files owned by the caller
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+            maxLength: 200
+          description: Case-insensitive partial filename match.
+        - name: tag
+          in: query
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+          description: Repeatable; files must have all provided tags.
+        - name: status
+          in: query
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [pending_upload, processing, available, quarantined, expired, pending_deletion, deleted, upload_failed]
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [created_at, -created_at, name, -name, downloads, -downloads]
+            default: -created_at
+        - name: expiringWithinDays
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 3650
+        - name: expiresBefore
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: expiresAfter
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of files.
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/XRequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /portal/upload-sessions:
+    post:
+      tags: [Portal files]
+      operationId: createPortalUploadSession
+      summary: Create an upload session for a human-owned file
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUploadSessionRequest'
+      responses:
+        '201':
+          description: Upload session created. `parts` may be a first batch.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadSession'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          description: Declared size exceeds the maximum.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /portal/upload-sessions/{sessionId}/parts:
+    post:
+      tags: [Portal files]
+      operationId: presignPortalUploadParts
+      summary: Get presigned URLs for additional parts
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresignPartsRequest'
+      responses:
+        '200':
+          description: Presigned part URLs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PresignedParts'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /portal/upload-sessions/{sessionId}/complete:
+    post:
+      tags: [Portal files]
+      operationId: completePortalUpload
+      summary: Verify and complete an upload
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteUploadRequest'
+      responses:
+        '200':
+          description: File verified (available, or processing while scanning).
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileMetadata'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /portal/upload-sessions/{sessionId}:
+    delete:
+      tags: [Portal files]
+      operationId: abortPortalUpload
+      summary: Abort an upload session
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '204':
+          description: Aborted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /portal/files/{fileId}:
+    get:
+      tags: [Portal files]
+      operationId: getMyFile
+      summary: Get file metadata
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '200':
+          description: File metadata.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileMetadata'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Portal files]
+      operationId: updateMyFile
+      summary: Rename, retag, or change retention
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateFileRequest'
+      responses:
+        '200':
+          description: Updated file metadata.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileMetadata'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+    delete:
+      tags: [Portal files]
+      operationId: deleteMyFile
+      summary: Delete a file (logical immediately, physical asynchronously)
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '204':
+          description: File no longer accessible; physical deletion queued.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /portal/files/{fileId}/downloads:
+    post:
+      tags: [Downloads]
+      operationId: createOwnerDownloadGrant
+      summary: Issue a short-lived download grant for the owner
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '201':
+          description: Grant issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadGrant'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /portal/files/{fileId}/links:
+    get:
+      tags: [Portal links]
+      operationId: listFileLinks
+      summary: List links for a file
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Links (tokens are not returned).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Portal links]
+      operationId: createLink
+      summary: Create a public or private link
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLinkRequest'
+      responses:
+        '201':
+          description: Link created. The download key is returned only now.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkCreated'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /portal/links:
+    get:
+      tags: [Portal links]
+      operationId: listMyLinks
+      summary: List links created by the caller
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, revoked, expired]
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Links.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /portal/links/{linkId}:
+    delete:
+      tags: [Portal links]
+      operationId: revokeLink
+      summary: Revoke a link
+      parameters:
+        - $ref: '#/components/parameters/LinkId'
+        - name: reason
+          in: query
+          schema:
+            type: string
+            maxLength: 500
+      responses:
+        '204':
+          description: Revoked; unused grants become invalid.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /portal/links/{linkId}/stats:
+    get:
+      tags: [Portal links]
+      operationId: getLinkStats
+      summary: Download statistics for a link
+      parameters:
+        - $ref: '#/components/parameters/LinkId'
+      responses:
+        '200':
+          description: Statistics.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkStats'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /portal/tags:
+    get:
+      tags: [Portal files]
+      operationId: listTags
+      summary: Reusable tag suggestions
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+            maxLength: 64
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: Tags visible to the caller.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /public/download-links/{token}:
+    get:
+      tags: [Public links]
+      operationId: getPublicLink
+      summary: Public link landing metadata
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/LinkToken'
+      responses:
+        '200':
+          description: Non-sensitive display metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkPublicInfo'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /public/download-links/{token}/downloads:
+    post:
+      tags: [Public links]
+      operationId: redeemPublicLink
+      summary: Verify the download key and issue a grant
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/LinkToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RedeemPublicLinkRequest'
+      responses:
+        '201':
+          description: Grant issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadGrant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Invalid token, key, expired/revoked link, limit reached, or file unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /download-links/{token}:
+    get:
+      tags: [Public links]
+      operationId: getPrivateLinkMetadata
+      summary: Metadata for a private link (authenticated)
+      parameters:
+        - $ref: '#/components/parameters/LinkToken'
+      responses:
+        '200':
+          description: Full display metadata for an authenticated tenant user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkPublicInfo'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /download-links/{token}/downloads:
+    post:
+      tags: [Public links]
+      operationId: redeemPrivateLink
+      summary: Authenticate and issue a grant for a private link
+      parameters:
+        - $ref: '#/components/parameters/LinkToken'
+      responses:
+        '201':
+          description: Grant issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadGrant'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /download-grants/{grantToken}:
+    get:
+      tags: [Downloads]
+      operationId: streamDownloadGrant
+      summary: Stream the file authorized by a grant
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/GrantToken'
+      responses:
+        '200':
+          description: File content.
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+            Content-Length:
+              schema:
+                type: integer
+            Cache-Control:
+              schema:
+                type: string
+            Referrer-Policy:
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Unknown, expired, consumed, or invalidated grant.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /integrations/upload-sessions:
+    post:
+      tags: [Integrations]
+      operationId: createIntegrationUploadSession
+      summary: Create an upload session owned by the integration
+      security:
+        - integrationAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateIntegrationUploadSessionRequest'
+      responses:
+        '201':
+          description: Upload session created (indefinite retention, integration-only).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadSession'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /integrations/upload-sessions/{sessionId}/parts:
+    post:
+      tags: [Integrations]
+      operationId: presignIntegrationUploadParts
+      summary: Presign additional upload parts
+      security:
+        - integrationAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresignPartsRequest'
+      responses:
+        '200':
+          description: Presigned part URLs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PresignedParts'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /integrations/upload-sessions/{sessionId}/complete:
+    post:
+      tags: [Integrations]
+      operationId: completeIntegrationUpload
+      summary: Complete and verify an integration upload
+      security:
+        - integrationAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteUploadRequest'
+      responses:
+        '200':
+          description: File verified.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileMetadata'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /integrations/upload-sessions/{sessionId}:
+    delete:
+      tags: [Integrations]
+      operationId: abortIntegrationUpload
+      summary: Abort an integration upload session
+      security:
+        - integrationAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '204':
+          description: Aborted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /integrations/files:
+    get:
+      tags: [Integrations]
+      operationId: listIntegrationFiles
+      summary: List files owned by the integration
+      security:
+        - integrationAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Owned files.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Integrations]
+      operationId: proxyUploadIntegrationFile
+      summary: Upload a small file through the API (staging, <=100 MiB)
+      security:
+        - integrationAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                fileName:
+                  type: string
+                  maxLength: 512
+                checksumSha256:
+                  type: string
+                  pattern: '^[a-fA-F0-9]{64}$'
+                  description: Required for idempotent replay of a proxy upload.
+      responses:
+        '201':
+          description: File staged, promoted, and verified.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileMetadata'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '413':
+          description: File exceeds the proxy upload limit.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /integrations/files/{fileId}:
+    get:
+      tags: [Integrations]
+      operationId: getIntegrationFile
+      summary: Get metadata for an owned or granted file
+      security:
+        - integrationAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '200':
+          description: File metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileMetadata'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Integrations]
+      operationId: deleteIntegrationFile
+      summary: Delete an owned file
+      security:
+        - integrationAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '204':
+          description: File no longer accessible; physical deletion queued.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /integrations/files/{fileId}/availability:
+    get:
+      tags: [Integrations]
+      operationId: getIntegrationFileAvailability
+      summary: Check availability without transferring content
+      security:
+        - integrationAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '200':
+          description: Availability state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Availability'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /integrations/files/{fileId}/content:
+    get:
+      tags: [Integrations]
+      operationId: downloadIntegrationFile
+      summary: Download file content (supports Range)
+      security:
+        - integrationAuth: []
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+        - $ref: '#/components/parameters/Range'
+      responses:
+        '200':
+          description: Full content stream.
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+            Content-Length:
+              schema:
+                type: integer
+            Accept-Ranges:
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '206':
+          description: Partial content.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /admin/integrations:
+    get:
+      tags: [Admin]
+      operationId: listIntegrations
+      summary: List integrations
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, disabled]
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Integrations.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Admin]
+      operationId: createIntegration
+      summary: Register an integration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateIntegrationRequest'
+      responses:
+        '201':
+          description: Integration created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Integration'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /admin/integrations/{integrationId}:
+    get:
+      tags: [Admin]
+      operationId: getIntegration
+      summary: Integration detail
+      parameters:
+        - $ref: '#/components/parameters/IntegrationId'
+      responses:
+        '200':
+          description: Integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Integration'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Admin]
+      operationId: updateIntegration
+      summary: Update, disable, or re-enable an integration
+      parameters:
+        - $ref: '#/components/parameters/IntegrationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateIntegrationRequest'
+      responses:
+        '200':
+          description: Updated integration.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Integration'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /admin/integrations/{integrationId}/permissions:
+    put:
+      tags: [Admin]
+      operationId: setIntegrationPermissions
+      summary: Replace an integration's permissions
+      parameters:
+        - $ref: '#/components/parameters/IntegrationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetPermissionsRequest'
+      responses:
+        '200':
+          description: Permissions updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Integration'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /admin/integrations/{integrationId}/credentials:
+    get:
+      tags: [Admin]
+      operationId: listIntegrationCredentials
+      summary: List credentials (no secrets)
+      parameters:
+        - $ref: '#/components/parameters/IntegrationId'
+      responses:
+        '200':
+          description: Credentials.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Admin]
+      operationId: issueIntegrationCredential
+      summary: Issue an API key or register an Entra client
+      parameters:
+        - $ref: '#/components/parameters/IntegrationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IssueCredentialRequest'
+      responses:
+        '201':
+          description: Credential issued. `secret` is shown only here.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssuedCredential'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /admin/credentials/{credentialId}:
+    delete:
+      tags: [Admin]
+      operationId: revokeIntegrationCredential
+      summary: Revoke a credential
+      parameters:
+        - $ref: '#/components/parameters/CredentialId'
+        - name: reason
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 10
+            maxLength: 500
+      responses:
+        '204':
+          description: Revoked immediately.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /admin/files:
+    get:
+      tags: [Admin]
+      operationId: listAllFiles
+      summary: List file metadata across owners
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+            maxLength: 200
+        - name: ownerType
+          in: query
+          schema:
+            type: string
+            enum: [human, integration]
+        - name: ownerId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending_upload, processing, available, quarantined, expired, pending_deletion, deleted, upload_failed]
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Files.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/files/{fileId}/retention:
+    post:
+      tags: [Admin]
+      operationId: overrideFileRetention
+      summary: Override a file's retention (audited)
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminRetentionOverrideRequest'
+      responses:
+        '200':
+          description: Updated file metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileMetadata'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /admin/files/{fileId}/deletion:
+    post:
+      tags: [Admin]
+      operationId: requestAdminFileDeletion
+      summary: Request deletion of any file (audited, reason required)
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminDeleteFileRequest'
+      responses:
+        '202':
+          description: Deletion queued; downloads already blocked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionAccepted'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /admin/files/{fileId}/grants:
+    get:
+      tags: [Admin]
+      operationId: listFileGrants
+      summary: List integration grants for a file
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '200':
+          description: Active and revoked grants.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileGrantList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Admin]
+      operationId: createFileGrant
+      summary: Grant read-only access to another integration
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFileGrantRequest'
+      responses:
+        '201':
+          description: Grant created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileGrant'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /admin/grants/{grantId}:
+    delete:
+      tags: [Admin]
+      operationId: revokeFileGrant
+      summary: Revoke an integration file grant
+      parameters:
+        - $ref: '#/components/parameters/GrantId'
+      responses:
+        '204':
+          description: Revoked.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/retention-policy:
+    get:
+      tags: [Admin]
+      operationId: getRetentionPolicy
+      summary: Current and historical retention policies
+      responses:
+        '200':
+          description: Current policy and history.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetentionPolicyHistory'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Admin]
+      operationId: createRetentionPolicy
+      summary: Publish a new retention policy version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRetentionPolicyRequest'
+      responses:
+        '201':
+          description: New active policy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetentionPolicy'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /admin/retention-migrations:
+    post:
+      tags: [Admin]
+      operationId: createRetentionMigration
+      summary: Apply a policy to existing files in scope (async)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRetentionMigrationRequest'
+      responses:
+        '202':
+          description: Migration accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetentionMigration'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /admin/retention-migrations/{migrationId}:
+    get:
+      tags: [Admin]
+      operationId: getRetentionMigration
+      summary: Bulk migration status
+      parameters:
+        - $ref: '#/components/parameters/MigrationId'
+      responses:
+        '200':
+          description: Migration status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetentionMigration'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/notification-policy:
+    get:
+      tags: [Admin]
+      operationId: getNotificationPolicy
+      summary: Current notification policy
+      responses:
+        '200':
+          description: Active policy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPolicy'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    put:
+      tags: [Admin]
+      operationId: updateNotificationPolicy
+      summary: Publish a new notification policy version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateNotificationPolicyRequest'
+      responses:
+        '200':
+          description: New active policy.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPolicy'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /admin/email-templates:
+    get:
+      tags: [Admin]
+      operationId: listEmailTemplates
+      summary: List email templates
+      responses:
+        '200':
+          description: Templates.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailTemplateList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/email-templates/{key}/{locale}:
+    put:
+      tags: [Admin]
+      operationId: upsertEmailTemplate
+      summary: Publish a new template version
+      parameters:
+        - $ref: '#/components/parameters/TemplateKey'
+        - $ref: '#/components/parameters/Locale'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpsertEmailTemplateRequest'
+      responses:
+        '200':
+          description: New active template.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailTemplate'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /admin/audit-events:
+    get:
+      tags: [Audit]
+      operationId: listAuditEvents
+      summary: File and admin audit events
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [file, admin]
+        - name: fileId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: actorType
+          in: query
+          schema:
+            type: string
+            enum: [user, integration, admin, system]
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Audit events (newest first).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEventList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/download-events:
+    get:
+      tags: [Audit]
+      operationId: listDownloadEvents
+      summary: Download attempts and outcomes
+      parameters:
+        - name: fileId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: linkId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: result
+          in: query
+          schema:
+            type: string
+            enum: [authorized, denied, completed, failed]
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Download events (newest first).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadEventList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/usage:
+    get:
+      tags: [Audit]
+      operationId: getUsage
+      summary: Storage, file, and download usage
+      responses:
+        '200':
+          description: Aggregate usage.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageStats'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/settings:
+    get:
+      tags: [Admin]
+      operationId: getPlatformSettings
+      summary: Read platform settings
+      responses:
+        '200':
+          description: Settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformSettings'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    patch:
+      tags: [Admin]
+      operationId: updatePlatformSettings
+      summary: Update platform settings (audited)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePlatformSettingsRequest'
+      responses:
+        '200':
+          description: Updated settings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformSettings'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+components:
+  securitySchemes:
+    userAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Entra ID delegated token for a tenant user (scope `Files.Access`).
+    integrationAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Entra ID application token (preferred) or API key with the form
+        `flk_<kid>_<secret>`. The credential is bound to one integration.
+
+  parameters:
+    Cursor:
+      name: cursor
+      in: query
+      schema:
+        type: string
+        maxLength: 512
+      description: Opaque pagination cursor from a previous response.
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+    FileId:
+      name: fileId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    LinkId:
+      name: linkId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    LinkToken:
+      name: token
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9_-]{43}$'
+      description: Base64url-encoded 256-bit link token.
+    GrantToken:
+      name: grantToken
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9_-]{43}$'
+      description: Base64url-encoded 256-bit download grant token.
+    IntegrationId:
+      name: integrationId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CredentialId:
+      name: credentialId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    GrantId:
+      name: grantId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    MigrationId:
+      name: migrationId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    TemplateKey:
+      name: key
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[a-z0-9._-]{3,80}$'
+    Locale:
+      name: locale
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[a-z]{2}-[A-Z]{2}$'
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      schema:
+        type: string
+      description: Current `version` of the file, e.g. `"3"`.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+      description: Safe-retry key scoped to the caller, retained 24 hours.
+    Range:
+      name: Range
+      in: header
+      required: false
+      schema:
+        type: string
+      description: HTTP byte range, e.g. `bytes=0-1048575`.
+
+  headers:
+    XRequestId:
+      description: Correlation ID for support and tracing.
+      schema:
+        type: string
+    RateLimitLimit:
+      schema:
+        type: integer
+    RateLimitRemaining:
+      schema:
+        type: integer
+    RateLimitReset:
+      schema:
+        type: integer
+    RetryAfter:
+      schema:
+        type: integer
+    ETag:
+      description: Metadata version used with `If-Match`.
+      schema:
+        type: string
+
+  responses:
+    BadRequest:
+      description: Malformed request or validation error.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unauthorized:
+      description: Missing, invalid, or expired credential.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Forbidden:
+      description: Authenticated but not permitted.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: Not found, or intentionally hidden.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: State conflict.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Gone:
+      description: Resource expired or no longer available.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    PreconditionFailed:
+      description: "`If-Match` does not match the current version."
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    UnprocessableEntity:
+      description: Semantically invalid request.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    TooManyRequests:
+      description: Rate limit or quota exceeded.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+        RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    InternalServerError:
+      description: Unexpected server error.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ServiceUnavailable:
+      description: Dependency unavailable or maintenance.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+  schemas:
+    Problem:
+      type: object
+      required: [type, title, status, code]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+          examples: [file_unavailable]
+        detail:
+          type: string
+        instance:
+          type: string
+        traceId:
+          type: string
+        retryable:
+          type: boolean
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+
+    Me:
+      type: object
+      required: [userId, tenantId, displayName, roles, permissions]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        email:
+          type: [string, 'null']
+          format: email
+        displayName:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+            enum: [Files.User, Files.Admin, Files.Auditor]
+        permissions:
+          type: array
+          items:
+            type: string
+
+    PortalConfig:
+      type: object
+      required: [maxFileSizeBytes, retention, features]
+      properties:
+        maxFileSizeBytes:
+          type: integer
+          format: int64
+        allowedContentTypes:
+          type: array
+          items:
+            type: string
+        retention:
+          type: object
+          required: [defaultDays, maxDays, allowUserOverride, allowIndefinite]
+          properties:
+            defaultDays:
+              type: integer
+            maxDays:
+              type: integer
+            allowUserOverride:
+              type: boolean
+            allowIndefinite:
+              type: boolean
+        features:
+          type: object
+          properties:
+            publicLinks:
+              type: boolean
+            malwareScanning:
+              type: boolean
+
+    FileRetention:
+      type: object
+      required: [mode]
+      properties:
+        mode:
+          type: string
+          enum: [finite, indefinite]
+        days:
+          type: [integer, 'null']
+          minimum: 1
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+      description: |
+        `indefinite` has `expiresAt = null`; never a far-future date.
+        `days` is the applied policy duration when known.
+
+    FileDownloadStats:
+      type: object
+      required: [count]
+      properties:
+        count:
+          type: integer
+          format: int64
+        lastAt:
+          type: [string, 'null']
+          format: date-time
+
+    FileOwner:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [human, integration]
+        displayName:
+          type: [string, 'null']
+
+    FileMetadata:
+      type: object
+      required: [id, fileName, sizeBytes, contentType, status, accessMode, retention, tags, downloads, scanStatus, createdAt, updatedAt, version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        fileName:
+          type: string
+          maxLength: 512
+        sizeBytes:
+          type: integer
+          format: int64
+        contentType:
+          type: string
+        status:
+          type: string
+          enum: [pending_upload, processing, available, quarantined, expired, pending_deletion, deleted, upload_failed]
+        accessMode:
+          type: string
+          enum: [owner_only, private_link, public_link, integration_only]
+        retention:
+          $ref: '#/components/schemas/FileRetention'
+        tags:
+          type: array
+          items:
+            type: string
+        downloads:
+          $ref: '#/components/schemas/FileDownloadStats'
+        scanStatus:
+          type: string
+          enum: [not_scanned, pending, clean, infected, failed]
+        owner:
+          $ref: '#/components/schemas/FileOwner'
+        quarantineReason:
+          type: [string, 'null']
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        availableAt:
+          type: [string, 'null']
+          format: date-time
+        deletedAt:
+          type: [string, 'null']
+          format: date-time
+        version:
+          type: integer
+        etag:
+          type: string
+      example:
+        id: 0199c2b2-6c3a-7c11-9a9e-0d4b7a8f2c10
+        fileName: informe-trimestral.pdf
+        sizeBytes: 10485760
+        contentType: application/pdf
+        status: available
+        accessMode: private_link
+        retention:
+          mode: finite
+          days: 365
+          expiresAt: '2027-10-23T21:00:00Z'
+        tags: [finance, q3]
+        downloads:
+          count: 4
+          lastAt: '2026-10-20T15:12:00Z'
+        scanStatus: clean
+        owner:
+          type: human
+          displayName: Ana Pérez
+        createdAt: '2026-10-23T20:59:00Z'
+        updatedAt: '2026-10-23T21:00:00Z'
+        version: 3
+        etag: '"3"'
+
+    FileList:
+      type: object
+      required: [items, hasMore]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileMetadata'
+        nextCursor:
+          type: [string, 'null']
+        hasMore:
+          type: boolean
+
+    PresignedPart:
+      type: object
+      required: [partNumber, url, expiresAt]
+      properties:
+        partNumber:
+          type: integer
+          minimum: 1
+          maximum: 10000
+        url:
+          type: string
+          format: uri
+        expiresAt:
+          type: string
+          format: date-time
+
+    UploadSession:
+      type: object
+      required: [fileId, uploadSessionId, mode, expiresAt, parts]
+      properties:
+        fileId:
+          type: string
+          format: uuid
+        uploadSessionId:
+          type: string
+          format: uuid
+        mode:
+          type: string
+          enum: [single, multipart]
+        expiresAt:
+          type: string
+          format: date-time
+        partSizeBytes:
+          type: [integer, 'null']
+          format: int64
+        partCount:
+          type: [integer, 'null']
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: Headers the client must send to S3 exactly as signed.
+        parts:
+          type: array
+          items:
+            $ref: '#/components/schemas/PresignedPart'
+        presignedUrl:
+          type: [string, 'null']
+          description: Present only for `single` mode.
+
+    CreateUploadSessionRequest:
+      type: object
+      required: [fileName, sizeBytes, contentType]
+      properties:
+        fileName:
+          type: string
+          minLength: 1
+          maxLength: 512
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 0
+        contentType:
+          type: string
+          minLength: 3
+          maxLength: 255
+        checksumSha256:
+          type: string
+          pattern: '^[a-fA-F0-9]{64}$'
+        retention:
+          type: object
+          properties:
+            mode:
+              type: string
+              enum: [finite, indefinite]
+            days:
+              type: [integer, 'null']
+              minimum: 1
+        tags:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            maxLength: 64
+
+    CreateIntegrationUploadSessionRequest:
+      type: object
+      required: [fileName, sizeBytes, contentType]
+      properties:
+        fileName:
+          type: string
+          minLength: 1
+          maxLength: 512
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 0
+        contentType:
+          type: string
+          minLength: 3
+          maxLength: 255
+        checksumSha256:
+          type: string
+          pattern: '^[a-fA-F0-9]{64}$'
+
+    PresignPartsRequest:
+      type: object
+      required: [partNumbers]
+      properties:
+        partNumbers:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            type: integer
+            minimum: 1
+            maximum: 10000
+
+    PresignedParts:
+      type: object
+      required: [parts]
+      properties:
+        parts:
+          type: array
+          items:
+            $ref: '#/components/schemas/PresignedPart'
+
+    CompleteUploadRequest:
+      type: object
+      properties:
+        checksumSha256:
+          type: string
+          pattern: '^[a-fA-F0-9]{64}$'
+
+    UpdateFileRequest:
+      type: object
+      minProperties: 1
+      properties:
+        fileName:
+          type: string
+          minLength: 1
+          maxLength: 512
+        retention:
+          type: object
+          required: [mode]
+          properties:
+            mode:
+              type: string
+              enum: [finite, indefinite]
+            days:
+              type: [integer, 'null']
+              minimum: 1
+        tags:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            maxLength: 64
+
+    CreateLinkRequest:
+      type: object
+      required: [accessMode]
+      properties:
+        accessMode:
+          type: string
+          enum: [public, private]
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+        maxDownloads:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 1000000
+
+    Link:
+      type: object
+      required: [id, fileId, accessMode, status, createdAt, successfulDownloads, reservedDownloads]
+      properties:
+        id:
+          type: string
+          format: uuid
+        fileId:
+          type: string
+          format: uuid
+        accessMode:
+          type: string
+          enum: [public, private]
+        status:
+          type: string
+          enum: [active, revoked, expired]
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+        maxDownloads:
+          type: [integer, 'null']
+        successfulDownloads:
+          type: integer
+        reservedDownloads:
+          type: integer
+        revokedAt:
+          type: [string, 'null']
+          format: date-time
+        createdBy:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [user, admin]
+            displayName:
+              type: [string, 'null']
+
+    LinkCreated:
+      allOf:
+        - $ref: '#/components/schemas/Link'
+        - type: object
+          required: [url, token]
+          properties:
+            url:
+              type: string
+              format: uri
+              description: Full shareable URL (`/d/{token}`). The key is never in the URL.
+            token:
+              type: string
+            downloadKey:
+              type: [string, 'null']
+              pattern: '^[A-Za-z0-9]{8}$'
+              description: Public links only; shown exactly once at creation.
+      description: |
+        Returned only at creation. `downloadKey` cannot be retrieved later;
+        revoke the link and create a new one to rotate it.
+
+    LinkList:
+      type: object
+      required: [items, hasMore]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Link'
+        nextCursor:
+          type: [string, 'null']
+        hasMore:
+          type: boolean
+
+    LinkPublicInfo:
+      type: object
+      required: [requiresKey, requiresAuthentication]
+      description: |
+        Display metadata for a link. For a **private** link requested without
+        authentication, only `requiresKey`/`requiresAuthentication` are returned;
+        `fileName`, `sizeBytes`, `contentType`, `expiresAt`, and
+        `remainingDownloads` are null so the file's existence is not disclosed.
+        Authenticated users get the full object from `GET /v1/download-links/{token}`.
+      properties:
+        fileName:
+          type: [string, 'null']
+        sizeBytes:
+          type: [integer, 'null']
+          format: int64
+        contentType:
+          type: [string, 'null']
+        requiresKey:
+          type: boolean
+        requiresAuthentication:
+          type: boolean
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+        remainingDownloads:
+          type: [integer, 'null']
+        ownerDisplayName:
+          type: [string, 'null']
+
+    RedeemPublicLinkRequest:
+      type: object
+      required: [key]
+      properties:
+        key:
+          type: string
+          pattern: '^[A-Za-z0-9]{8}$'
+          description: Case-sensitive 8-character download key.
+
+    DownloadGrant:
+      type: object
+      required: [grantToken, expiresAt, downloadUrl]
+      properties:
+        grantToken:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{43}$'
+        expiresAt:
+          type: string
+          format: date-time
+        downloadUrl:
+          type: string
+          description: Relative URL to stream the file; single-use.
+
+    LinkStats:
+      type: object
+      required: [linkId, successfulDownloads, reservedDownloads, failedAttempts]
+      properties:
+        linkId:
+          type: string
+          format: uuid
+        successfulDownloads:
+          type: integer
+        reservedDownloads:
+          type: integer
+        failedAttempts:
+          type: integer
+        lastDownloadAt:
+          type: [string, 'null']
+          format: date-time
+        recentEvents:
+          type: array
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/DownloadEvent'
+
+    Tag:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+
+    TagList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tag'
+
+    Integration:
+      type: object
+      required: [id, slug, name, status, permissions, allowedIpCidrs, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: [string, 'null']
+        status:
+          type: string
+          enum: [active, disabled]
+        permissions:
+          type: array
+          items:
+            type: string
+            enum: [file.write, file.read, file.delete]
+        allowedIpCidrs:
+          type: array
+          items:
+            type: string
+        entraClientId:
+          type: [string, 'null']
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        disabledAt:
+          type: [string, 'null']
+          format: date-time
+        disabledReason:
+          type: [string, 'null']
+
+    IntegrationList:
+      type: object
+      required: [items, hasMore]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Integration'
+        nextCursor:
+          type: [string, 'null']
+        hasMore:
+          type: boolean
+
+    CreateIntegrationRequest:
+      type: object
+      required: [slug, name, permissions]
+      properties:
+        slug:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9-]{2,63}$'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 1000
+        permissions:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [file.write, file.read, file.delete]
+        allowedIpCidrs:
+          type: array
+          items:
+            type: string
+        entraClientId:
+          type: [string, 'null']
+          format: uuid
+
+    UpdateIntegrationRequest:
+      type: object
+      minProperties: 1
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: [string, 'null']
+          maxLength: 1000
+        status:
+          type: string
+          enum: [active, disabled]
+        allowedIpCidrs:
+          type: array
+          items:
+            type: string
+        entraClientId:
+          type: [string, 'null']
+          format: uuid
+        reason:
+          type: string
+          minLength: 10
+          maxLength: 500
+          description: Required when disabling or clearing the Entra client ID.
+
+    SetPermissionsRequest:
+      type: object
+      required: [permissions]
+      properties:
+        permissions:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [file.write, file.read, file.delete]
+
+    Credential:
+      type: object
+      required: [id, integrationId, credentialType, name, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        integrationId:
+          type: string
+          format: uuid
+        credentialType:
+          type: string
+          enum: [api_key, entra_client]
+        name:
+          type: string
+        keyId:
+          type: [string, 'null']
+        keyPrefix:
+          type: [string, 'null']
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+        lastUsedAt:
+          type: [string, 'null']
+          format: date-time
+        revokedAt:
+          type: [string, 'null']
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    CredentialList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Credential'
+
+    IssuedCredential:
+      allOf:
+        - $ref: '#/components/schemas/Credential'
+        - type: object
+          required: [secret]
+          properties:
+            secret:
+              type: string
+              description: Full API key (`flk_...`). Shown exactly once.
+      description: Returned only on issuance; the secret cannot be retrieved again.
+
+    IssueCredentialRequest:
+      type: object
+      required: [credentialType, name]
+      properties:
+        credentialType:
+          type: string
+          enum: [api_key, entra_client]
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+        entraClientId:
+          type: [string, 'null']
+          format: uuid
+          description: Required for `entra_client`.
+        rotateFromId:
+          type: [string, 'null']
+          format: uuid
+
+    FileGrant:
+      type: object
+      required: [id, fileId, integrationId, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        fileId:
+          type: string
+          format: uuid
+        integrationId:
+          type: string
+          format: uuid
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+        revokedAt:
+          type: [string, 'null']
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    FileGrantList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileGrant'
+
+    CreateFileGrantRequest:
+      type: object
+      required: [integrationId]
+      properties:
+        integrationId:
+          type: string
+          format: uuid
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+
+    Availability:
+      type: object
+      required: [fileId, state, checkedAt]
+      properties:
+        fileId:
+          type: string
+          format: uuid
+        state:
+          type: string
+          enum: [available, unavailable]
+        sizeBytes:
+          type: [integer, 'null']
+          format: int64
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+        scanStatus:
+          type: string
+          enum: [not_scanned, pending, clean, infected, failed]
+        checkedAt:
+          type: string
+          format: date-time
+
+    RetentionPolicy:
+      type: object
+      required: [id, defaultDays, maxDays, allowUserOverride, allowIndefinite, publicLinksEnabled, isActive, effectiveFrom]
+      properties:
+        id:
+          type: string
+          format: uuid
+        defaultDays:
+          type: integer
+        maxDays:
+          type: integer
+        allowUserOverride:
+          type: boolean
+        allowIndefinite:
+          type: boolean
+        publicLinksEnabled:
+          type: boolean
+        isActive:
+          type: boolean
+        effectiveFrom:
+          type: string
+          format: date-time
+        notes:
+          type: [string, 'null']
+        createdAt:
+          type: string
+          format: date-time
+
+    RetentionPolicyHistory:
+      type: object
+      required: [current, history]
+      properties:
+        current:
+          $ref: '#/components/schemas/RetentionPolicy'
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/RetentionPolicy'
+
+    CreateRetentionPolicyRequest:
+      type: object
+      required: [defaultDays, maxDays, allowUserOverride, allowIndefinite, publicLinksEnabled, reason]
+      properties:
+        defaultDays:
+          type: integer
+          minimum: 1
+          maximum: 36500
+        maxDays:
+          type: integer
+          minimum: 1
+          maximum: 36500
+        allowUserOverride:
+          type: boolean
+        allowIndefinite:
+          type: boolean
+        publicLinksEnabled:
+          type: boolean
+        notes:
+          type: string
+          maxLength: 1000
+        reason:
+          type: string
+          minLength: 10
+          maxLength: 500
+
+    AdminRetentionOverrideRequest:
+      type: object
+      required: [mode, reason]
+      properties:
+        mode:
+          type: string
+          enum: [finite, indefinite]
+        days:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 36500
+        reason:
+          type: string
+          minLength: 10
+          maxLength: 500
+
+    AdminDeleteFileRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 10
+          maxLength: 500
+
+    RetentionMigration:
+      type: object
+      required: [id, status, targetPolicyId, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, running, completed, failed, cancelled]
+        targetPolicyId:
+          type: string
+          format: uuid
+        scope:
+          type: object
+          additionalProperties: true
+        totalFiles:
+          type: integer
+          format: int64
+        processedFiles:
+          type: integer
+          format: int64
+        failedFiles:
+          type: integer
+          format: int64
+        lastError:
+          type: [string, 'null']
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: [string, 'null']
+          format: date-time
+        completedAt:
+          type: [string, 'null']
+          format: date-time
+
+    CreateRetentionMigrationRequest:
+      type: object
+      required: [targetPolicyId, reason]
+      properties:
+        targetPolicyId:
+          type: string
+          format: uuid
+        scope:
+          type: object
+          additionalProperties: true
+          description: Optional owner/status/created filters.
+        reason:
+          type: string
+          minLength: 10
+          maxLength: 500
+
+    NotificationPolicy:
+      type: object
+      required: [id, name, intervalsDays, templateKey, isActive, effectiveFrom]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        intervalsDays:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            type: integer
+            minimum: 1
+            maximum: 365
+        templateKey:
+          type: string
+        isActive:
+          type: boolean
+        effectiveFrom:
+          type: string
+          format: date-time
+
+    UpdateNotificationPolicyRequest:
+      type: object
+      required: [name, intervalsDays, templateKey, reason]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        intervalsDays:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            type: integer
+            minimum: 1
+            maximum: 365
+        templateKey:
+          type: string
+        reason:
+          type: string
+          minLength: 10
+          maxLength: 500
+
+    EmailTemplate:
+      type: object
+      required: [id, key, locale, subject, bodyHtml, bodyText, version, isActive, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        key:
+          type: string
+        locale:
+          type: string
+        subject:
+          type: string
+        bodyHtml:
+          type: string
+        bodyText:
+          type: string
+        version:
+          type: integer
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    EmailTemplateList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmailTemplate'
+
+    UpsertEmailTemplateRequest:
+      type: object
+      required: [subject, bodyHtml, bodyText, reason]
+      properties:
+        subject:
+          type: string
+          minLength: 1
+          maxLength: 300
+        bodyHtml:
+          type: string
+          minLength: 1
+        bodyText:
+          type: string
+          minLength: 1
+        reason:
+          type: string
+          minLength: 10
+          maxLength: 500
+
+    AuditEvent:
+      type: object
+      required: [id, category, actorType, action, result, occurredAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        category:
+          type: string
+          enum: [file, admin]
+        fileId:
+          type: [string, 'null']
+          format: uuid
+        actorType:
+          type: string
+          enum: [user, integration, admin, system]
+        actorId:
+          type: [string, 'null']
+          format: uuid
+        action:
+          type: string
+        result:
+          type: string
+          enum: [success, failure]
+        reason:
+          type: [string, 'null']
+        metadata:
+          type: object
+          additionalProperties: true
+        traceId:
+          type: [string, 'null']
+        occurredAt:
+          type: string
+          format: date-time
+
+    AuditEventList:
+      type: object
+      required: [items, hasMore]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        nextCursor:
+          type: [string, 'null']
+        hasMore:
+          type: boolean
+
+    DownloadEvent:
+      type: object
+      required: [id, actorType, source, result, occurredAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        fileId:
+          type: [string, 'null']
+          format: uuid
+        linkId:
+          type: [string, 'null']
+          format: uuid
+        actorType:
+          type: string
+          enum: [user, integration, anonymous, system]
+        actorId:
+          type: [string, 'null']
+          format: uuid
+        source:
+          type: string
+          enum: [owner, private_link, public_link, integration]
+        result:
+          type: string
+          enum: [authorized, denied, completed, failed]
+        reasonCode:
+          type: [string, 'null']
+        bytesSent:
+          type: integer
+          format: int64
+        traceId:
+          type: [string, 'null']
+        occurredAt:
+          type: string
+          format: date-time
+
+    DownloadEventList:
+      type: object
+      required: [items, hasMore]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DownloadEvent'
+        nextCursor:
+          type: [string, 'null']
+        hasMore:
+          type: boolean
+
+    UsageStats:
+      type: object
+      required: [generatedAt, storage, files, downloads]
+      properties:
+        generatedAt:
+          type: string
+          format: date-time
+        storage:
+          type: object
+          required: [totalBytes]
+          properties:
+            totalBytes:
+              type: integer
+              format: int64
+            byOwnerType:
+              type: object
+              properties:
+                human:
+                  type: integer
+                  format: int64
+                integration:
+                  type: integer
+                  format: int64
+        files:
+          type: object
+          properties:
+            total:
+              type: integer
+              format: int64
+            available:
+              type: integer
+              format: int64
+            expired:
+              type: integer
+              format: int64
+            pendingDeletion:
+              type: integer
+              format: int64
+        downloads:
+          type: object
+          properties:
+            last30Days:
+              type: integer
+              format: int64
+            last7Days:
+              type: integer
+              format: int64
+        integrations:
+          type: array
+          items:
+            type: object
+            properties:
+              integrationId:
+                type: string
+                format: uuid
+              name:
+                type: string
+              files:
+                type: integer
+                format: int64
+              bytes:
+                type: integer
+                format: int64
+
+    PlatformSettings:
+      type: object
+      required: [settings]
+      properties:
+        settings:
+          type: object
+          additionalProperties: true
+          description: Key/value settings (booleans, numbers, or strings).
+
+    UpdatePlatformSettingsRequest:
+      type: object
+      required: [settings, reason]
+      properties:
+        settings:
+          type: object
+          additionalProperties: true
+        reason:
+          type: string
+          minLength: 10
+          maxLength: 500
+
+    DeletionAccepted:
+      type: object
+      required: [fileId, status]
+      properties:
+        fileId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending_deletion]
+        requestedAt:
+          type: string
+          format: date-time

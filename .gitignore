@@ -1,0 +1,71 @@
+# --- OS / editors ------------------------------------------------------------
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+*.iml
+
+# --- .NET --------------------------------------------------------------------
+**/bin/
+**/obj/
+**/TestResults/
+**/coverage/
+**/*.user
+**/*.suo
+artifacts/
+*.nupkg
+*.snupkg
+project.assets.json
+project.nuget.cache
+
+# --- Node / Angular ----------------------------------------------------------
+**/node_modules/
+**/dist/
+**/.angular/
+**/npm-debug.log*
+**/yarn-error.log*
+**/pnpm-debug.log*
+**/coverage/
+**/playwright-report/
+**/test-results/
+*.tsbuildinfo
+
+# --- Environment / secrets ---------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.pem
+*.key
+!docker/**/*.key
+secrets/
+*.secret
+
+# --- Terraform ---------------------------------------------------------------
+**/.terraform/
+**/.terraform.lock.hcl.bak
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+!*.tfvars.example
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+
+# --- Local data / logs -------------------------------------------------------
+data/
+logs/
+*.log
+tmp/
+.cache/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# --- Test / tool artifacts ---------------------------------------------------
+.openapi-cache/
+redocly-bundle.*

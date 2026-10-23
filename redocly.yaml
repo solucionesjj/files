@@ -1,0 +1,5 @@
+extends:
+  - recommended
+rules:
+  # The production domain and localhost are intentional placeholders in the contract.
+  no-server-example.com: off

@@ -1,0 +1,154 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: "true"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "true"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "true"
+
+jobs:
+  docs-and-contracts:
+    name: Docs, OpenAPI, Compose, Terraform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml
+      - name: Validate documentation links and IDs
+        run: python3 scripts/check_docs.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Lint OpenAPI
+        run: npx --yes @redocly/cli@latest lint docs/04-api/openapi/files-api.v1.yaml
+
+      - name: Validate docker compose
+        run: docker compose config -q
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.13.4"
+      - name: Terraform format
+        run: terraform fmt -check -recursive infra/terraform
+      - name: Terraform validate
+        working-directory: infra/terraform
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+
+  backend:
+    name: Backend build and tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: files
+          POSTGRES_USER: files
+          POSTGRES_PASSWORD: files
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U files -d files"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect solution
+        id: detect
+        run: |
+          if ls Files.sln Files.slnx >/dev/null 2>&1; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "No .NET solution yet (design phase); skipping backend build."
+          fi
+
+      - uses: actions/setup-dotnet@v4
+        if: steps.detect.outputs.found == 'true'
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        if: steps.detect.outputs.found == 'true'
+        run: dotnet restore
+
+      - name: Format check
+        if: steps.detect.outputs.found == 'true'
+        run: dotnet format --verify-no-changes --no-restore
+
+      - name: Build
+        if: steps.detect.outputs.found == 'true'
+        run: dotnet build --no-restore -warnaserror
+
+      - name: Test
+        if: steps.detect.outputs.found == 'true'
+        env:
+          ConnectionStrings__FilesDb: Host=localhost;Port=5432;Database=files;Username=files;Password=files
+        run: dotnet test --no-build --logger "trx;LogFileName=results.trx"
+
+      - name: Vulnerable packages
+        if: steps.detect.outputs.found == 'true'
+        run: dotnet list package --vulnerable --include-transitive
+
+  frontend:
+    name: Web build and tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect web workspace
+        id: detect
+        run: |
+          if [[ -f web/package.json ]]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "No Angular workspace yet; skipping."
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.detect.outputs.found == 'true'
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        if: steps.detect.outputs.found == 'true'
+        working-directory: web
+        run: npm ci
+
+      - name: Lint
+        if: steps.detect.outputs.found == 'true'
+        working-directory: web
+        run: npm run lint --if-present
+
+      - name: Test
+        if: steps.detect.outputs.found == 'true'
+        working-directory: web
+        run: npm test --if-present -- --watch=false --browsers=ChromeHeadless
+
+      - name: Build
+        if: steps.detect.outputs.found == 'true'
+        working-directory: web
+        run: npm run build --if-present
+
+  database:
+    name: Migrations on PostgreSQL 18
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply and verify schema
+        run: ./scripts/db-verify.sh

@@ -1,0 +1,746 @@
+# User Stories and Acceptance Criteria
+
+Format: story → priority → milestone → requirements. Acceptance criteria are written as
+Gherkin and are the source for automated E2E/integration tests. Story IDs are stable.
+
+Milestones are defined in [roadmap.md](../09-delivery/roadmap.md).
+
+---
+
+## Epic E1 — Identity and access
+
+### US-001 — Sign in with Microsoft Entra ID
+**As** a tenant employee **I want** to sign in with my corporate account **so that** I can manage
+my files without another password.
+**Priority** M · **Milestone** M1 · **Requirements** FR-ID-001..004, 008, 009
+
+```gherkin
+Scenario: First successful sign-in provisions the user
+  Given I am a member of the configured Entra tenant
+  When I sign in through the portal with a valid token
+  Then a user record exists for my tenant and object ID
+  And I can see the file list page
+  And no password is stored by Files
+
+Scenario: A token from another tenant is rejected
+  Given I have a valid token issued by a different Entra tenant
+  When I call GET /v1/me
+  Then the response is 401 with code "invalid_token"
+  And no user record is created
+
+Scenario: Expired or tampered token is rejected
+  Given my access token is expired or its signature is invalid
+  When I call any protected endpoint
+  Then the response is 401
+  And the response contains a trace ID but no token details
+```
+
+### US-002 — Role-based administration
+**As** a Files administrator **I want** admin pages protected by my Entra role **so that** regular
+users cannot change global policy.
+**Priority** M · **Milestone** M1 · **Requirements** FR-ID-010, 011, FR-ADM-001..005
+
+```gherkin
+Scenario: Admin role grants administration
+  Given my Entra token contains the "Files.Admin" app role
+  When I open /admin
+  Then I can see integrations, policies, and audit sections
+
+Scenario: Regular user is denied
+  Given my token only has "Files.User"
+  When I call GET /v1/admin/integrations
+  Then the response is 403 with code "forbidden"
+  And the response does not include integration data
+```
+
+---
+
+## Epic E2 — Human file management
+
+### US-003 — Upload a file
+**As** a portal user **I want** to upload a file with progress and validation **so that** it is
+securely stored and available for sharing.
+**Priority** M · **Milestone** M2/M3 · **Requirements** FR-UP-001..007, 009, 011, 012, 015, FR-RET-002
+
+```gherkin
+Scenario: Small file upload completes and becomes available
+  Given I selected a 10 MiB PDF within the allowed size
+  When I confirm the upload
+  Then Files creates an upload session and a pending file owned by me
+  And the object is stored under a generated key with no filename in it
+  And the file becomes "available" after size and content-type verification
+  And the file list shows it with the global default retention
+
+Scenario: File too large is rejected before upload
+  Given the configured maximum is 5 GiB
+  When I select a 6 GiB file
+  Then the portal shows a validation error
+  And no upload session is created
+
+Scenario: Disallowed content type is rejected
+  Given the allowlist excludes executable files
+  When I request an upload session for "setup.exe"
+  Then the response is 422 with code "unsupported_content_type"
+  And no presigned URL is issued
+
+Scenario: Upload cancelled or expired
+  Given I started a multipart upload and stopped
+  When the session expires
+  Then the multipart upload is aborted
+  And the file is not listed as available
+```
+
+### US-004 — Browse and inspect my files
+**As** a portal user **I want** to see my files with key metadata **so that** I know what I have
+and when it expires.
+**Priority** M · **Milestone** M3 · **Requirements** FR-ID-006, FR-FILE-001/002, FR-RET-004
+
+```gherkin
+Scenario: I only see my own files
+  Given another user owns a file
+  When I list my files
+  Then their file does not appear
+  And the total count does not include it
+
+Scenario: File detail shows retention correctly
+  Given a human file expires on 2027-01-31
+  And an integration file has indefinite retention
+  When I open their detail pages
+  Then the human file shows the exact expiry date
+  And the integration file shows "Indefinite" without a fabricated date
+```
+
+### US-005 — Edit metadata and retention
+**As** a file owner **I want** to rename a file, change tags, and adjust retention within limits
+**so that** my file stays accurate and compliant.
+**Priority** M · **Milestone** M3 · **Requirements** FR-FILE-003/004, FR-RET-003, 006
+
+```gherkin
+Scenario: Owner extends retention within policy
+  Given the maximum retention is 3650 days
+  When I set my file's expiry to 400 days from now
+  Then the file is updated and a file audit event "retention_changed" is recorded
+  And pending expiration notifications are rescheduled
+
+Scenario: Retention beyond the maximum is rejected
+  Given the maximum retention is 3650 days
+  When I request an expiry 4000 days from now
+  Then the response is 422 with code "retention_exceeds_maximum"
+  And the file's expiry is unchanged
+
+Scenario: Concurrent edit conflict is detected
+  Given another tab updated the file after I loaded it
+  When I save my changes with the stale version
+  Then the response is 412 with code "stale_version"
+  And the portal asks me to reload
+```
+
+### US-006 — Download my own file
+**As** a file owner **I want** to download my file through the portal **so that** I can retrieve
+the content later.
+**Priority** M · **Milestone** M3 · **Requirements** FR-ID-006, FR-FILE-002, FR-LINK-010/011, D-21
+
+```gherkin
+Scenario: Owner download succeeds and is counted
+  Given my file is available and not expired
+  When I download it
+  Then the bytes are streamed with the sanitized original filename
+  And successful_download_count increments by one
+  And a download event with source "owner" is recorded
+
+Scenario: Expired file cannot be downloaded
+  Given my file's expiry passed one minute ago
+  When I request its content
+  Then the response is 404 with code "file_unavailable"
+  And no bytes are served
+```
+
+### US-007 — Manage tags
+**As** a portal user **I want** to reuse and assign tags **so that** I can organize files.
+**Priority** M · **Milestone** M3 · **Requirements** FR-SRCH-001
+
+```gherkin
+Scenario: Reuse an existing tag
+  Given the tag "contracts" already exists in my scope
+  When I add "contracts" to a file
+  Then no duplicate tag is created
+  And the file shows the tag
+
+Scenario: Tags are case-insensitive for uniqueness
+  Given the tag "Contracts" exists
+  When I create "contracts"
+  Then the existing tag is reused
+  And the display name remains as first created
+```
+
+### US-008 — Search, filter, sort, paginate
+**As** a portal user **I want** to find files quickly **so that** I don't scroll through everything.
+**Priority** M · **Milestone** M3 · **Requirements** FR-SRCH-002..006
+
+```gherkin
+Scenario: Case-insensitive partial filename search
+  Given I own "Q3 Financial Report.PDF"
+  When I search "financial"
+  Then the file appears
+
+Scenario: Filter by tag and status
+  Given I own files tagged "legal" that are available and expired
+  When I filter by tag "legal" and status "available"
+  Then only the available tagged file appears
+
+Scenario: Stable cursor pagination
+  Given I own 30 files sorted by creation date descending
+  When I request the first page with limit 25 and follow the cursor
+  Then I receive the remaining 5 files exactly once
+  And the cursor is opaque and does not expose SQL
+
+Scenario: Sorting by download count
+  Given my files have different successful download counts
+  When I sort by "-downloads"
+  Then the most downloaded file is first
+```
+
+### US-009 — Accessible, responsive portal
+**As** a portal user **I want** the portal usable on my laptop and tablet with a keyboard **so that**
+I can work from anywhere.
+**Priority** S · **Milestone** M3 · **Requirements** FR-GEN-003/004, NFR-016/017
+
+```gherkin
+Scenario: Keyboard-only upload
+  Given I navigate with the keyboard only
+  When I reach the upload control and activate it
+  Then I can complete the flow without a mouse
+  And focus is visible at every step
+
+Scenario: Tablet layout
+  Given a 768 px wide viewport
+  Then navigation collapses to a menu
+  And the file table remains usable without horizontal scrolling of actions
+```
+
+---
+
+## Epic E3 — Integrations and machine access
+
+### US-010 — Register and manage an integration
+**As** an administrator **I want** to register an integration with permissions and restrictions
+**so that** enterprise systems get only the access they need.
+**Priority** M · **Milestone** M1 · **Requirements** FR-M2M-001, 008, 009, 010, FR-ADM-001
+
+```gherkin
+Scenario: Create an integration
+  Given I am an administrator
+  When I create integration "crm-prod" with permissions "file.write,file.read"
+  Then the integration exists with status "active"
+  And its credentials can be issued
+
+Scenario: Disabled integration is rejected immediately
+  Given integration "crm-prod" is disabled
+  And it has a non-expired credential
+  When it calls GET /v1/integrations/files/{id}
+  Then the response is 401 with code "integration_disabled"
+
+Scenario: IP allowlist enforcement
+  Given the integration allowlist is "10.0.0.0/8"
+  When it calls from 203.0.113.10
+  Then the response is 403 with code "ip_not_allowed"
+```
+
+### US-011 — Authenticate with Entra client credentials and read metadata
+**As** an enterprise system **I want** to obtain a token with my application identity **so that** I
+can retrieve file metadata without a user session.
+**Priority** M · **Milestone** M5 · **Requirements** FR-M2M-002/003/007/008, FR-INT-001/003/005/006
+
+```gherkin
+Scenario: Valid client credentials retrieve metadata
+  Given my Entra app is registered as integration "crm-prod" with file.read
+  When I call GET /v1/integrations/files/{fileId} with a valid app token
+  Then I receive metadata for a file I own
+  And no S3 key, bucket, or credential is present in the response
+
+Scenario: Unauthorized file is indistinguishable from missing
+  Given the file belongs to another integration and no grant exists
+  When I request its metadata
+  Then the response is 404 with code "file_not_found"
+  And no metadata is returned
+```
+
+### US-012 — Issue, rotate, and revoke API keys
+**As** an administrator **I want** to manage API key lifecycle **so that** legacy consumers can
+authenticate securely and rotate without downtime.
+**Priority** M · **Milestone** M1/M5 · **Requirements** FR-M2M-004/005/006/013, FR-ADM-002
+
+```gherkin
+Scenario: Secret is shown only at issuance
+  Given I issue a key for integration "legacy-erp"
+  Then the plaintext key is displayed exactly once
+  When I refresh the credentials list
+  Then only the key ID, prefix, creator, and expiry are shown
+
+Scenario: Overlapping rotation
+  Given key A is active
+  When I issue key B and both are valid
+  Then both keys authenticate successfully
+  When I revoke key A
+  Then key A returns 401 and key B still works
+
+Scenario: Key is not logged
+  Given a request authenticated with an API key
+  When I inspect application and access logs
+  Then the secret and the full Authorization header do not appear
+```
+
+### US-013 — Rate limits and quotas
+**As** a platform operator **I want** per-integration limits **so that** one consumer cannot degrade
+service for others.
+**Priority** S · **Milestone** M5 · **Requirements** FR-M2M-014, FR-INT-010, NFR-020
+
+```gherkin
+Scenario: Request rate limit
+  Given my integration is limited to 60 requests/minute
+  When I send 61 requests in a minute
+  Then the 61st returns 429 with "Retry-After" and "RateLimit-*" headers
+
+Scenario: Daily byte quota
+  Given my integration has uploaded its daily quota
+  When I request another upload session
+  Then the response is 429 with code "quota_exceeded"
+```
+
+### US-014 — Delete an integration-owned file
+**As** the owning integration **I want** to delete a file when authorized **so that** obsolete
+content is removed.
+**Priority** M · **Milestone** M5 · **Requirements** FR-INT-002, FR-DEL-007/009, FR-M2M-007
+
+```gherkin
+Scenario: Owner deletes its file
+  Given I own the file and have file.delete
+  When I call DELETE /v1/integrations/files/{id}
+  Then the file immediately stops being downloadable
+  And the object is physically deleted by the worker
+  And an audit event records the integration as actor
+
+Scenario: Deleting someone else's file is denied
+  Given the file belongs to another integration
+  When I call DELETE on it
+  Then the response is 404
+  And the file remains available
+```
+
+### US-015 — Create an upload session and complete an upload
+**As** an enterprise system **I want** to upload directly to S3 using short-lived URLs
+**so that** large files do not pass through my application servers.
+**Priority** M · **Milestone** M2/M5 · **Requirements** FR-UP-002..007, FR-INT-004/007, FR-GEN-002
+
+```gherkin
+Scenario: Multipart upload of a 2 GiB file
+  Given I have file.write and a 2 GiB file within my quota
+  When I create an upload session with size, content type, and checksum
+  Then I receive a file ID, upload session ID, and presigned part URLs
+  And the file is not available yet
+  When I upload all parts and complete the session
+  Then Files verifies size and checksum and marks the file available
+  And the file has indefinite retention, integration-only access, and no link
+
+Scenario: Presigned URL cannot overwrite another object
+  Given I have a presigned part URL for my session
+  When I try to use it for a different key or after expiry
+  Then S3 rejects the request
+  And the file remains unavailable
+
+Scenario: Size mismatch fails verification
+  Given I declared 100 MiB but uploaded 90 MiB
+  When I complete the session
+  Then the response is 422 with code "upload_size_mismatch"
+  And the file is not available
+```
+
+### US-016 — Isolation of integration-owned files and explicit grants
+**As** a security officer **I want** integration files isolated from humans and other integrations
+**so that** sensitive customer documents are not exposed.
+**Priority** M · **Milestone** M5 · **Requirements** FR-M2M-007/011/012, FR-FILE-005, FR-INT-005
+
+```gherkin
+Scenario: Integration file is invisible in portal search
+  Given an integration owns "customer-123.pdf"
+  When a portal user searches for "customer-123"
+  Then the file does not appear
+
+Scenario: Grant enables read-only cross-integration access
+  Given an administrator grants integration B file.read on a file owned by integration A
+  When B requests the content
+  Then B receives the bytes and the access is audited
+  When B attempts DELETE
+  Then the response is 403
+
+Scenario: Access attempt is audited
+  Given integration B has no grant
+  When B requests the file
+  Then the response is 404
+  And a denied download event is recorded with B's ID
+```
+
+### US-017 — Idempotent retries
+**As** an enterprise system **I want** retries to be safe **so that** network failures do not create
+duplicate files.
+**Priority** M · **Milestone** M5 · **Requirements** FR-INT-007, NFR-006
+
+```gherkin
+Scenario: Same key and body returns the original response
+  Given I created an upload session with Idempotency-Key "abc"
+  When I retry the same request with the same body and key
+  Then I receive the same file ID and session ID
+  And no second file is created
+
+Scenario: Same key with a different body is rejected
+  Given Idempotency-Key "abc" was used for a 10 MiB PDF
+  When I reuse "abc" for a 20 MiB PNG
+  Then the response is 422 with code "idempotency_key_reuse"
+
+Scenario: Concurrent duplicate requests
+  Given two identical requests with the same key arrive simultaneously
+  Then exactly one file is created
+  And the second receives the same result (or 409 while in progress)
+```
+
+### US-018 — Check availability and download content
+**As** an enterprise system **I want** a cheap availability check and an authorized content
+download **so that** I can decide whether to fetch a file.
+**Priority** M · **Milestone** M5 · **Requirements** FR-INT-002/008/009, FR-LINK-010/011
+
+```gherkin
+Scenario: Availability check does not transfer content
+  Given I own an available file
+  When I call GET /v1/integrations/files/{id}/availability
+  Then I receive 200 with state "available", size, and expiry
+  And no object bytes are transferred
+
+Scenario: Expired file is unavailable
+  Given the file expired
+  When I check availability or download it
+  Then the response is 404 with code "file_unavailable"
+  And a denied download event is recorded
+```
+
+### US-019 — End-to-end integration with the existing product
+**As** the existing product team **I want** a documented flow from customer record upload to
+authorized download **so that** we can stop storing file contents locally.
+**Priority** M · **Milestone** M5 · **Requirements** FR-INT-011, §15
+
+```gherkin
+Scenario: User uploads a file for a customer record
+  Given a user is authorized for customer 4711 in the existing product
+  When they upload a document
+  Then the existing product backend creates an upload session as its integration
+  And stores the returned file ID with customer 4711
+  And no file bytes are stored in the existing product database
+
+Scenario: User downloads the customer document
+  Given the user is still authorized for customer 4711
+  When the existing product backend requests the file with its integration identity
+  Then Files verifies the integration grant and streams the content
+  And Files never sees the end user's credentials
+
+Scenario: Browser cannot bypass business authorization
+  Given a malicious user submits another customer's file ID to the existing product API
+  When the existing product checks business authorization
+  Then it denies the request before calling Files
+  And even a forged call to Files fails the integration ownership check
+```
+
+---
+
+## Epic E4 — Download links
+
+### US-020 — Create a public link with a download key
+**As** a file owner **I want** to create a public link protected by an 8-character key
+**so that** I can share a file with people outside the company.
+**Priority** M · **Milestone** M4 · **Requirements** FR-LINK-001..004, FR-LINK-015
+
+```gherkin
+Scenario: Link and key are generated once
+  Given public links are enabled and I own an available file
+  When I create a public link with expiry and max downloads
+  Then I receive a URL token and an 8-character key exactly once
+  And the key is not present in the URL
+  And only an Argon2id verifier is stored
+  And the key is absent from logs
+
+Scenario: Public link disabled by policy
+  Given the administrator disabled public links
+  When I request a public link
+  Then the response is 403 with code "public_links_disabled"
+```
+
+### US-021 — Redeem a public or private link
+**As** a link visitor **I want** to enter the key and download the file **so that** I can retrieve
+what was shared with me.
+**Priority** M · **Milestone** M4 · **Requirements** FR-LINK-002/007..012, FR-ID-007, FR-GEN-002
+
+```gherkin
+Scenario: Correct key issues a short-lived grant and download succeeds
+  Given an active public link with key "Ab3xY9Qz"
+  When I submit the key
+  Then I receive a grant token valid for 120 seconds
+  And I download the file before it expires
+  And the successful download count increments by one
+  And the key is never echoed back
+
+Scenario: Wrong key gets a generic failure
+  Given an active public link
+  When I submit a wrong key
+  Then the response is 404 with code "link_not_found"
+  And it is indistinguishable from an invalid token or revoked link
+  And a failed attempt is recorded
+
+Scenario: Grant is single-use and short-lived
+  Given I used a grant once
+  When I reuse it after completion or after 120 seconds
+  Then the response is 404 with code "grant_not_found"
+
+Scenario: Private link requires tenant authentication
+  Given a private link to an available file
+  When an unauthenticated visitor requests the download
+  Then the response is 401
+  When an authenticated user from the configured tenant requests it
+  Then the download is authorized and audited
+  And a user from another tenant is rejected
+
+Scenario: Download limit is enforced under concurrency
+  Given a link with max_downloads = 1
+  When two grants are requested simultaneously
+  Then only one reservation succeeds
+  And the second receives 404 "link_not_found"
+```
+
+### US-022 — Revoke or rotate a link
+**As** a file owner **I want** to revoke a link and create a new key **so that** I can stop access
+when a key is leaked.
+**Priority** M · **Milestone** M4 · **Requirements** FR-LINK-006/013
+
+```gherkin
+Scenario: Revocation is immediate
+  Given I shared a public link
+  When I revoke it
+  Then any subsequent key attempt returns 404
+  And existing unused grants for that link fail
+
+Scenario: Rotation replaces the key
+  Given I revoke the old link and create a new one
+  Then the old key no longer works
+  And the new 8-character key works
+```
+
+### US-023 — Abuse protection for key guessing
+**As** a security officer **I want** failed key attempts throttled and monitored **so that** the
+8-character key cannot be feasibly brute-forced.
+**Priority** M · **Milestone** M4 · **Requirements** FR-LINK-009, §6
+
+```gherkin
+Scenario: Progressive delays and lockout
+  Given 5 failed attempts for the same link from one IP within 15 minutes
+  When a 6th attempt arrives
+  Then it is rejected immediately with 429 and "Retry-After"
+  And no key verification is performed
+  And the lockout is recorded as a metric and audit event
+
+Scenario: Distributed guessing is detected
+  Given failures spread across IPs exceed the per-link threshold
+  Then the link is soft-locked for 15 minutes
+  And an alert is emitted to the operator dashboard
+```
+
+### US-024 — View download statistics
+**As** a file owner **I want** to see how often my link was downloaded **so that** I know whether it
+was useful or leaked.
+**Priority** S · **Milestone** M4 · **Requirements** FR-LINK-014
+
+```gherkin
+Scenario: Stats reflect completed downloads only
+  Given a link issued 10 grants, 7 completed, 2 failed, 1 expired
+  When I view the link statistics
+  Then successful downloads show 7
+  And reserved/expired grants are reported separately
+```
+
+---
+
+## Epic E5 — Retention, notifications, and deletion
+
+### US-025 — Receive expiration notifications
+**As** a file owner **I want** to be warned before my file expires **so that** I can extend retention
+if I still need it.
+**Priority** M · **Milestone** M6 · **Requirements** FR-NOT-001..010
+
+```gherkin
+Scenario: Intervals are sent once each
+  Given intervals 7, 3, and 1 days and a file expiring in 7 days
+  When the notification job runs
+  Then exactly one 7-day email is queued and sent to my address
+  And duplicate runs do not send a second email for that interval
+
+Scenario: Retention extension reschedules
+  Given the 3-day notification was sent
+  When I extend the file by 30 days
+  Then the 7/3/1-day notifications are recalculated for the new expiry
+  And no notification from the old schedule is sent
+
+Scenario: Indefinite files are suppressed
+  Given an integration file has indefinite retention
+  When the job runs
+  Then no expiration notification is generated
+
+Scenario: Acceptance vs delivery
+  Given the email provider accepted the message
+  Then the event shows "accepted"
+  And only a confirmed delivery/bounce updates it to "delivered" or "bounced"
+```
+
+### US-026 — Automatic expiration and physical deletion
+**As** a platform operator **I want** expired files to become unavailable and be physically removed
+**so that** retention promises are kept.
+**Priority** M · **Milestone** M6 · **Requirements** FR-DEL-001..006, FR-RET-008, FR-GEN-001
+
+```gherkin
+Scenario: Expiry blocks downloads before deletion
+  Given a file expired at 00:00
+  When a download is requested at 00:01
+  Then the response is 404 "file_unavailable"
+  And the file is marked expired/pending_deletion by the job
+  And the S3 object is deleted by the worker
+
+Scenario: Deletion is idempotent
+  Given a pending_deletion file whose object is already gone
+  When the deletion job runs again
+  Then it records success (missing object = already deleted)
+  And does not raise an error
+
+Scenario: Recoverable S3 failure is retried
+  Given S3 returns a 5xx or timeout for the delete
+  When the job runs
+  Then the file stays pending_deletion with an incremented attempt count and next retry time
+  And the failure metric/alert fires
+  And the file is never listed as available
+
+Scenario: Expired file is not downloadable even with a valid link
+  Given an active link to a file that just expired
+  When the key is submitted
+  Then the response is 404 "link_not_found"
+```
+
+### US-027 — Manually delete my file
+**As** a file owner **I want** to delete a file **so that** it is no longer accessible.
+**Priority** M · **Milestone** M3/M6 · **Requirements** FR-DEL-007/009, FR-AUD-001
+
+```gherkin
+Scenario: Manual deletion revokes access immediately
+  Given my file has active links
+  When I delete it
+  Then all links stop working immediately
+  And the file leaves my list (or shows as deleted)
+  And the object is deleted asynchronously
+  And an audit event records the action
+```
+
+### US-028 — Cleanup and reconciliation
+**As** a platform operator **I want** automatic cleanup of incomplete uploads and reconciliation of
+S3 and the database **so that** storage does not leak and states do not drift.
+**Priority** M · **Milestone** M6 · **Requirements** FR-UP-008/013, FR-DEL-006
+
+```gherkin
+Scenario: Stale multipart upload is aborted
+  Given an upload session older than 24 hours is incomplete
+  When the cleanup job runs
+  Then the S3 multipart upload is aborted
+  And the file/session is marked failed/expired
+
+Scenario: Orphan object is reported
+  Given an S3 object exists with no file record
+  When reconciliation runs
+  Then it moves the object to the quarantine/cleanup prefix after the grace period
+  And emits a reconciliation metric with the object key fingerprint (not full key)
+
+Scenario: Missing object is quarantined in DB
+  Given a file is marked available but its S3 object is missing
+  When reconciliation runs
+  Then the file is marked unavailable/quarantined
+  And downloads are blocked
+  And an alert is raised
+```
+
+---
+
+## Epic E6 — Administration, audit, and operations
+
+### US-029 — Audit trail
+**As** an auditor **I want** to search immutable events **so that** I can investigate access and
+changes.
+**Priority** M · **Milestone** M1/M7 · **Requirements** FR-ADM-005/008, FR-AUD-001..003
+
+```gherkin
+Scenario: Access and changes are recorded
+  Given a user uploads, renames, and downloads a file
+  When I filter audit events by that file ID
+  Then I see ordered events with actor, action, timestamp, and result
+  And no file content or download key is present
+
+Scenario: Auditor cannot download content
+  Given I have the "Files.Auditor" role
+  When I request file content or a download grant
+  Then the response is 403
+
+Scenario: Audit entries cannot be modified
+  Given an audit record exists
+  When any client attempts to update or delete it through the API
+  Then the route does not exist (404/405)
+```
+
+### US-030 — Configure global policies
+**As** an administrator **I want** to configure retention, notifications, quotas, and public-link
+policy **so that** the platform matches company rules.
+**Priority** M · **Milestone** M1/M6 · **Requirements** FR-RET-001..003/007, FR-NOT-001/003, FR-ADM-003/004/007
+
+```gherkin
+Scenario: New default applies only to new files
+  Given the default retention changes from 365 to 180 days
+  Then files created after the change expire in 180 days
+  And existing files keep their current expiry
+
+Scenario: Explicit bulk migration
+  Given the admin runs "apply retention 180 days" with a reason
+  Then only files in the specified scope are updated
+  And each change is audited with the reason
+
+Scenario: Template customization
+  Given I edit the "expiring soon" template
+  When a notification is next sent
+  Then it uses the new subject and body
+  And file content/credentials are never interpolated
+```
+
+### US-031 — Operate and observe the platform
+**As** an operator **I want** health endpoints, metrics, dashboards, alerts, and restore runbooks
+**so that** I can keep the SLOs and recover from failures.
+**Priority** M · **Milestone** M0/M7 · **Requirements** FR-GEN-001/006, NFR-001..019
+
+```gherkin
+Scenario: Readiness reflects dependencies
+  Given the database is reachable and migrations are current
+  Then /health/ready returns 200
+  When the database is unreachable
+  Then /health/ready returns 503 and /health/live still returns 200
+
+Scenario: Traces and metrics are emitted
+  Given a download request
+  Then a trace spans API and S3 calls with the request ID
+  And RED metrics are recorded for the endpoint
+
+Scenario: Deletion failures alert
+  Given pending_deletion files exceed 5 for 15 minutes
+  Then an alert routes to the on-call channel with the runbook link
+
+Scenario: Restore drill
+  Given a backup within the retention window
+  When the team restores it into the DR environment
+  Then RPO/RTO results are recorded in the drill log
+```
