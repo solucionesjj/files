@@ -1,169 +1,183 @@
 # Infrastructure, Environments, and IaC
 
-**Decisions:** ADR-0010 · **Terraform:** [`infra/terraform/`](../../infra/terraform/) · **Costs:** [cost-model.md](cost-model.md)
+**Decisions:** ADR-0010, ADR-0003, D-30…D-33 · **Terraform:** [`infra/terraform/`](../../infra/terraform/) ·
+**Costs:** [cost-model.md](cost-model.md)
 
-## 1. Environments
+## 1. Initial topology
 
-| | dev | staging | prod |
-|---|---|---|---|
-| AWS account | `files-dev` | `files-staging` | `files-prod` |
-| Region | us-east-1 | us-east-1 | us-east-1 (DR copies us-west-2) |
-| VPC | 10.20.0.0/16 | 10.21.0.0/16 | 10.22.0.0/16 |
-| AZs | 1–2 | 2 | 2 |
-| NAT | 1 | 1 | 2 |
-| RDS | db.t4g.small, single-AZ | db.t4g.medium, single-AZ | db.t4g.medium, Multi-AZ |
-| RDS backups | 7 days | 14 days | 35 days + PITR |
-| ECS API | 1 task, 0.5 vCPU/1 GiB | 2 tasks | 2–8 tasks, autoscale |
-| ECS worker | 1 task | 1 task | 1 task (2 for HA optional) |
-| S3 versioning | off | off | off (ADR-0008) |
-| Public links | enabled | enabled | enabled (admin policy) |
-| Malware scan | off | on | on (OQ-09) |
-| Deletion protection | off | on | on |
-| Domain | dev.files.* | staging.files.* | files.* |
+One EC2 instance and one S3 bucket per environment. No ALB, ECS, RDS, ECR, NAT gateway, or
+CloudWatch.
 
-Accounts isolate blast radius. Terraform state is per environment. No production data is copied
-to lower environments.
+| Resource | Value |
+|---|---|
+| AMI | Ubuntu 24.04 LTS x86_64 (Canonical) |
+| Instance | `t3.medium` (2 vCPU, 4 GiB) default, configurable |
+| Root volume | 100 GiB gp3, encrypted, `delete_on_termination = false` |
+| Address | Elastic IP (stable public IPv4) |
+| Network | Default VPC public subnet |
+| Security group | 80/443 from `0.0.0.0/0`; 22 only from `admin_cidr`; all egress |
+| S3 | One private bucket, SSE-S3, BPA, versioning off |
+| IAM | One EC2 instance role, prefix-scoped S3; bucket policy denies all other principals |
+| Host software | Docker Engine + Compose plugin, AWS CLI, UFW, fail2ban |
+| DNS/TLS | A record → Elastic IP; Caddy automatic HTTPS (domain required) |
+
+Environments: start with one (`prod` or `staging`). Local development uses Docker Compose on the
+developer machine. A separate staging EC2 can be created later with a different state file and
+`environment` value; do not share the production bucket.
 
 ## 2. Terraform layout
 
 ```
 infra/terraform/
-├── versions.tf            # Terraform/provider versions, commented backend
+├── versions.tf            # Terraform/provider pins, commented S3 backend
 ├── providers.tf           # AWS provider, default tags
 ├── variables.tf
 ├── locals.tf
-├── main.tf                # module composition
+├── main.tf                # instance + storage modules, IAM policy
 ├── outputs.tf
-├── envs/dev.tfvars.example
-├── envs/prod.tfvars.example
+├── terraform.tfvars.example
 └── modules/
-    ├── network/           # VPC, subnets, NAT, S3 gateway endpoint
-    ├── security/          # ALB/API/worker/RDS security groups and rules
-    ├── storage/           # S3 bucket, BPA, SSE, lifecycle, CORS, policy
-    ├── database/          # RDS PostgreSQL 18, subnet group, parameter group
-    ├── compute/           # ECR, ECS cluster/services/tasks, ALB, IAM, Secrets Manager
-    └── observability/     # CloudWatch alarms and SNS
+    ├── instance/          # EC2, EIP, SG, IAM role/profile, user_data
+    └── storage/           # S3 bucket, BPA, SSE, lifecycle, restrictive policy
 ```
 
-Remote state: S3 bucket `files-tfstate-<account>-<region>` with versioning + SSE, and S3 native
-locking (`use_lockfile = true`) or DynamoDB locking. State buckets are bootstrapped manually
-(documented) and never destroyed by CI. CI authenticates to AWS via GitHub OIDC
-(`role-to-assume`), not long-lived access keys.
+Remote state: an S3 bucket with versioning and SSE (`use_lockfile = true`) in the same account,
+bootstrapped once. State contains no application secrets (the DB password is provisioned in
+`/opt/files/.env` by the deployment pipeline, not Terraform). Never commit `.tfstate` or real
+`.tfvars`.
 
 Commands:
 
 ```bash
 cd infra/terraform
 terraform init
-terraform plan  -var-file=envs/dev.tfvars -var="db_password=$DB_PASSWORD"
-terraform apply -var-file=envs/dev.tfvars -var="db_password=$DB_PASSWORD"
+export TF_VAR_admin_cidr="203.0.113.10/32"
+export TF_VAR_ssh_key_name="files-admin"
+terraform plan  -var-file=envs/prod.tfvars -out=prod.tfplan
+terraform apply prod.tfplan
 ```
 
-Prod applies require a reviewed plan artifact and a protected environment approval.
+The apply outputs the Elastic IP, instance ID, bucket name, and an SSH command.
 
-## 3. Network and security groups
+## 3. Host bootstrap (`user_data`)
 
-- Internet → ALB (443/80) only. API tasks have no public IP.
-- ALB → API tasks (8080) via `alb` SG; worker has no inbound.
-- API/worker → RDS (5432) via `rds` SG.
-- API/worker → internet:443 for Entra, Graph, S3 (or VPC endpoints), SigNoz, ECR/CloudWatch.
-- S3 gateway endpoint for private access to buckets; optionally interface endpoints for ECR,
-  CloudWatch Logs, Secrets Manager, STS to reduce NAT cost.
-- Default SG: deny all. VPC flow logs enabled to CloudWatch (prod) with 14-day retention.
-- No bastion in prod; troubleshooting via SSM Session Manager if absolutely required (no SSH keys).
+- Installs Docker Engine + Compose plugin, AWS CLI, UFW, fail2ban, unattended-upgrades, chrony.
+- Creates `/opt/files` (deploy/config) and `/var/lib/files/{staging,postgres,portal}`; 2 GiB swap.
+- Enables Docker, UFW (22/80/443), fail2ban, unattended upgrades.
+- Does **not** clone the application or write secrets. Deployment copies `deploy/` and writes
+  `/opt/files/.env` (mode 0600) from GitHub Environment secrets.
 
-## 4. IAM
+First deployment steps (documented in `deploy/README.md`):
 
-| Role | Permissions |
-|---|---|
-| `files-<env>-api-task` | S3: `PutObject`, `GetObject`, `DeleteObject`, `AbortMultipartUpload`, `ListMultipartUploadParts`, `ListBucketMultipartUploads` on `f/*`, `staging/*`; `ListBucket` with prefix condition. No bucket-policy, no BPA, no `s3:*`. |
-| `files-<env>-worker-task` | S3: `GetObject`, `DeleteObject` on `f/*`, `staging/*`; `PutObject`/`DeleteObject` on `orphan/*` (reconciliation); `ListBucket`, `AbortMultipartUpload`, `ListMultipartUploads`; scan read. |
-| `files-<env>-execution` | ECR pull, CloudWatch Logs write, (optionally) Secrets Manager read. |
-| CI deploy role | `ecr:PutImage`, `ecs:UpdateService/RegisterTaskDefinition`, `iam:PassRole` limited to task roles, `s3:PutObject` for artifacts, via GitHub OIDC. |
-| Operator role | Read-only by default; break-glass for console actions, MFA, audited. |
+1. Point DNS `files.example.com` at the Elastic IP.
+2. Copy `deploy/` to `/opt/files/deploy`.
+3. Create `/opt/files/.env` with DB password, Entra IDs/secrets, peppers, Graph mailbox, S3 bucket.
+4. Start PostgreSQL, run migrations, build/start API/worker/Caddy.
+5. Install the nightly backup cron and verify one dump in S3.
 
-No IAM user access keys in the runtime. The Terraform skeleton uses the RDS master user for the
-initial connection; production must provision a dedicated application role (DML only) and a
-separate migration role with DDL privileges before launch (M7 checklist).
+## 4. Networking and exposure
 
-## 5. S3 configuration
+- Internet → EC2 security group 80/443 → Caddy. SSH 22 only from `admin_cidr`.
+- API `:8080` is not published; Caddy reaches it over the Docker network.
+- PostgreSQL has no host port; it is reachable only by API/worker containers.
+- Host egress 443 to S3, Entra, Graph, Docker Hub/GitHub, and SigNoz. No inbound database access.
+- UFW mirrors the security group as defense in depth; fail2ban watches SSH.
+- IMDSv2 required; the AWS SDK uses IMDSv2 through the host network.
 
-- Bucket per environment, random suffix; account-region-unique.
-- Block Public Access: all four flags; bucket owner enforced; ACLs disabled.
-- Default encryption SSE-S3; every write sets encryption explicitly.
-- Bucket policy: deny `s3:*` when `aws:SecureTransport = false`; deny non-TLS; no public principal.
-- Lifecycle: abort incomplete multipart after 7 days; expire `staging/` after 1 day and
-  `orphan/` after 7 days; (optional) noncurrent versions after 1 day.
-- CORS: `PUT` from the configured portal origin, `Content-Type` header, 1 h max age.
-- Event notifications are **not** used in v1 (scanning is polling-based); add S3 events later if
-  scanning latency requires it.
-- Access logging: S3 server access logs to a separate bucket or CloudTrail data events for
-  `GetObject`/`DeleteObject` (cost trade-off; enable data events in prod for audit).
+## 5. S3 access model (exclusive)
+
+- Bucket policy **denies** `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`, `s3:ListBucket`,
+  `s3:AbortMultipartUpload`, `s3:ListMultipartUploadParts`, and
+  `s3:ListBucketMultipartUploads` to every principal whose ARN is not the EC2 instance role.
+- The instance role policy allows only `f/*`, `staging/*`, `orphan/*`, and `backups/*` (plus
+  prefix-scoped bucket listing). No static access keys exist.
+- Infrastructure automation can manage bucket configuration (policy, lifecycle, encryption) but
+  cannot read/write objects; this is the only documented exception to “only Files touches data”.
+- No presigned URLs and no S3 CORS; the browser never talks to S3. The API CORS allowlist is
+  used only for local development.
+- Lifecycle: abort incomplete multipart after 7 days; expire `staging/` after 1 day, `orphan/`
+  after 7 days, `backups/postgres/` after 35 days; versioning disabled (ADR-0008).
 
 ## 6. Secrets and configuration
 
-- Non-secret configuration is injected as environment variables by the ECS task definition
-  (`ASPNETCORE_*`, `S3__*`, `Entra__*`, `Cors__*`, `OTEL_*`), following the source's
-  environment-first constraint.
-- Sensitive values are injected as **ECS secrets** from AWS Secrets Manager: the database
-  connection string is created automatically by Terraform and referenced as
-  `ConnectionStrings__FilesDb`; additional secrets (Entra client secret, Graph secret, peppers)
-  are passed through `app_secrets` as Secrets Manager ARNs. Local development uses `.env`
-  values.
-- Secret values: DB connection string, `Auth__ApiKeyPepper`, `Auth__LinkKeyPepper`, Graph client
-  credentials, OTLP headers (if any). Non-secret config: tenant IDs, bucket, region, limits.
-- `.env` files are gitignored; `.env.example` has placeholders. Secret scanning runs in CI.
-- Rotation: DB password (RDS rotation; the secret value is ignored by Terraform after creation),
-  API key pepper (dual-version verification), link key pepper (dual-version; old hashes retain
-  their version prefix), Graph secret (Entra). See [runbooks.md](runbooks.md).
-- Terraform state contains the DB password/connection string; the state bucket is encrypted and
-  access-controlled. Automatic rotation requires the RDS-managed-secret pattern (documented
-  follow-up).
+- `/opt/files/.env` (0600, owned by the deploy user) contains:
+  `POSTGRES_PASSWORD`, `ConnectionStrings__FilesDb`, `Entra__*`, `Auth__ApiKeyPepper`,
+  `Auth__LinkKeyPepper`, `Notifications__*`, `Storage__StagingPath`, `S3__Bucket`, `S3__Region`,
+  `OTEL_*`, feature flags.
+- The API/worker use the EC2 instance role for S3; **no** `S3__AccessKeyId`/`SecretAccessKey` in
+  production.
+- Secrets are provisioned by GitHub Actions from Environment secrets over SSH; they are never in
+  the repository, Terraform state, Docker images, or logs.
+- Local development uses `.env` with LocalStack credentials; those are non-secret.
+- Rotation: DB password (update `.env` + `ALTER ROLE`, restart API), peppers (versioned columns),
+  Graph/Entra secrets (Entra + `.env` + restart), SSH keys. See [runbooks.md](runbooks.md).
 
-## 7. Observability infrastructure
+## 7. TLS and DNS
 
-- CloudWatch Logs for containers (JSON), 30-day retention (prod), 7-day (dev/staging).
-- **Access logging:** ALB/CloudFront access logs are disabled for token-bearing paths by default
-  because URIs contain link/grant tokens. If the organization requires access logs, route them to a
-  restricted bucket, retain ≤7 days, and treat them as secrets (see threat model I-11). WAF logging,
-  if enabled later, must redact the URI.
-- OpenTelemetry Collector sidecar or gateway (`otel/opentelemetry-collector-contrib`) exporting
-  OTLP to SigNoz (self-hosted on ECS/EKS or external). Sampling: parent-based 10% at the
-  collector for high-volume routes, 100% for jobs/errors (tail sampling if available).
-- CloudWatch alarms (ALB 5xx/latency, ECS task count, RDS CPU/storage/connections) feed the SNS
-  topic used by on-call; app-level alerts come from SigNoz.
-- Dashboards: RED (API), uploads/downloads, link abuse, jobs/outbox, DB, S3, cost.
+- A public IPv4 alone cannot obtain a publicly trusted certificate. A DNS name is required for
+  production use (OQ-15).
+- Route 53 is **not** required; the domain may be managed anywhere. Create an `A` record to the
+  Elastic IP.
+- Caddy obtains/renews the certificate automatically (HTTP-01/TLS-ALPN) once ports 80/443 reach
+  the instance. It also redirects HTTP to HTTPS and sets HSTS.
+- For a temporary test without a domain, use `sslip.io`/`nip.io` pointing at the Elastic IP, or
+  a self-signed cert restricted to test IPs. Do not expose self-signed TLS as production.
+- Caddy access logs are disabled (token-bearing URIs); see threat model I-11.
 
-## 8. Backup and disaster recovery
+## 8. Backups and disaster recovery
 
 | Asset | Backup | Retention | Restore |
 |---|---|---|---|
-| PostgreSQL | Automated backups + PITR; daily snapshot copy to us-west-2 | 35 days (prod) | Restore to a new instance, point app at it |
-| S3 objects | Provider durability; optional cross-region replication | n/a | Objects remain unless deleted; no per-object restore (versioning off) |
-| Terraform state | Versioned S3 bucket | 90 days | Re-apply |
-| Config/secrets | Secret store versioning | per provider | Retrieve previous version |
-| Container images | ECR, last 10 tags + release tags | 1 year (release tags) | Re-deploy |
+| PostgreSQL | Nightly `pg_dump -Fc` gzip to `s3://<bucket>/backups/postgres/` via host cron | 35 days | Download, `pg_restore` into a fresh container/instance |
+| S3 objects | Provider durability; versioning disabled | n/a | Objects remain unless deleted |
+| EBS | Optional manual snapshot | per policy | Attach to a new instance |
+| Terraform state | Versioned S3 backend | 90 days | Re-apply |
+| Config | `.env` backed up in the team secret store | n/a | Re-provision |
+| Images | Rebuild from Git tag | Git history | Rebuild/restart |
 
-- **RPO ≤15 min, RTO ≤4 h** (NFR-007). Quarterly restore drill into an isolated account/VPC.
-- Deletion caveat: backups may retain deleted files up to 35 days (ADR-0008); the product says so.
-- DR steps: declare incident → provision/restore DB in DR region (Terraform with a DR var) →
-  restore snapshot/PITR → update DNS/ALB → validate smoke tests → reconcile S3 (single region,
-  intact) → communicate. Detailed in [runbooks.md](runbooks.md).
+- Initial **RPO ≤24 h** and **RTO ≤4 h** (D-31). PITR/WAL archiving is not available until the DB
+  moves to a managed service.
+- The backup job records success/failure in the journal and a `backups/postgres/_latest` marker;
+  a worker job verifies the marker exists and is <26 h old, otherwise alerts.
+- Quarterly restore drill into a fresh instance/VPC; record the result in
+  [runbooks.md](runbooks.md#drill-log).
 
-## 9. Patching and maintenance
+## 9. Observability infrastructure
 
-- Container base images rebuilt weekly (Dependabot/Renovate); critical CVEs patched within 48 h.
-- RDS minor upgrades during maintenance windows (Sun 03:00–04:00 UTC); major upgrades planned with
-  a restore test.
-- ECS task definitions are immutable; deployments create new revisions.
-- ACM certificates auto-renew; expiry alarm at 30 days.
-- Quarterly access review of admin roles, integrations, and API keys.
+- OTel Collector container (optional profile) exports OTLP to SigNoz (self-hosted on the same EC2
+  if resources allow, or external). On `t3.medium`, self-hosting SigNoz may be tight; an external
+  SigNoz instance is preferred.
+- Host metrics: `docker stats`, `node_exporter` if SigNoz is added, `df`, `free`, `systemd` logs.
+- Logs: Docker `json-file` with rotation (e.g., 10 MB × 3) or journald; no access logs for
+  token-bearing paths.
+- Uptime: an external HTTPS check against `/health/ready` (and the SPA) is recommended; no
+  CloudWatch alarms in this phase.
+- Alerts (SigNoz or external): host down, disk >80/90%, container restart loop, 5xx rate,
+  deletion/outbox backlog, backup missing.
 
-## 10. Local development
+## 10. Patching and maintenance
 
-`docker-compose.yml` provides PostgreSQL 18, LocalStack S3, Mailpit (SMTP UI), and an
-OpenTelemetry Collector. Flyway applies migrations via the `tools` profile. The API/worker run on
-the host with `dotnet run` (or as compose services once images exist). See the root `README.md`.
+- Ubuntu security updates via unattended-upgrades; reboot window monthly (or when the kernel
+  requires it). Docker images rebuilt weekly; critical CVEs within 48 h.
+- Maintenance requires a short API/worker restart. Caddy serves a maintenance page or returns
+  502 during the gap; announce the window.
+- PostgreSQL minor upgrades: stop API/worker, backup, upgrade container image, start, verify.
+- Keep the deploy user and SSH keys minimal; use `sudo` only for Docker/system actions.
+
+## 11. Local development
+
+`docker-compose.yml` provides PostgreSQL 18, LocalStack S3, Mailpit, and an OTel Collector.
+Flyway applies migrations via the `tools` profile. The API/worker run on the host with
+`dotnet run`. See the root `README.md`.
 
 This stack is for development only: LocalStack credentials are non-secret, Mailpit accepts any
-mail, and the DB has a known password.
+mail, and the DB has a known password. The SPA runs via `ng serve` at `localhost:4200`; no S3 CORS
+is required.
+
+## 12. Scale-up path
+
+1. Add a second EC2 and a load balancer (or move to ECS/ALB).
+2. Move PostgreSQL to RDS for PITR/Multi-AZ.
+3. Move staging to shared/durable storage if multiple API instances write uploads (or upload
+   directly from each API instance to S3 multipart with session affinity).
+4. Add CloudWatch/WAF/Route 53 or keep Caddy/DNS, plus centralized logs/SigNoz.

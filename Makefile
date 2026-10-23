@@ -24,7 +24,7 @@ migrate: ## Apply Flyway migrations to the local database
 db-verify: ## Apply migrations to a throwaway PostgreSQL 18 and assert the schema
 	./scripts/db-verify.sh
 
-validate: check-docs lint-openapi fmt-tf compose-config ## Validate docs, contract, IaC, compose
+validate: check-docs lint-openapi fmt-tf compose-config compose-prod-config ## Validate docs, contract, IaC, compose
 
 check-docs: ## Check markdown links, fences, and requirement/story IDs
 	python3 scripts/check_docs.py
@@ -37,6 +37,9 @@ fmt-tf: ## Check Terraform formatting
 
 compose-config: ## Validate docker-compose.yml
 	docker compose config -q
+
+compose-prod-config: ## Validate deploy/docker-compose.prod.yml with the example env
+	FILES_ENV_FILE=env.prod.example docker compose --env-file deploy/env.prod.example -f deploy/docker-compose.prod.yml config -q
 
 tf-validate: ## terraform init (no backend) + validate
 	cd infra/terraform && terraform init -backend=false -input=false >/dev/null && terraform validate

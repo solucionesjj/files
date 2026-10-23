@@ -1,0 +1,33 @@
+# Caddy is the only public listener. It serves the Angular SPA and proxies the API.
+# FILES_DOMAIN must resolve to the Elastic IP; Caddy obtains/renews TLS automatically.
+{$FILES_DOMAIN} {
+	encode zstd gzip
+
+	# Chunks are 16 MiB; keep a small margin. Larger bodies are rejected before the API.
+	request_body {
+		max_size 20MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	@api path /v1/* /health/*
+	handle @api {
+		reverse_proxy api:8080
+	}
+
+	handle {
+		root * /srv/portal
+		try_files {path} /index.html
+		file_server
+	}
+
+	# Access logging is intentionally disabled: paths may contain link/grant tokens.
+	# If enabled later, redact URIs and restrict access to the logs.
+}

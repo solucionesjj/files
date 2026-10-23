@@ -31,7 +31,7 @@
 ## 3. Requests and responses
 
 - JSON UTF-8; field names `camelCase`; unknown request fields are rejected (`400`).
-- Binary responses: `application/octet-stream`; uploads to S3 via presigned URLs.
+- Binary responses: `application/octet-stream`; upload bytes travel only to the Files API.
 - IDs are UUID strings. Timestamps are RFC 3339 UTC (`2026-10-23T21:00:00Z`). Sizes are bytes.
 - Every response includes `X-Request-Id` (propagated/generated) and `traceId` in errors.
 - `Cache-Control: no-store` on all authenticated and link responses.
@@ -76,7 +76,7 @@ only in audit events.
 ## 6. Idempotency
 
 - Header `Idempotency-Key: <8–128 printable chars>` on mutating integration requests
-  (`POST /integrations/upload-sessions` and `POST /integrations/files`). Link creation is not
+  (`POST /integrations/upload-sessions`). Link creation is not
   idempotent because the response contains a secret (token/key) that must not be persisted for
   replay.
 - Scoped to the authenticated integration/user. Retained 24 h.
@@ -86,35 +86,39 @@ only in audit events.
 - Missing header is allowed (operation is still idempotent by state machine where possible) but
   strongly recommended for automated consumers.
 
-## 7. Upload protocol
+## 7. Upload protocol (API-proxied, no S3 URLs)
 
-### 7.1 Direct multipart (default, up to 5 GiB)
+All uploads use fixed-size chunks sent to the Files API. The API is the only S3 client; clients
+never receive a bucket credential, presigned URL, or S3 endpoint.
 
-1. `POST /portal/upload-sessions` or `POST /integrations/upload-sessions` with size, content
-   type, optional SHA-256, optional tags/retention (portal only).
-2. Response: `fileId`, `uploadSessionId`, `mode` (`multipart`/`single`), `expiresAt`,
-   `partSizeBytes`, `partCount`, and presigned parts (first batch or all).
-3. For parts not returned, call
-   `POST /portal/upload-sessions/{id}/parts` (or `/integrations/upload-sessions/{id}/parts`) with part numbers.
-4. `PUT` each part to S3 with the signed headers. Parts can be uploaded in parallel (client
-   concurrency ≤4 recommended); retry a failed part with the same URL before it expires.
-5. `POST .../complete`. The server lists parts, completes the S3 upload, verifies size and optional
-   checksum, and returns the file (status `available`, or `processing` if scanning is enabled).
-6. If the client abandons the upload: `DELETE .../{id}` (abort) or let it expire (60 min) and be
-   cleaned (24 h).
+1. `POST /portal/upload-sessions` or `POST /integrations/upload-sessions` with file name, size,
+   content type, optional whole-file SHA-256, and (portal only) retention/tags.
+2. Response: `fileId`, `uploadSessionId`, `chunkSizeBytes`, `chunkCount`, `expiresAt`,
+   `receivedBytes` (0). The server creates a staging file on the EC2 volume; no S3 call yet.
+3. Upload chunks with
+   `PUT /portal/upload-sessions/{id}/chunks/{chunkNumber}` (or `/integrations/...`), body =
+   `application/octet-stream`, `Content-Length` ≤ `chunkSizeBytes`, optional
+   `X-Chunk-SHA256`. Chunks may be uploaded out of order and in parallel; the last chunk may be
+   smaller. Each chunk is idempotent by number: same size/hash → success, different → `409`.
+4. `GET /portal/upload-sessions/{id}` (or integration) returns the received chunk numbers and
+   bytes for resuming after a disconnect.
+5. `POST .../complete` verifies every chunk, total size, and optional checksum, then the API
+   uploads the staged file to S3 (multipart above 64 MiB, single `PutObject` below) and verifies
+   the object with `HeadObject`. Returns file metadata (`available`, or `processing` while
+   scanning).
+6. `DELETE .../upload-sessions/{id}` aborts and deletes the staging file. Expired sessions and
+   orphaned staging files are removed by the worker; incomplete S3 multipart uploads are aborted.
 
 Notes:
-- Do not send the `Authorization` header to S3; the presigned URL is the credential.
-- Do not change `Content-Type` or other signed headers.
-- Single mode (`< 64 MiB`): the response has `presignedUrl` and `headers`; `PUT` the body once.
-- A presigned URL is bound to one part number and one upload; reuse after expiry fails at S3.
 
-### 7.2 Proxy upload (integration only, ≤100 MiB)
+- Chunk bodies are limited to 16 MiB (Caddy 20 MiB); larger requests return `413 chunk_too_large`.
+- A chunk write beyond the declared size or outside `1..chunkCount` returns `422 chunk_out_of_range`.
+- If the staging reserve would be exceeded, session creation returns `507 staging_capacity_exceeded`.
+- Retrying `complete` after an S3 failure reuses the staged file; do not re-upload chunks.
+- The API checks session ownership on every chunk and completion request.
+- No `Authorization` header is ever sent to S3 by a client because clients never call S3.
 
-`POST /integrations/files` with `multipart/form-data` (`file`, optional `filename`). Files are
-staged in S3 (`staging/`), promoted to the final key, and verified before the response. Use this
-only when the consumer cannot reach S3 directly.
-
+## 8. Download protocol
 ## 8. Download protocol
 
 ### 8.1 Owner / private link / public link (browser-safe)
@@ -173,19 +177,20 @@ too_many_attempts` once locked (documented compromise: the lockout itself is not
 | 409 | Conflict/state (idempotency in progress, upload already completed). |
 | 410 | Non-recoverable expiry (upload session or grant). |
 | 412 | `If-Match` mismatch. |
-| 413 | Payload too large (proxy upload, JSON body). |
+| 413 | Payload too large (chunk body, JSON body). |
 | 415 | Unsupported media type. |
 | 422 | Semantic validation (content type, retention, size mismatch, idempotency reuse). |
 | 429 | Rate/quota exceeded. |
 | 500 | Unhandled error (trace ID only). |
-| 507 | Deployment storage quota exhausted. |
+| 507 | Staging/storage capacity exhausted (fail closed). |
 | 503 | Dependency unavailable (DB/S3) or maintenance. |
 
 ## 11. CORS and security headers
 
-- CORS allows only configured portal origins; methods `GET, POST, PATCH, DELETE, OPTIONS`;
-  headers `Authorization, Content-Type, Idempotency-Key, If-Match, X-Request-Id, Range`;
-  exposed `X-Request-Id, RateLimit-*, Retry-After, ETag`; no credentials.
+- CORS allows only configured portal origins (the SPA is same-origin behind Caddy in
+  production); methods `GET, POST, PUT, PATCH, DELETE, OPTIONS`; headers `Authorization,
+  Content-Type, Idempotency-Key, If-Match, X-Request-Id, Range, X-Chunk-SHA256`; exposed
+  `X-Request-Id, RateLimit-*, Retry-After, ETag`; no credentials. No S3 CORS is needed.
 - Responses add `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
   `Strict-Transport-Security` (at the edge), and `Content-Security-Policy` for the SPA host.
 - `Content-Disposition` uses RFC 5987 (`filename*=UTF-8''...`) with an ASCII fallback and strips
@@ -199,7 +204,8 @@ too_many_attempts` once locked (documented compromise: the lockout itself is not
 | GET | `/v1/me` | user | Effective identity/permissions. |
 | GET | `/v1/portal/files` | user | Search/list own files. |
 | POST | `/v1/portal/upload-sessions` | user | Create upload session. |
-| POST | `/v1/portal/upload-sessions/{id}/parts` | user | Presign more parts. |
+| PUT | `/v1/portal/upload-sessions/{id}/chunks/{chunkNumber}` | user | Upload one chunk. |
+| GET | `/v1/portal/upload-sessions/{id}` | user | Upload status/resume. |
 | POST | `/v1/portal/upload-sessions/{id}/complete` | user | Complete upload. |
 | DELETE | `/v1/portal/upload-sessions/{id}` | user | Abort upload. |
 | GET | `/v1/portal/files/{fileId}` | user | File metadata. |
@@ -218,10 +224,10 @@ too_many_attempts` once locked (documented compromise: the lockout itself is not
 | POST | `/v1/download-links/{token}/downloads` | user | Private link grant. |
 | GET | `/v1/download-grants/{grantToken}` | public | Stream file via grant. |
 | POST | `/v1/integrations/upload-sessions` | integration | Create upload session. |
-| POST | `/v1/integrations/upload-sessions/{id}/parts` | integration | Presign more parts. |
+| PUT | `/v1/integrations/upload-sessions/{id}/chunks/{chunkNumber}` | integration | Upload one chunk. |
+| GET | `/v1/integrations/upload-sessions/{id}` | integration | Upload status/resume. |
 | POST | `/v1/integrations/upload-sessions/{id}/complete` | integration | Complete upload. |
 | DELETE | `/v1/integrations/upload-sessions/{id}` | integration | Abort upload. |
-| POST | `/v1/integrations/files` | integration | Proxy upload ≤100 MiB. |
 | GET | `/v1/integrations/files` | integration | List owned files. |
 | GET | `/v1/integrations/files/{fileId}` | integration | Metadata. |
 | GET | `/v1/integrations/files/{fileId}/availability` | integration | Availability check. |
@@ -274,8 +280,24 @@ curl -s -X POST https://files.example.com/v1/integrations/upload-sessions \
        "checksumSha256":"<hex>"}'
 ```
 
-The response includes presigned part URLs; upload each with `curl --upload-file part.bin <url>`
-(no Authorization header), then call `/complete`.
+The response includes `uploadSessionId`, `chunkSizeBytes`, and `chunkCount` (no S3 URL). Split the
+file into chunks and `PUT` each one to the API with the same bearer token:
+
+```bash
+SESSION=$(... | jq -r .uploadSessionId)
+split -b 16777216 --numeric-suffixes=1 --suffix-length=3 customer-4711.pdf chunk-
+for f in chunk-*; do
+  n=$((10#${f#chunk-}))
+  curl -fsS -X PUT "https://files.example.com/v1/integrations/upload-sessions/$SESSION/chunks/$n" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/octet-stream" \
+    -H "X-Chunk-SHA256: $(sha256sum "$f" | cut -d' ' -f1)" \
+    --data-binary "@$f"
+done
+
+curl -fsS -X POST "https://files.example.com/v1/integrations/upload-sessions/$SESSION/complete" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{}'
+```
 
 ### Public download (cURL)
 

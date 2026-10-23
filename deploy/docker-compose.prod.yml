@@ -1,0 +1,127 @@
+name: files
+
+# Production Compose for the single EC2 host. Secrets come from /opt/files/.env
+# (mode 0600), never from this file. Build context is the repository root.
+services:
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      FILES_DOMAIN: ${FILES_DOMAIN:?set FILES_DOMAIN in /opt/files/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - /var/lib/files/portal:/srv/portal:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  api:
+    build:
+      context: ..
+      dockerfile: src/Files.Api/Dockerfile
+    image: files-api:${FILES_VERSION:-dev}
+    restart: unless-stopped
+    env_file:
+      - ${FILES_ENV_FILE:-/opt/files/.env}
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      Storage__StagingPath: /var/lib/files/staging
+    expose:
+      - "8080"
+    volumes:
+      - ${FILES_STAGING_DIR:-/var/lib/files/staging}:/var/lib/files/staging
+    tmpfs:
+      - /tmp
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health/live || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  worker:
+    build:
+      context: ..
+      dockerfile: src/Files.Worker/Dockerfile
+    image: files-worker:${FILES_VERSION:-dev}
+    restart: unless-stopped
+    env_file:
+      - ${FILES_ENV_FILE:-/opt/files/.env}
+    environment:
+      Storage__StagingPath: /var/lib/files/staging
+    volumes:
+      - ${FILES_STAGING_DIR:-/var/lib/files/staging}:/var/lib/files/staging
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-files}
+      POSTGRES_USER: ${POSTGRES_USER:-files}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in /opt/files/.env}
+    volumes:
+      - /var/lib/files/postgres:/var/lib/postgresql
+    shm_size: "256mb"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-files} -d ${POSTGRES_DB:-files}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # One-off schema migration; run explicitly, never automatically on API startup.
+  migrator:
+    image: flyway/flyway:11
+    profiles: ["tools"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      FLYWAY_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-files}
+      FLYWAY_USER: ${POSTGRES_USER:-files}
+      FLYWAY_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      FLYWAY_LOCATIONS: filesystem:/flyway/sql
+      FLYWAY_CONNECT_RETRIES: "10"
+    volumes:
+      - ../db/migrations:/flyway/sql:ro
+    command: migrate
+
+  # Optional: collector for an external SigNoz. Enable with --profile observability.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    profiles: ["observability"]
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yaml"]
+    environment:
+      SIGNOZ_OTLP_ENDPOINT: ${SIGNOZ_OTLP_ENDPOINT:-}
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  caddy_data:
+  caddy_config:

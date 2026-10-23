@@ -22,6 +22,9 @@ The integration row stores:
 
 ## 2. Primary authentication: Entra client credentials
 
+The API/worker is the only S3 client (D-30); integration credentials authorize API calls, never
+S3 calls.
+
 ```mermaid
 sequenceDiagram
   participant C as Consumer backend
@@ -126,14 +129,15 @@ Additional rules:
 | Requests per minute | 600 | rate limiter |
 | API keys | 2 active | — |
 
-Quota checks happen **before** presigning and are enforced atomically with `daily_usage` upserts.
+Quota and staging-capacity checks happen **before** creating the session or accepting any chunk, and are enforced atomically with `daily_usage` upserts.
 `429 quota_exceeded` includes `Retry-After` until the next UTC day.
 
 ## 7. IP allowlist
 
 - Stored as `cidr[]`; empty = any.
-- The API trusts `X-Forwarded-For` only from the ALB and takes the first untrusted hop; direct
-  connections are rejected in production by security groups.
+- The API trusts `X-Forwarded-For` only from Caddy (Docker network) and takes the first untrusted
+  hop; direct connections to the API port are impossible from the internet (Caddy is the only
+  published listener).
 - IPv4 and IPv6 supported. `403 ip_not_allowed` is logged with the resolved IP (hashed in audit).
 - Changing the allowlist is audited and takes effect immediately.
 

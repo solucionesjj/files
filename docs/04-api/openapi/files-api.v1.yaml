@@ -11,6 +11,8 @@ info:
     - Public link visitors: link token + separate 8-character download key.
 
     All errors use RFC 9457 `application/problem+json` with a stable `code`.
+    Uploads are sent as fixed-size chunks to the API, staged on the host, and
+    committed to S3 by the API; no S3 URL or credential is ever returned.
     Downloads are streamed by the API; public/private/owner downloads require a
     short-lived, single-use grant. See `docs/04-api/api-conventions.md`.
   contact:
@@ -166,7 +168,7 @@ paths:
               $ref: '#/components/schemas/CreateUploadSessionRequest'
       responses:
         '201':
-          description: Upload session created. `parts` may be a first batch.
+          description: Upload session created; the client now uploads chunks to the API.
           content:
             application/json:
               schema:
@@ -191,37 +193,95 @@ paths:
           $ref: '#/components/responses/InternalServerError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '507':
+          description: Staging disk capacity exhausted.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
 
-  /portal/upload-sessions/{sessionId}/parts:
-    post:
+  /portal/upload-sessions/{sessionId}/chunks/{chunkNumber}:
+    put:
       tags: [Portal files]
-      operationId: presignPortalUploadParts
-      summary: Get presigned URLs for additional parts
+      operationId: uploadPortalChunk
+      summary: Upload one chunk of the file
       parameters:
         - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/ChunkNumber'
+        - $ref: '#/components/parameters/XChunkSha256'
       requestBody:
         required: true
+        description: Raw chunk bytes, at most the session's chunkSizeBytes.
         content:
-          application/json:
+          application/octet-stream:
             schema:
-              $ref: '#/components/schemas/PresignPartsRequest'
+              type: string
+              format: binary
       responses:
         '200':
-          description: Presigned part URLs.
+          description: Chunk accepted (idempotent if repeated with the same content).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PresignedParts'
+                $ref: '#/components/schemas/UploadChunkResult'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '410':
           $ref: '#/components/responses/Gone'
+        '413':
+          description: Chunk body exceeds the configured chunk size.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '507':
+          description: Staging disk capacity exhausted.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+  /portal/upload-sessions/{sessionId}:
+    get:
+      tags: [Portal files]
+      operationId: getPortalUploadStatus
+      summary: Upload status for resume
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Current session status and received chunks.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadSessionStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Portal files]
+      operationId: abortPortalUpload
+      summary: Abort an upload session and delete staged bytes
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '204':
+          description: Aborted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
 
   /portal/upload-sessions/{sessionId}/complete:
     post:
@@ -256,23 +316,6 @@ paths:
           $ref: '#/components/responses/Gone'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
-
-  /portal/upload-sessions/{sessionId}:
-    delete:
-      tags: [Portal files]
-      operationId: abortPortalUpload
-      summary: Abort an upload session
-      parameters:
-        - $ref: '#/components/parameters/SessionId'
-      responses:
-        '204':
-          description: Aborted.
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
 
   /portal/files/{fileId}:
     get:
@@ -678,36 +721,90 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
-  /integrations/upload-sessions/{sessionId}/parts:
-    post:
+  /integrations/upload-sessions/{sessionId}/chunks/{chunkNumber}:
+    put:
       tags: [Integrations]
-      operationId: presignIntegrationUploadParts
-      summary: Presign additional upload parts
+      operationId: uploadIntegrationChunk
+      summary: Upload one chunk through the integration API
       security:
         - integrationAuth: []
       parameters:
         - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/ChunkNumber'
+        - $ref: '#/components/parameters/XChunkSha256'
       requestBody:
         required: true
+        description: Raw chunk bytes, at most the session's chunkSizeBytes.
         content:
-          application/json:
+          application/octet-stream:
             schema:
-              $ref: '#/components/schemas/PresignPartsRequest'
+              type: string
+              format: binary
       responses:
         '200':
-          description: Presigned part URLs.
+          description: Chunk accepted.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PresignedParts'
+                $ref: '#/components/schemas/UploadChunkResult'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '410':
           $ref: '#/components/responses/Gone'
+        '413':
+          description: Chunk body exceeds the configured chunk size.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '507':
+          description: Staging disk capacity exhausted.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+  /integrations/upload-sessions/{sessionId}:
+    get:
+      tags: [Integrations]
+      operationId: getIntegrationUploadStatus
+      summary: Upload status for resume
+      security:
+        - integrationAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Current session status and received chunks.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadSessionStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Integrations]
+      operationId: abortIntegrationUpload
+      summary: Abort an integration upload and delete staged bytes
+      security:
+        - integrationAuth: []
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '204':
+          description: Aborted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /integrations/upload-sessions/{sessionId}/complete:
     post:
@@ -742,23 +839,6 @@ paths:
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
 
-  /integrations/upload-sessions/{sessionId}:
-    delete:
-      tags: [Integrations]
-      operationId: abortIntegrationUpload
-      summary: Abort an integration upload session
-      security:
-        - integrationAuth: []
-      parameters:
-        - $ref: '#/components/parameters/SessionId'
-      responses:
-        '204':
-          description: Aborted.
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
   /integrations/files:
     get:
       tags: [Integrations]
@@ -778,52 +858,6 @@ paths:
                 $ref: '#/components/schemas/FileList'
         '401':
           $ref: '#/components/responses/Unauthorized'
-    post:
-      tags: [Integrations]
-      operationId: proxyUploadIntegrationFile
-      summary: Upload a small file through the API (staging, <=100 MiB)
-      security:
-        - integrationAuth: []
-      parameters:
-        - $ref: '#/components/parameters/IdempotencyKey'
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required: [file]
-              properties:
-                file:
-                  type: string
-                  format: binary
-                fileName:
-                  type: string
-                  maxLength: 512
-                checksumSha256:
-                  type: string
-                  pattern: '^[a-fA-F0-9]{64}$'
-                  description: Required for idempotent replay of a proxy upload.
-      responses:
-        '201':
-          description: File staged, promoted, and verified.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/FileMetadata'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '413':
-          description: File exceeds the proxy upload limit.
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-        '422':
-          $ref: '#/components/responses/UnprocessableEntity'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-
   /integrations/files/{fileId}:
     get:
       tags: [Integrations]
@@ -1677,6 +1711,22 @@ components:
       schema:
         type: string
         format: uuid
+    ChunkNumber:
+      name: chunkNumber
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 10000
+    XChunkSha256:
+      name: X-Chunk-SHA256
+      in: header
+      required: false
+      schema:
+        type: string
+        pattern: '^[a-fA-F0-9]{64}$'
+      description: Optional SHA-256 of this chunk; verified before the bytes are committed.
     LinkId:
       name: linkId
       in: path
@@ -2112,24 +2162,9 @@ components:
         hasMore:
           type: boolean
 
-    PresignedPart:
-      type: object
-      required: [partNumber, url, expiresAt]
-      properties:
-        partNumber:
-          type: integer
-          minimum: 1
-          maximum: 10000
-        url:
-          type: string
-          format: uri
-        expiresAt:
-          type: string
-          format: date-time
-
     UploadSession:
       type: object
-      required: [fileId, uploadSessionId, mode, expiresAt, parts]
+      required: [fileId, uploadSessionId, chunkSizeBytes, chunkCount, expiresAt, receivedBytes]
       properties:
         fileId:
           type: string
@@ -2137,29 +2172,80 @@ components:
         uploadSessionId:
           type: string
           format: uuid
-        mode:
-          type: string
-          enum: [single, multipart]
+        chunkSizeBytes:
+          type: integer
+          format: int64
+          description: Maximum bytes per chunk (last chunk may be smaller).
+        chunkCount:
+          type: integer
+          minimum: 1
+          maximum: 10000
         expiresAt:
           type: string
           format: date-time
-        partSizeBytes:
-          type: [integer, 'null']
+        receivedBytes:
+          type: integer
           format: int64
-        partCount:
-          type: [integer, 'null']
-        headers:
-          type: object
-          additionalProperties:
-            type: string
-          description: Headers the client must send to S3 exactly as signed.
-        parts:
+          description: Bytes already staged (0 for a new session).
+      example:
+        fileId: 0199c2b2-6c3a-7c11-9a9e-0d4b7a8f2c10
+        uploadSessionId: 0199c2b2-7b10-7000-8e00-3a1b2c3d4e5f
+        chunkSizeBytes: 16777216
+        chunkCount: 320
+        expiresAt: '2026-10-23T23:30:00Z'
+        receivedBytes: 0
+
+    UploadChunkResult:
+      type: object
+      required: [uploadSessionId, chunkNumber, receivedBytes, chunksReceived, chunkCount, status]
+      properties:
+        uploadSessionId:
+          type: string
+          format: uuid
+        chunkNumber:
+          type: integer
+        receivedBytes:
+          type: integer
+          format: int64
+        chunksReceived:
+          type: integer
+        chunkCount:
+          type: integer
+        status:
+          type: string
+          enum: [initiated, uploading, received, committing, completed, failed, expired, aborted]
+
+    UploadSessionStatus:
+      type: object
+      required: [fileId, uploadSessionId, status, chunkSizeBytes, chunkCount, receivedBytes, chunksReceived, expiresAt]
+      properties:
+        fileId:
+          type: string
+          format: uuid
+        uploadSessionId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [initiated, uploading, received, committing, completed, failed, expired, aborted]
+        chunkSizeBytes:
+          type: integer
+          format: int64
+        chunkCount:
+          type: integer
+        receivedBytes:
+          type: integer
+          format: int64
+        chunksReceived:
           type: array
           items:
-            $ref: '#/components/schemas/PresignedPart'
-        presignedUrl:
+            type: integer
+        expiresAt:
+          type: string
+          format: date-time
+        lastError:
           type: [string, 'null']
-          description: Present only for `single` mode.
+          description: Sanitized internal error when the S3 commit failed and can be retried.
 
     CreateUploadSessionRequest:
       type: object
@@ -2215,28 +2301,6 @@ components:
         checksumSha256:
           type: string
           pattern: '^[a-fA-F0-9]{64}$'
-
-    PresignPartsRequest:
-      type: object
-      required: [partNumbers]
-      properties:
-        partNumbers:
-          type: array
-          minItems: 1
-          maxItems: 100
-          items:
-            type: integer
-            minimum: 1
-            maximum: 10000
-
-    PresignedParts:
-      type: object
-      required: [parts]
-      properties:
-        parts:
-          type: array
-          items:
-            $ref: '#/components/schemas/PresignedPart'
 
     CompleteUploadRequest:
       type: object

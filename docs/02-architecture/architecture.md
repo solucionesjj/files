@@ -1,18 +1,20 @@
-# Architecture
+# Architecture — Single-Node Initial Phase
 
-**Status:** Baseline (v1) · **Decisions:** `docs/02-architecture/adr/` · **Domain:** `docs/03-data/data-model.md`
+**Status:** Baseline for the construction phase · **Decisions:** `docs/02-architecture/adr/` ·
+**Domain:** `docs/03-data/data-model.md`
 
 ## 1. Principles
 
-1. **Private by default.** S3 is never public; every byte passes an authorization decision.
-2. **Control plane ≠ data plane.** Metadata, auth, policy, and audit are small requests; large
-   byte transfers go directly to S3 (uploads) or stream through a dedicated path (downloads).
-3. **The database is the source of truth.** S3 is a blob store; consistency is reconciled.
-4. **Idempotency everywhere.** Retries, jobs, and duplicate messages must be harmless.
-5. **Least privilege.** Separate IAM roles, per-integration permissions, no admin content access.
-6. **Observable by default.** Every request is traced, every job emits metrics, every decision
-   is auditable.
-7. **Boring, maintainable technology.** A modular monolith and a worker, not microservices.
+1. **Private by default.** S3 is never public, and only Files can touch it.
+2. **The API is the only S3 client.** Browsers, integrations, and humans never receive S3 URLs,
+   keys, or credentials.
+3. **Control plane ≠ data plane.** Metadata and authorization are small requests; uploads are
+   chunked through the API into a local staging file, and downloads stream from S3 through the API.
+4. **The database is the source of truth.** S3 stores blobs; consistency is reconciled.
+5. **Idempotency everywhere.** Chunks, completion, jobs, and retries are safe.
+6. **Least privilege.** One EC2 instance role with prefix-scoped S3 access and a deny-all bucket
+   policy; the public surface is Caddy only.
+7. **Observable and auditable.** Traces, metrics, and audit events; honest single-node SLOs.
 
 ## 2. System context (C4 level 1)
 
@@ -23,95 +25,91 @@ flowchart LR
   consumer["Existing enterprise product<br/>(backend integration)"]
   entra["Microsoft Entra ID"]
   mail["Microsoft 365<br/>(Graph sendMail)"]
-  signoz["SigNoz<br/>(OTLP)"]
+  signoz["SigNoz (self-hosted or external)<br/>OTLP"]
 
-  subgraph files["Files platform"]
-    portal["Files Portal<br/>(Angular)"]
-    api["Files API<br/>(.NET 10)"]
-    worker["Files Worker<br/>(.NET 10)"]
-    db[("PostgreSQL 18")]
+  subgraph aws["AWS account (construction phase)"]
+    subgraph ec2["Single EC2 · Ubuntu 24.04 · Elastic IP"]
+      caddy["Caddy<br/>TLS · reverse proxy · SPA"]
+      api["Files API<br/>.NET 10"]
+      worker["Files Worker<br/>.NET 10"]
+      db[("PostgreSQL 18<br/>Docker, EBS")]
+      staging[("Staging volume<br/>EBS")]
+    end
     s3[("Amazon S3<br/>private bucket")]
   end
 
-  human -->|HTTPS| portal
-  visitor -->|HTTPS /d/{token}| portal
-  portal -->|OIDC PKCE| entra
-  portal -->|REST + Bearer| api
-  consumer -->|OAuth2 client credentials| entra
-  consumer -->|REST + Bearer| api
+  human -->|HTTPS| caddy
+  visitor -->|HTTPS /d/{token}| caddy
+  consumer -->|HTTPS| caddy
+  caddy --> api
+  caddy -->|static| human
   api --> db
   worker --> db
-  api --> s3
-  worker --> s3
-  worker --> mail
+  api -->|chunks / reads| staging
+  worker -->|cleanup| staging
+  api -->|server-side upload / stream| s3
+  worker -->|delete / reconcile| s3
+  api -.->|OIDC validate| entra
+  human -->|OIDC PKCE| entra
+  consumer -->|client credentials| entra
+  worker -->|sendMail| mail
   api -.->|OTLP| signoz
   worker -.->|OTLP| signoz
 ```
 
-External systems:
-
-| System | Role | Failure behavior |
-|---|---|---|
-| Microsoft Entra ID | Human SSO, app roles, machine tokens | Outage blocks new logins/token acquisition; existing tokens up to 1 h keep working. |
-| Microsoft 365 / Graph | Expiration emails | Notifications retried; expiration/deletion continue. |
-| Amazon S3 | Blob storage + presigned uploads | Uploads/downloads fail; metadata remains consistent; jobs retry. |
-| SigNoz (OTLP) | Traces, metrics, logs | Non-blocking; buffered/limited export. |
+External dependencies: Microsoft Entra ID (human/machine identity), Microsoft Graph (email),
+Amazon S3 (blobs), SigNoz (telemetry; self-hosted or external).
 
 ## 3. Container view (C4 level 2)
 
 ```mermaid
 flowchart TB
-  subgraph edge["Edge"]
-    alb["ALB + TLS + WAF (optional)"]
+  internet["Internet / Elastic IP"]
+  subgraph host["EC2 instance (Ubuntu 24.04, Docker Compose)"]
+    subgraph edge["Edge container"]
+      caddy["Caddy 2.x<br/>:80/:443 · automatic TLS<br/>SPA static + /v1,/health proxy"]
+    end
+    subgraph app["Application containers"]
+      api["Files API<br/>chunk staging · auth · metadata · streaming"]
+      worker["Files Worker<br/>jobs · outbox · cleanup"]
+    end
+    subgraph data["Data"]
+      pg[("PostgreSQL 18<br/>container · EBS volume")]
+      staging[("Staging directory<br/>EBS")]
+    end
+    subgraph obs["Optional"]
+      otel["OTel Collector"]
+    end
   end
-
-  subgraph web["Web tier"]
-    spa["Files Portal SPA<br/>Angular + Bootstrap + MSAL"]
-  end
-
-  subgraph app["Application tier (ECS Fargate)"]
-    api["Files API<br/>ASP.NET Core minimal APIs"]
-    worker["Files Worker<br/>scheduler + outbox dispatcher"]
-  end
-
-  subgraph data["Data tier"]
-    pg[("RDS PostgreSQL 18")]
-  end
-
-  subgraph aws["AWS managed"]
-    s3[("S3 private bucket<br/>SSE, BPA, lifecycle")]
-    ecr["ECR"]
-    cw["CloudWatch Logs"]
-  end
-
-  idp["Entra ID"]
+  s3[("S3 private bucket")]
   graph["Graph API"]
-  otel["OTel Collector → SigNoz"]
+  entra["Entra ID"]
 
-  alb --> spa
-  alb --> api
-  spa -->|REST| api
-  spa -->|MSAL| idp
+  internet --> caddy
+  caddy --> api
+  caddy -->|static files| internet
   api --> pg
   worker --> pg
-  api -->|presign / stream| s3
-  worker -->|delete / scan / reconcile| s3
-  worker -->|sendMail| graph
-  api --> ecr
-  worker --> ecr
-  api --> cw
-  worker --> cw
+  api --> staging
+  worker --> staging
+  api -->|instance role| s3
+  worker -->|instance role| s3
+  worker --> graph
+  api -.-> entra
   api -.-> otel
   worker -.-> otel
 ```
 
-| Container | Responsibility | Scale |
+| Container | Responsibility | Exposure |
 |---|---|---|
-| Portal SPA | UI, MSAL session, upload orchestration, link management, admin UI. | Static/CDN; no state. |
-| Files API | AuthN/Z, metadata, link/key verification, upload session control, streaming downloads, admin, audit. | 2+ tasks, stateless (except streaming), autoscale on CPU/RPS. |
-| Files Worker | Notifications, expiry, deletion, reconciliation, cleanup, outbox. | 1–2 tasks; single execution enforced per job. |
-| PostgreSQL | Metadata, policies, audit, outbox, idempotency, reservations. | Multi-AZ prod. |
-| S3 | Blob content, staging, quarantine; lifecycle cleanup. | Managed. |
+| Caddy | TLS, HTTP→HTTPS, static SPA, reverse proxy, body-size limit, security headers. | 80/443 public. |
+| Files API | AuthN/Z, metadata, chunk staging, S3 upload/stream, audit, admin. | Internal Docker network only. |
+| Files Worker | Notifications, expiration, deletion, cleanup, reconciliation, outbox. | None. |
+| PostgreSQL 18 | Metadata, policies, audit, outbox, idempotency. | Internal only; no host port. |
+| OTel Collector | OTLP export to SigNoz. | Internal (optional). |
+
+The host also runs a `pg_dump` backup job (cron/systemd timer) that writes to
+`s3://<bucket>/backups/postgres/` using the same instance role. No other AWS services are used.
 
 ## 4. API components (C4 level 3)
 
@@ -120,93 +118,96 @@ flowchart TB
   subgraph api["Files.Api"]
     auth["Auth & policy<br/>JWT · API key · tenant check"]
     portalEp["Portal endpoints<br/>files · tags · links · stats"]
-    intEp["Integration endpoints<br/>sessions · metadata · content · delete"]
+    intEp["Integration endpoints<br/>sessions · chunks · metadata · content"]
     pubEp["Public link endpoints<br/>metadata · key verify · grants"]
     admEp["Admin endpoints<br/>integrations · policies · audit"]
-    health["Health & OpenAPI"]
+    chunks["Chunk receiver<br/>offset writes · hashes · idempotency"]
     stream["Content streaming<br/>S3 GetObject → response"]
-    ach["Abuse control<br/>locks · counters · delays"]
+    abuse["Abuse control<br/>locks · counters · delays"]
   end
 
   subgraph app["Files.Application"]
-    svcFiles["FileService"]
-    svcUploads["UploadSessionService"]
-    svcLinks["DownloadLinkService"]
-    svcDownload["DownloadGrantService"]
-    svcAuthz["AuthorizationService"]
-    svcAdmin["AdminService"]
-    svcNotify["NotificationService"]
-    val["Validators"]
+    files["FileService"]
+    uploads["UploadSessionService"]
+    commits["S3CommitService"]
+    links["DownloadLinkService"]
+    grants["DownloadGrantService"]
+    authz["AuthorizationService"]
+    admin["AdminService"]
+    notify["NotificationService"]
   end
 
   subgraph infra["Files.Infrastructure"]
-    ef["EF Core DbContext + repositories"]
-    dapper["Dapper (atomic counters/reservations)"]
-    obj["IObjectStore → S3"]
+    ef["EF Core + Dapper"]
+    s3["IObjectStore → S3 (SDK v4)"]
+    chunkStore["IChunkStore → local staging"]
     key["Key/verifier services"]
     mail["Graph mail sender"]
-    audit["Audit writer (outbox)"]
+    audit["Audit + outbox writers"]
   end
 
-  portalEp --> svcFiles
-  intEp --> svcUploads
-  pubEp --> svcLinks
-  pubEp --> svcDownload
-  admEp --> svcAdmin
-  svcDownload --> svcAuthz
-  svcLinks --> key
-  svcFiles --> ef
-  svcUploads --> obj
-  svcDownload --> obj
-  svcDownload --> stream
-  svcNotify --> ef
-  key --> ef
+  portalEp --> files
+  intEp --> uploads
+  intEp --> files
+  uploads --> chunks
+  uploads --> chunkStore
+  uploads --> commits
+  commits --> s3
+  pubEp --> links
+  pubEp --> grants
+  grants --> authz
+  grants --> stream
+  stream --> s3
+  links --> key
+  files --> ef
+  uploads --> ef
+  grants --> ef
+  notify --> ef
   audit --> ef
-  dapper --> obj
 ```
 
 Dependency rule: `Api → Application → Domain`, `Infrastructure → Application/Domain`; Domain has
-no framework references. `Api` composes everything via DI.
+no framework references. The API composes everything via DI.
 
 ## 5. Worker components
 
 | Component | Schedule | Responsibility |
 |---|---|---|
-| Outbox dispatcher | every 2 s (poll) | Dispatch committed events to handlers (email enqueue, audit projections, metrics). |
-| Notification scheduler | hourly | Compute due notifications for each interval; upsert `notification_events`. |
-| Notification sender | every minute | Send pending emails with retries/backoff; record accepted/failed. |
-| Expiration job | every 15 min | `available` → `expired` → `pending_deletion` when `expires_at <= now()`. |
-| Deletion job | every 5 min | Delete S3 object, mark `deleted`; retry failures with backoff. |
-| Grant expiry | every minute | Expire unredeemed/partially served grants and release their download reservations. |
-| Link expiry | every 15 min | Mark active links with `expires_at <= now()` as `expired`. |
-| Upload cleanup | hourly | Abort multipart > 24 h; expire `pending_upload`; purge staging. |
-| Reconciliation | daily | Compare DB vs S3; flag missing/orphan objects; quarantine and alert. |
-| Retention purge | daily | Purge data past retention (events, tombstones) and idempotency records. |
+| Outbox dispatcher | every 2 s | Dispatch committed events (email, audit projections, metrics). |
+| Notification scheduler | hourly | Compute due notifications per interval; upsert unique events. |
+| Notification sender | every minute | Send via Graph with retries; record accepted/failed. |
+| Expiration job | every 15 min | `available` → `pending_deletion` after expiry; revoke links. |
+| Deletion job | every 5 min | Delete S3 object, mark `deleted`; retry failures. |
+| Grant expiry | every minute | Expire grants and release download reservations. |
+| Link expiry | every 15 min | Mark active links past expiry. |
+| Upload cleanup | every 10 min | Delete expired staging files, abort stale multipart uploads, mark sessions failed. |
+| Reconciliation | daily | Compare DB and S3; quarantine missing objects; move orphans to `orphan/`. |
+| Retention purge | daily | Purge events/tombstones/idempotency rows per policy. |
+| Backup verification | daily | Check the latest `pg_dump` in S3 exists and is non-empty; alert otherwise. |
 
 Every job: batch-limited (default 500), wrapped in `pg_try_advisory_lock(<job-key>)`, resumable,
-emits `job_runs_total{job,result}` and duration metrics. See
-[retention-notifications-deletion.md](../06-workflows/retention-notifications-deletion.md).
+and emits `job_runs_total{job,result}` and duration metrics. On a single node the lock is mostly a
+safety net for overlapping cron ticks.
 
 ## 6. Control plane vs data plane
 
 | Operation | Path | Authorization point | Notes |
 |---|---|---|---|
-| Create upload session | Portal/API → DB + S3 `CreateMultipartUpload` | Before presigning | Small payload. |
-| Upload parts | Browser/integration → S3 directly | Presigned URL scope + expiry | No API bytes. |
-| Complete upload | Client → API | Session ownership + S3 verification | ListParts/HeadObject. |
-| Download (portal/integration) | Client ↔ API ↔ S3 | API, per request | Streamed, counted, audited. |
-| Download (link) | Visitor → API (grant) → API stream | Key + link + file checks | Grant 120 s, single use. |
+| Create upload session | Client → API | Before staging file | Small JSON; no S3. |
+| Upload chunk | Client → API → staging file | Every request | 16 MiB max; idempotent. |
+| Complete upload | Client → API → S3 | Session owner + verification | API does multipart/PutObject; HeadObject. |
+| Download | Client ↔ API ↔ S3 | Per request/grant | Streamed, counted, audited. |
+| Public link | Visitor → API (grant) → API stream | Key + link + file checks | Grant 120 s, single use. |
 | Delete/expire | Worker → S3 | System job + DB state | Idempotent. |
+| Backup | Host cron → `pg_dump` → S3 | Instance role | Nightly; lifecycle 35 days. |
 
-**Why downloads stream through the API:** the spec requires counting only completed downloads,
-auditing every attempt, immediate revocation, and not exposing permanent URLs. Presigned S3 GET
-URLs cannot provide post-issuance enforcement or completion accounting. Uploads are different:
-presigned URLs are required for 5 GiB and are safe because the object key is fixed and verified
-on completion.
+**Why the API proxies both directions:** S3 exclusivity (D-30), completion-based counting, audit,
+and immediate revocation. The trade-off is EC2 bandwidth/disk, accepted for the construction
+phase (ADR-0003, ADR-0010).
 
 ## 7. Key flows
 
-### 7.1 Direct multipart upload (portal or integration)
+### 7.1 Chunked upload (portal or integration)
 
 ```mermaid
 sequenceDiagram
@@ -214,25 +215,31 @@ sequenceDiagram
   participant C as Client
   participant A as Files API
   participant D as PostgreSQL
+  participant F as Staging file (EBS)
   participant S as S3
-  participant W as Worker
 
-  C->>A: POST /upload-sessions (size, type, checksum)
-  A->>A: authn/authz + quota + allowlist
-  A->>D: INSERT file(pending_upload) + upload_session
-  A->>S: CreateMultipartUpload(key=f/{fileId})
-  A->>D: UPDATE session (s3_upload_id)
-  A-->>C: fileId, sessionId, partSize, presigned part URLs
-  C->>S: PUT part N (presigned)
-  C->>A: POST /upload-sessions/{id}/complete
-  A->>S: ListParts + CompleteMultipartUpload + HeadObject
-  A->>D: verify size/checksum, status=processing/available
-  alt scanning enabled
-    W->>S: scan object
-    W->>D: scan_status=clean → available
+  C->>A: POST /upload-sessions (name,size,type,checksum)
+  A->>D: authz + quota + disk check
+  A->>D: INSERT file(pending_upload) + session
+  A-->>C: fileId, sessionId, chunkSize, chunkCount
+  loop chunks 1..N (any order)
+    C->>A: PUT /upload-sessions/{id}/chunks/{n} (bearer)
+    A->>A: check session/owner/range/hash
+    A->>F: pwrite at offset
+    A->>D: INSERT chunk + received_bytes
+    A-->>C: 200 receivedBytes/status
   end
-  A-->>C: file metadata (available)
+  C->>A: POST /upload-sessions/{id}/complete
+  A->>A: verify all chunks + total size/checksum
+  A->>S: multipart upload from staging (or PutObject)
+  A->>S: HeadObject verify
+  A->>D: file available/processing + audit/outbox
+  A->>F: delete staging file
+  A-->>C: file metadata
 ```
+
+If the S3 commit fails, the session stays `failed` with the staging file intact; retrying
+`complete` reattempts S3 without client re-upload. Expired sessions are cleaned by the worker.
 
 ### 7.2 Public link download
 
@@ -244,37 +251,24 @@ sequenceDiagram
   participant D as PostgreSQL
   participant S as S3
 
-  V->>A: GET /public/download-links/{token}
-  A->>D: lookup active link + file downloadable
-  A-->>V: display metadata (filename, size, requiresKey)
   V->>A: POST /public/download-links/{token}/downloads {key}
-  A->>D: abuse check (link+IP) + key verify (Argon2id)
-  A->>D: reserve slot (atomic)
-  A->>D: INSERT download_grant (hash, 120s)
+  A->>D: abuse check + key verify (Argon2id) + reservation
+  A->>D: INSERT download_grant (120s)
   A-->>V: grantToken (no key echoed)
-  V->>A: GET /public/download-grants/{grantToken}
-  A->>D: consume grant (single use) + recheck file state
+  V->>A: GET /download-grants/{grantToken}
+  A->>D: consume grant + recheck file state
   A->>S: GetObject
   S-->>A: bytes
   A-->>V: stream + Content-Disposition
-  A->>D: mark success, increment file/link counts (on complete)
-  A->>D: INSERT download_event
+  A->>D: mark completed, counts, download_event
 ```
 
-### 7.3 Portal private link
+### 7.3 Integration metadata/content
 
-The same grant flow, but issuance requires an Entra bearer token and the grant is attributed to
-the user; the token is not required at redemption (the grant is a short-lived bearer capability
-so the browser can navigate to the stream). Redemption rechecks the file state, is single-use,
-and the audit event records the user.
+`GET /v1/integrations/files/{fileId}` and `/content` authorize ownership or an explicit read grant,
+recheck the file predicate, stream from S3, and audit. No S3 URL is returned.
 
-### 7.4 Integration content download
-
-`GET /v1/integrations/files/{fileId}/content` → authorize (ownership or grant) → recheck file
-state → stream from S3 with optional `Range` → count on completion → audit. No link or key is
-involved. Denials are audited and return 404 `file_not_found`/`file_unavailable`.
-
-### 7.5 Expiration and deletion
+### 7.4 Expiration and deletion
 
 See [file-lifecycle.md](../06-workflows/file-lifecycle.md) and
 [retention-notifications-deletion.md](../06-workflows/retention-notifications-deletion.md).
@@ -283,98 +277,85 @@ See [file-lifecycle.md](../06-workflows/file-lifecycle.md) and
 
 ```mermaid
 flowchart TB
-  subgraph aws["AWS account per environment"]
-    r53["Route 53"]
-    acm["ACM cert"]
-    alb["ALB (public subnets)"]
-    subgraph vpc["VPC 10.x"]
-      subgraph pub["Public subnets"]
-        nat["NAT Gateway"]
-        alb2["ALB nodes"]
-      end
-      subgraph priv["Private subnets"]
-        api["ECS service: api (2+ tasks)"]
-        wrk["ECS service: worker (1 task)"]
-        rds[("RDS PostgreSQL 18<br/>Multi-AZ prod")]
-      end
-    end
-    s3[("S3 bucket<br/>env-scoped")]
-    ecr["ECR"]
-    sm["Secrets / env (SSM/CI)"]
-    cw["CloudWatch"]
-    signoz["SigNoz (external/self-hosted)"]
+  dns["DNS name (required for TLS)"] --> eip["Elastic IP"]
+  eip --> sg["Security group<br/>80/443 world · 22 admin CIDR"]
+  sg --> ec2["EC2 · Ubuntu 24.04 · t3.medium<br/>100 GiB gp3 EBS"]
+  subgraph ec2box["Docker Compose"]
+    caddy["Caddy :80/:443"] --> api["API :8080"]
+    api --> pg[("PostgreSQL 18")]
+    api --> staging[("Staging dir")]
+    worker["Worker"] --> pg
+    worker --> staging
   end
-  r53 --> alb
-  acm --> alb
-  alb --> api
-  api --> rds
-  wrk --> rds
-  api --> s3
-  wrk --> s3
-  api --> cw
-  wrk --> cw
-  api -->|OTLP 443| signoz
-  wrk -->|OTLP 443| signoz
-  api -.->|egress| nat
-  wrk -.->|egress| nat
+  ec2 --> ec2box
+  api -->|instance role| s3[("S3 bucket")]
+  worker -->|instance role| s3
+  cron["Host cron: pg_dump"] -->|instance role| s3
+  api -.->|OTLP| signoz["SigNoz"]
+  worker -.->|OTLP| signoz
+  ec2 -->|443| entra["Entra ID"]
+  ec2 -->|443| graph["Graph"]
 ```
 
-- API tasks are private; only the ALB is public. S3 access uses a task IAM role (no keys).
-- The worker has a separate task role limited to `DeleteObject`, `GetObject`, `ListBucket`
-  (prefix-scoped), and `ListMultipartUploads`/`AbortMultipartUpload`.
-- The API task role can `PutObject`/`GetObject`/`DeleteObject` on `f/*`, `staging/*`, and
-  multipart operations on `f/*`, but cannot delete bucket policy or change BPA.
-- Outbound 443 allowed to Entra, Graph, S3, and SigNoz only.
+- The API and PostgreSQL are not reachable from the internet; Caddy is the only listener.
+- The Elastic IP keeps the public address stable across instance stop/start (within the account).
+- DNS/TLS is a hard prerequisite for public launch; the domain points to the Elastic IP and Caddy
+  obtains the certificate. A bare IP cannot get a trusted certificate (OQ-15).
+- SSH is restricted to `admin_cidr`; IMDSv2 is required; UFW mirrors the security group.
 
 ## 9. Trust boundaries
 
 | Boundary | Crosses | Control |
 |---|---|---|
-| Browser ↔ API | Untrusted | TLS, OIDC tokens, CSRF-safe APIs, CORS allowlist, input validation. |
-| Portal SPA ↔ Entra | Untrusted | PKCE public client, no secret in SPA. |
-| Integration ↔ API | Semi-trusted enterprise | mTLS not required; OAuth2/API key + IP allowlist + quotas. |
-| API/Worker ↔ S3 | Trusted (IAM) | Task role scoped by prefix and action; TLS; SSE. |
-| API/Worker ↔ DB | Trusted (VPC) | Private subnets, TLS to RDS, least-privilege DB role. |
-| Worker ↔ Graph | Trusted | App permission restricted to one mailbox via application access policy. |
-| Public visitor ↔ API | Untrusted | Token + key + throttling; generic errors; no enumeration oracle. |
+| Internet ↔ Caddy | Untrusted | TLS 1.2/1.3, request size limits, headers, rate limiting at the API. |
+| Caddy ↔ API | Local Docker network | No published API port; `ForwardedHeaders` only from Caddy. |
+| API/Worker ↔ PostgreSQL | Docker network | Strong password, no host port, least-privilege DB role. |
+| API/Worker ↔ S3 | IAM instance role | Prefix-scoped identity policy + bucket policy deny-all-except-role; TLS. |
+| Worker ↔ Graph | Outbound HTTPS | App permission restricted to one mailbox. |
+| Host ↔ operator | SSH | Restricted CIDR, key auth, fail2ban, no password login. |
+| Public visitor ↔ API | Untrusted | Token + key + throttling; generic errors. |
 
 ## 10. Technology baseline
 
 | Layer | Choice | Version policy |
 |---|---|---|
 | API / Worker | C# / .NET | .NET 10 LTS (pinned in `global.json`). |
-| Web | Angular, TypeScript, Bootstrap | Angular LTS at scaffold, Bootstrap 5.3.x, Node 22 LTS (20.19+ compatible). |
+| Web | Angular, TypeScript, Bootstrap | Angular LTS, Bootstrap 5.3.x, Node 22 LTS. |
 | Data access | EF Core + Npgsql; Dapper for atomic SQL | EF Core 10.x. |
-| DB | PostgreSQL | 18.x (RDS). |
+| DB | PostgreSQL (Docker container, EBS volume) | 18.x. |
 | Object storage | AWS S3 SDK v4 (LocalStack S3 locally) | AWS SDK for .NET v4. |
+| Edge | Caddy | 2.8.x. |
+| Orchestration | Docker Engine + Compose plugin | Ubuntu 24.04 packages. |
+| Host | EC2 + gp3 EBS + Elastic IP | Ubuntu 24.04 LTS. |
 | Auth | Microsoft.Identity.Web / JwtBearer; MSAL Angular | Latest stable compatible. |
 | Jobs | Quartz.NET, in-memory scheduler + PG advisory locks | 3.x. |
 | Email | Microsoft Graph SDK (`sendMail`) | Latest stable. |
-| Telemetry | OpenTelemetry .NET → OTLP → SigNoz | Latest stable. |
+| Telemetry | OpenTelemetry .NET → OTLP → SigNoz (optional self-hosted) | Latest stable. |
 | IaC | Terraform | ≥1.9 (repo tested with 1.13). |
-| Containers | Docker; ECS Fargate | — |
 
 ## 11. Cross-cutting concerns
 
-- **Configuration:** strongly typed options bound from environment (`Files__*`), validated at
-  startup (`ValidateOnStart`); secrets never logged.
+- **Configuration:** strongly typed options bound from environment (`Files__*`); validated at
+  startup; secrets never logged.
 - **Errors:** RFC 9457 problem+json with stable codes and trace ID; no stack traces to clients.
 - **Validation:** FluentValidation at the edge + domain invariants; 422 for semantic errors.
-- **Concurrency:** optimistic concurrency (`version`/ETag) for metadata; atomic SQL for link
-  reservations and counters.
-- **Time:** inject `TimeProvider`; all persisted times UTC; expiry compares DB `now()`.
-- **Logging:** structured (Serilog or built-in JSON), scoped with request/trace ID; redaction of
-  `Authorization`, `key`, `token`, and set-cookie headers.
-- **Telemetry:** OTel traces (ASP.NET, HttpClient, EF Core, S3), metrics (RED + business),
-  logs with trace correlation.
-- **Resilience:** S3/Graph retries with exponential backoff and jitter, circuit breaker for
-  Graph, timeouts everywhere; no retry for 4xx.
-- **Data protection:** Argon2id (libsodium/Konscious) for link keys; HMAC-SHA256 peppered for
-  API keys; SHA-256 for grant/link tokens (high entropy, one-way).
+- **Concurrency:** optimistic `version`/ETag for metadata; atomic SQL for reservations/counters;
+  chunk writes use `pwrite` with a per-chunk unique key.
+- **Time:** inject `TimeProvider`; persist UTC; expiry compares DB `now()`.
+- **Logging:** structured JSON with request/trace ID; redact `Authorization`, chunk bodies, keys,
+  tokens, filenames; access logs disabled for token-bearing paths (threat model I-11).
+- **Telemetry:** OTel traces (ASP.NET, HttpClient, EF Core, S3), RED + business metrics; SigNoz
+  optional but recommended externally if host resources are tight.
+- **Resilience:** retries with exponential backoff for S3/Graph; circuit breaker for Graph;
+  timeouts; upload sessions survive client disconnects; S3 commit retries reuse staging.
+- **Data protection:** Argon2id for link keys, HMAC-SHA256 for API keys, SHA-256 for link/grant
+  tokens; SSE-S3 at rest; TLS in transit.
 
-## 12. Explicit non-decisions / future work
+## 12. Scale-up path (not part of the initial phase)
 
-- Multi-tenancy (OQ-03) would add `tenant_id` to ownership tables and per-tenant policy.
-- Direct presigned downloads (to remove API egress) would require a different counting model.
-- Redis can replace the Postgres abuse counters when traffic justifies it.
-- A CDN in front of downloads is deferred until egress cost or global latency demands it.
+1. Move PostgreSQL to RDS (PITR, Multi-AZ) and back up with the managed service.
+2. Run the API on ECS/ALB or multiple EC2 instances behind a load balancer; move session state
+   out of local staging (S3 multipart from the API, or shared storage) and decide whether to
+   reintroduce direct-to-S3 uploads with a revised exclusivity model.
+3. Add CloudWatch/WAF/Route 53 (or keep Caddy with DNS), centralized logs, and SigNoz.
+4. Revisit S3 versioning/replication and the erasure wording.

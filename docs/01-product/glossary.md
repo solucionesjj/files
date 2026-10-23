@@ -30,8 +30,9 @@
 | **Outbox** | Table of domain events committed with the transaction, dispatched asynchronously to jobs/emails. |
 | **SLO** | Service-level objective; an internal target derived from NFRs (e.g., 99.9% availability). |
 | **RPO / RTO** | Recovery point objective (max data loss) / recovery time objective (max downtime). |
-| **Presigned URL** | Time-limited S3 URL that authorizes one upload/download operation without exposing AWS credentials. |
+| **Presigned URL** | Time-limited S3 URL that authorizes one operation without exposing AWS credentials. **Not used by Files**; S3 is exclusive to the API (D-30). |
 | **Multipart upload** | S3 mechanism for uploading large objects in parts and completing atomically. |
-| **Staging object** | Temporary S3 object used by API-proxied uploads before promotion to the final key. |
+| **Staging file** | Temporary local file on the EC2 EBS volume where the API writes upload chunks before committing them to S3. |
+| **Chunk** | Fixed-size slice of an upload (16 MiB default) sent to the API and written at an offset in the staging file. |
 | **Problem Details** | RFC 9457 JSON error format used by the API (`application/problem+json`). |
 | **Cursor pagination** | Opaque, stable pagination based on a sort key rather than offsets. |

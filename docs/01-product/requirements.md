@@ -20,7 +20,7 @@ stable ID used by stories, tests, and the backlog.
 - Human file management through the Files Portal (Microsoft Entra ID).
 - Public and private download links with an 8-character download key.
 - Machine-to-machine upload, retrieval, and deletion through the Files API.
-- Private Amazon S3 object storage with multipart uploads up to 5 GiB (configurable).
+- Private Amazon S3 object storage, reachable **only** by Files, with chunked uploads up to 5 GiB (configurable).
 - Retention, expiration notifications, physical deletion, and reconciliation.
 - Administration of integrations, global retention, notifications, quotas, and audit.
 - Observability (OpenTelemetry → SigNoz), auditability, and operational runbooks.
@@ -95,21 +95,23 @@ Priority: **M** = must (v1 release blocker), **S** = should (v1 unless schedule 
 
 | ID | Requirement | Pri | Source | Stories |
 |---|---|---|---|---|
-| FR-UP-001 | Binary content MUST be stored in a private S3 bucket; the database MUST store metadata and storage references only. | M | §7 | US-003 |
+| FR-UP-001 | Binary content MUST be stored in a private S3 bucket; the database MUST store metadata and storage references only. Files API/Worker MUST be the only principals allowed to read, write, list, or delete objects. | M | §7 | US-003 |
 | FR-UP-002 | Object keys MUST be system-generated and MUST NOT contain the original filename. | M | §7 | US-003 |
 | FR-UP-003 | The default maximum file size MUST be 5 GiB and MUST be configurable per deployment and per integration. | M | §7 | US-003, US-030 |
-| FR-UP-004 | Uploads above the configured single-PUT threshold MUST use S3 multipart upload with presigned part URLs. | M | §7 | US-003 |
-| FR-UP-005 | Upload authorization MUST be validated before presigned URLs are issued. | M | §7 | US-003 |
-| FR-UP-006 | Presigned URLs MUST be short-lived (≤60 min), scoped to one object key and one operation, and MUST NOT permit overwrite of existing objects. | M | §7 | US-003 |
-| FR-UP-007 | On completion, the system MUST verify the object exists, its size matches the declared size, its content type is permitted, and its checksum matches when supplied. | M | §7 | US-003 |
-| FR-UP-008 | Incomplete multipart uploads MUST be aborted after a configurable period (default 24 h). | M | §7 | US-028 |
+| FR-UP-004 | Uploads MUST be sent in fixed-size chunks to the Files API. The API MUST stage chunks locally, verify them, and upload the assembled file to S3 using server-side multipart (or a single `PutObject` below the threshold). No presigned URLs are issued. | M | §7 | US-003, US-015 |
+| FR-UP-005 | Upload authorization MUST be validated at session creation and on every chunk and completion request before any bytes are accepted or any S3 call is made. | M | §7 | US-003 |
+| FR-UP-006 | Chunk endpoints MUST be bound to the owning upload session, chunk number, expected size, and session expiry; they MUST reject out-of-range chunks, unknown sessions, and bodies larger than the configured chunk size. | M | §7 | US-003 |
+| FR-UP-007 | On completion, the system MUST verify every chunk, the assembled size equals the declared size, the content type is permitted, and the checksum matches when supplied; after the S3 upload it MUST verify the object with `HeadObject`. | M | §7 | US-003 |
+| FR-UP-008 | Incomplete upload sessions and S3 multipart uploads MUST be aborted/cleaned after a configurable period (session 60 min, stale uploads 24 h). | M | §7 | US-028 |
 | FR-UP-009 | Objects MUST be encrypted at rest (SSE-S3 by default; SSE-KMS optional) and all transfers MUST use TLS. | M | §7 | US-031 |
 | FR-UP-010 | S3 Block Public Access MUST remain enabled and bucket policies MUST deny public access. | M | §7 | US-031 |
 | FR-UP-011 | The original filename MUST be stored as metadata and sanitized for display and `Content-Disposition`. | M | §7 | US-005 |
 | FR-UP-012 | The system SHOULD reject files whose detected content type is not in the permitted allowlist. | S | §7 | US-003 |
-| FR-UP-013 | S3 lifecycle rules MUST clean up incomplete uploads, staging objects, and orphaned objects. | M | §7 | US-028 |
-| FR-UP-014 | Integrations MAY upload small files (≤100 MiB) through the API into a staging area before promotion to the final object. | S | §15 | US-015 |
-| FR-UP-015 | A file MUST NOT become available until upload verification succeeds. | M | §7 | US-003 |
+| FR-UP-013 | Local staging files, S3 incomplete uploads, and orphaned objects MUST be cleaned up by lifecycle rules and a worker job. | M | §7 | US-028 |
+| FR-UP-014 | The API MUST enforce a bounded staging area on the EC2 EBS volume (reserve + free-space check) and reject new sessions with `507 staging_capacity_exceeded` when insufficient space remains. | M | §7 | US-003 |
+| FR-UP-015 | A file MUST NOT become available until chunk verification and the S3 upload verification succeed. | M | §7 | US-003 |
+| FR-UP-016 | No presigned S3 URL, S3 access key, or direct bucket credential may be issued to a client, browser, or integration. | M | §7 | US-003, US-015 |
+| FR-UP-017 | Chunk uploads MUST be idempotent per chunk number and resumable; a repeated chunk with the same size/hash MUST return success without duplicating bytes. | M | §7 | US-003 |
 
 ### 2.4 File metadata, tags, search (FR-FILE, FR-SRCH)
 
@@ -196,7 +198,7 @@ Priority: **M** = must (v1 release blocker), **S** = should (v1 unless schedule 
 | FR-INT-001 | The API MUST be versioned (`/v1`) with a documented compatibility policy. | M | §14 | US-011 |
 | FR-INT-002 | The API MUST support: create upload session, complete upload, get metadata, download content, check availability, delete file (when authorized). | M | §14 | US-011, US-015 |
 | FR-INT-003 | Every request MUST authenticate the integration and verify its permissions. | M | §14 | US-011 |
-| FR-INT-004 | Integration file creation MUST assign ownership to the caller, set integration-only access, indefinite retention, no public link, and return a stable file ID plus upload instructions. | M | §14 | US-015 |
+| FR-INT-004 | Integration file creation MUST assign ownership to the caller, set integration-only access, indefinite retention, no public link, and return a stable file ID plus chunk-upload instructions (no S3 URLs or keys). | M | §14 | US-015 |
 | FR-INT-005 | Retrieval MUST verify ownership or an explicit file-level grant. | M | §14 | US-016 |
 | FR-INT-006 | The API MUST NOT expose S3 credentials, bucket listing, unrestricted URLs, or permanent public URLs. | M | §14 | US-011 |
 | FR-INT-007 | Mutating operations that clients may retry MUST support idempotency via `Idempotency-Key`, scoped per integration, with stored results. | M | §14 | US-017 |
@@ -240,26 +242,27 @@ Targets are measurable and become SLOs in [observability-and-slos.md](../08-oper
 
 | ID | Category | Requirement / target | Pri |
 |---|---|---|---|
-| NFR-001 | Availability | API + Portal monthly availability ≥ 99.9% (≤43.8 min downtime). | M |
+| NFR-001 | Availability | Initial single-node phase: best-effort 99.5% monthly, excluding announced maintenance windows. Target 99.9% after HA/managed services. | M |
 | NFR-002 | Latency | Metadata reads p95 ≤ 300 ms; list/search p95 ≤ 500 ms; upload-session creation p95 ≤ 500 ms; download TTFB p95 ≤ 800 ms (S3 warm). | M |
-| NFR-003 | Throughput | Sustain 50 concurrent downloads and 20 concurrent multipart uploads per environment; aggregate 100 MB/s ingress. | M |
-| NFR-004 | Capacity | Baseline: 10,000 files, 500 GiB stored, 50 GiB/month ingress, 200 GiB/month egress. Design headroom ×5. | S |
+| NFR-003 | Throughput | Sustain 20 concurrent downloads and 3 concurrent chunked uploads on one EC2; aggregate 50 MB/s ingress, bounded by the instance's network/EBS. | M |
+| NFR-004 | Capacity | Baseline: 10,000 files, 500 GiB stored in S3, 50 GiB/month ingress, 200 GiB/month egress; 100 GiB EBS with 10 GiB staging reserve. | S |
 | NFR-005 | Isolation | Strict owner/integration isolation; every query filtered by owner or explicit grant; IDOR tests mandatory. | M |
 | NFR-006 | Idempotency | Background jobs and retried API mutations are idempotent; duplicate execution causes no duplicate files/emails/audit actions. | M |
-| NFR-007 | Recovery | RPO ≤ 15 min (PITR), RTO ≤ 4 h; quarterly restore drill. | M |
-| NFR-008 | Durability | S3 durability (11 nines) plus versioning/replication decision documented; DB daily snapshots + PITR 35 days. | M |
+| NFR-007 | Recovery | Initial single node: RPO ≤24 h (nightly logical backup to S3), RTO ≤4 h. Target RPO ≤15 min when moving to PITR/managed PostgreSQL. | M |
+| NFR-008 | Durability | S3 durability (11 nines); nightly `pg_dump` to S3 retained 35 days; EBS volume encrypted. Versioning/replication decision documented (disabled initially). | M |
 | NFR-009 | Security | Least-privilege IAM, private buckets, TLS 1.2+, Argon2id/HMAC verifiers, no secrets in code/logs/URLs. | M |
 | NFR-010 | Audit | All security-relevant events auditable within 60 s of occurrence; retention configurable (default 24 months). | M |
 | NFR-011 | Observability | 100% of requests traced; RED metrics per endpoint; job success/lag metrics; alerting to on-call. | M |
 | NFR-012 | Testability | Automated unit/integration/E2E/contract tests in CI; coverage ≥80% line on Domain/Application. | M |
-| NFR-013 | Reproducibility | One-command local stack; immutable container images; IaC-managed infrastructure; no manual prod steps. | M |
+| NFR-013 | Reproducibility | One-command local stack; Git-SHA container images; Terraform-managed EC2/S3/IAM; deploy via Compose with only documented `.env` provisioning. | M |
 | NFR-014 | Configurability | Max file size, retention, quotas, rate limits, timeouts, and notification intervals configurable without code changes. | M |
 | NFR-015 | Portability | Storage abstraction allows S3-compatible backends (LocalStack S3, LocalStack S3) for local/test. | S |
 | NFR-016 | Accessibility | WCAG 2.1 AA on upload, list, detail, link management, and admin core flows. | S |
 | NFR-017 | Browsers | Latest 2 versions of Edge, Chrome, Firefox, Safari; no IE. | S |
 | NFR-018 | Cost visibility | AWS cost allocation tags per environment/service; monthly cost report with storage/egress/request breakdown. | S |
-| NFR-019 | Data residency | All data at rest in the approved AWS region (default `us-east-1`); no cross-region copies without approval. | S |
-| NFR-020 | Limits | Per-integration and global quotas enforced; 429 responses include `Retry-After`. | M |
+| NFR-019 | Data residency | EC2 EBS and S3 bucket in the same approved AWS region (default `us-east-1`); no cross-region copies without approval. | S |
+| NFR-020 | Limits | Per-integration/global quotas and staging-disk quotas enforced; 429/507 responses include a stable code. | M |
+| NFR-021 | Host capacity | The single EC2 MUST be monitored for CPU, memory, disk (staging and PostgreSQL), and network; alerts fire before disk exhaustion. | M |
 
 ---
 

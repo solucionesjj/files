@@ -1,0 +1,67 @@
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git tag or commit to deploy
+        required: true
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: files-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to the Files EC2 host
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve ref
+        id: ref
+        run: |
+          echo "value=${{ inputs.ref || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+        run: |
+          if [ -z "$SSH_KEY" ] || [ -z "$EC2_HOST" ]; then
+            echo "EC2_SSH_KEY and EC2_HOST must be set in the production environment" >&2
+            exit 1
+          fi
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/files_deploy
+          chmod 600 ~/.ssh/files_deploy
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Backup, migrate, deploy, smoke
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER || 'ubuntu' }}
+          REF: ${{ steps.ref.outputs.value }}
+        run: |
+          ssh -i ~/.ssh/files_deploy -o StrictHostKeyChecking=yes "$EC2_USER@$EC2_HOST" \
+            "set -euo pipefail
+             cd /opt/files/app
+             git fetch --tags --prune
+             git checkout --force '$REF'
+             git rev-parse --short HEAD > /opt/files/REVISION
+             ./deploy/backup.sh
+             docker compose --env-file /opt/files/.env -f deploy/docker-compose.prod.yml \
+               --profile tools run --rm migrator
+             docker compose --env-file /opt/files/.env -f deploy/docker-compose.prod.yml \
+               up -d --build api worker caddy
+             FILES_DOMAIN=\$(grep -E '^FILES_DOMAIN=' /opt/files/.env | cut -d= -f2-) \
+               ./deploy/smoke.sh"

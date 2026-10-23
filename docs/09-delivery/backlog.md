@@ -22,7 +22,7 @@ IDs match [requirements.md](../01-product/requirements.md).
 |---|---|---|---|---|---|---|---|
 | US-001 | Sign in with Entra ID | E1 | M | M1 | FR-ID-001..004, 008, 009 | S1 | Todo |
 | US-002 | Role-based administration | E1 | S | M1 | FR-ID-010, 011 | US-001 | Todo |
-| US-003 | Upload a file | E2 | L | M2/M3 | FR-UP-001..007, 009, 011, 015 | US-001, T-04 | Todo |
+| US-003 | Upload a file | E2 | L | M2/M3 | FR-UP-001..017 | US-001, T-04 | Todo |
 | US-004 | Browse and inspect files | E2 | M | M3 | FR-FILE-001/002, FR-RET-004 | US-003 | Todo |
 | US-005 | Edit metadata and retention | E2 | M | M3 | FR-FILE-003/004, FR-RET-003/006 | US-004 | Todo |
 | US-006 | Download my own file | E2 | M | M3 | FR-ID-006, FR-LINK-010/011 | US-004, US-021 | Todo |
@@ -34,7 +34,7 @@ IDs match [requirements.md](../01-product/requirements.md).
 | US-012 | Issue, rotate, revoke API keys | E3 | M | M1/M5 | FR-M2M-004/005/006/013 | US-010 | Todo |
 | US-013 | Rate limits and quotas | E3 | M | M5 | FR-M2M-014, FR-INT-010 | US-010 | Todo |
 | US-014 | Delete an integration-owned file | E3 | S | M5 | FR-INT-002, FR-DEL-007/009 | US-011 | Todo |
-| US-015 | Upload via integration API | E3 | L | M2/M5 | FR-UP-002..007, FR-INT-004/007 | US-003, US-011 | Todo |
+| US-015 | Upload via integration API | E3 | L | M2/M5 | FR-UP-002..017, FR-INT-004/007 | US-003, US-011 | Todo |
 | US-016 | Integration isolation and grants | E3 | M | M5 | FR-M2M-007/011/012, FR-FILE-005 | US-011 | Todo |
 | US-017 | Idempotent retries | E3 | M | M5 | FR-INT-007, NFR-006 | US-015 | Todo |
 | US-018 | Availability check and content | E3 | M | M5 | FR-INT-002/008/009 | US-015 | Todo |
@@ -61,27 +61,29 @@ IDs match [requirements.md](../01-product/requirements.md).
 | T-03 | CI pipeline | M | M0 | Build, tests, contract lint, migrations, terraform fmt/validate. |
 | T-04 | EF Core persistence + repositories + outbox | L | M1 | DbContext, mapping, audit/outbox writers, DB tests. |
 | T-05 | Authentication handlers and policies | L | M1 | Entra user/integration, API key, tenant check. |
-| T-06 | Storage adapter (S3; LocalStack locally) and presigning | L | M2 | Multipart, HeadObject, ranges, delete, copy. |
+| T-06 | Storage adapter, local staging and S3 commit | L | M2 | Chunk store (pwrite), multipart/put, HeadObject, ranges, delete, copy, disk reserve. |
 | T-07 | Audit and download event writers | M | M1 | Transactional, append-only, no secrets. |
 | T-08 | OpenAPI contract tests and DTO generation | S | M1 | Redocly lint, schema validation, TS types. |
 | T-09 | Rate limiting + abuse counters | M | M4 | ASP.NET limiter + Postgres tables. |
 | T-10 | Email sender (Graph) + template renderer | M | M6 | WireMock tests, retries, statuses. |
 | T-11 | Worker scheduler + advisory locks + outbox dispatcher | M | M2 | Quartz in-memory, batch jobs, metrics. |
 | T-12 | Observability (OTel, dashboards, alerts) | M | M0/M7 | Collector, SigNoz, SLOs, alert routes. |
-| T-13 | Terraform modules and environments | L | M7 | Network, storage, DB, compute, alarms. |
-| T-14 | Deployment pipeline + migrations job | M | M7 | ECR, ECS, circuit breaker, smoke tests. |
+| T-13 | Terraform EC2/S3/IAM and environments | L | M7 | Instance, EIP, SG, instance role, bucket policy, lifecycle, user_data. |
+| T-14 | SSH/Compose deployment, Caddy, backups, smoke tests | M | M7 | Docker Compose prod, Caddy/TLS, `.env`, migrations, backup/restore. |
 | T-15 | Threat model implementation checklist | M | M7 | IDOR/auth matrices, upload tampering, ZAP. |
 | T-16 | Load/soak test scripts | M | M7 | k6: metadata, upload, download, abuse. |
 | T-17 | DR drill and runbook rehearsal | M | M7 | Restore, RTO/RPO measurement. |
 | T-18 | Docs upkeep + ADR log | S | ongoing | Update on every decision change. |
+| T-20 | Staging disk monitoring/cleanup and 507 path | M | M2 | Reserve check, pwrite failures, stale session cleanup, alerts. |
+| T-21 | PostgreSQL backup/restore script and drill | M | M7 | `pg_dump` to S3, `_latest` marker, restore test, retention. |
 | T-19 | Existing-file backfill tooling + reconciliation | L | M7 | Mapping table, exporter, checksum verification, dual-run/cutover; see [migration plan](../06-workflows/existing-product-migration.md). |
 
 ## Suggested first vertical slice (S1–S5)
 
 1. T-01/T-02/T-03 + health/config.
 2. T-04/T-05 + US-001/US-002.
-3. T-06 + US-003 (portal upload) → US-004 → US-006.
-4. Integration tests for upload verification and auth denials.
-5. Demo: sign in, upload 10 MiB, see it available, download via grant.
+3. T-06 + US-003 (chunked portal upload) → US-004 → US-006.
+4. Integration tests for chunk/commit verification, disk reserve, and auth denials.
+5. Demo: sign in, upload a 10 MiB file in chunks, see it available, download via grant.
 
 This slice proves auth, DB, S3, streaming, audit, and UI wiring before links/admin complexity.

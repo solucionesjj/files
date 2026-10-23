@@ -12,8 +12,4 @@ aws --endpoint-url "$ENDPOINT" s3api put-public-access-block \
   --public-access-block-configuration \
   "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
 
-aws --endpoint-url "$ENDPOINT" s3api put-bucket-cors \
-  --bucket "$BUCKET" \
-  --cors-configuration file:///etc/localstack/init/ready.d/cors.json
-
-echo "LocalStack S3 ready: private bucket $BUCKET with upload CORS"
+echo "LocalStack S3 ready: private bucket $BUCKET (API-only access, no CORS)"

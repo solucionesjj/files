@@ -44,18 +44,18 @@ stateDiagram-v2
 
 | # | From | Trigger | Guard | To | Side effects (same transaction) |
 |---|---|---|---|---|---|
-| T1 | — | `POST upload-session` (portal/integration) | Authorized, quota, size, content type allowed | `pending_upload` | Insert file + session, create S3 multipart, audit `upload_created`, outbox. |
-| T2 | `pending_upload` | `complete` | S3 parts complete; size/type/checksum match | `processing` | Set size, checksum, `available_at=null`, scan pending, audit `upload_verified`, outbox `file.uploaded`. |
-| T2a | `pending_upload` | `complete` (scanning disabled) | Same | `available` | Set `available_at=now()`, scan `not_scanned`, audit, outbox `file.available`. |
+| T1 | — | `POST upload-session` (portal/integration) | Authorized, quota, size/type allowed, staging capacity available | `pending_upload` | Insert file + session, create empty staging file on EBS, audit `upload_created`, outbox. No S3 call. |
+| T2 | `pending_upload` | `complete` | All chunks staged; size/type/checksum verified; S3 upload + HeadObject verified | `processing` | Set size, checksum, `available_at=null`, scan pending, delete staging, audit `upload_verified`, outbox `file.uploaded`. |
+| T2a | `pending_upload` | `complete` (scanning disabled) | Same | `available` | Set `available_at=now()`, scan `not_scanned`, delete staging, audit, outbox `file.available`. |
 | T3 | `processing` | Scan result clean | Scanner completed | `available` | `scan_status=clean`, `available_at=now()`, audit, outbox. |
 | T4 | `processing` | Scan result infected/failed | — | `quarantined` | `scan_status=infected/failed`, `quarantine_reason`, revoke links, audit, alert. |
 | T5 | `available` | Expiration job | `expires_at <= now()` and no legal hold | `expired` → `pending_deletion` (one run) | Revoke active links, recompute `access_mode` to `owner_only`, cancel pending notifications, audit `expired`, outbox `file.expired`, set `next_deletion_at=now()`. |
 | T6 | `available` | Owner/integration delete | Owner (or admin) and permission | `pending_deletion` | `deletion_requested_by`, reason, revoke links, recompute `access_mode`, audit, outbox `file.deletion_requested`, `next_deletion_at=now()`. |
 | T7 | `quarantined` | Admin delete | Admin + reason | `pending_deletion` | Audit, revoke links. |
-| T8 | `upload_failed` | Cleanup job | Terminal >24 h | `pending_deletion` | Audit cleanup. |
+| T8 | `upload_failed` | Cleanup job | Terminal >24 h | `pending_deletion` | Delete any staging file/multipart, audit cleanup. |
 | T9 | `pending_deletion` | Deletion job | — | `deleted` | S3 delete (external, idempotent), `deleted_at=now()`, `last_deletion_error=null`, audit `deleted`, outbox. |
 | T10 | `pending_deletion` | Deletion failure | 5xx/timeout/throttle | `pending_deletion` | attempts++, backoff `next_deletion_at`, `last_deletion_error`, metric/alert. |
-| T11 | `pending_upload` | Session expiry/abort | TTL passed or client abort | `upload_failed` | Abort multipart, audit, cleanup. |
+| T11 | `pending_upload` | Session expiry/abort | TTL passed or client abort | `upload_failed` | Delete staging file, abort any S3 multipart, audit, cleanup. |
 | T12 | `available` | Reconciliation | Object missing | `quarantined` | `quarantine_reason='object_missing'`, revoke links, alert, audit. |
 
 No transition from `expired`, `quarantined`, `pending_deletion`, or `deleted` back to `available`.
@@ -109,7 +109,7 @@ between the two is not served. A link's validity never overrides the file predic
 
 | State | `expires_at` | `deleted_at` | Object in S3 | Links |
 |---|---|---|---|---|
-| `pending_upload` | per retention | null | partial/none | none |
+| `pending_upload` | per retention | null | none (local staging only) | none |
 | `processing` | per retention | null | yes | none until available |
 | `available` | per retention | null | yes | allowed |
 | `quarantined` | per retention | null | yes | revoked |
@@ -122,8 +122,9 @@ between the two is not served. A link's validity never overrides the file predic
 
 | Failure | State | Recovery |
 |---|---|---|
-| S3 multipart complete fails | `pending_upload` | Client retries complete; session remains valid until TTL. |
-| Verification mismatch | `pending_upload` (client can abort) or `upload_failed` | Re-upload; cleanup aborts parts. |
+| S3 commit fails after verification | `failed` (session) / `pending_upload` (file) | Retry `complete`; staged bytes are retained. |
+| Staging file lost (host issue) | `pending_upload` | Restart session; no S3 object exists yet. |
+| Verification mismatch | `pending_upload` (resumable) or `upload_failed` | Fix/re-upload chunks; cleanup removes staging. |
 | Scanner unavailable | `processing` | Retry scan; alert if >1 h; files stay unavailable (fail closed). |
 | S3 delete fails | `pending_deletion` | Backoff up to 1 h; alert after 15 min; manual runbook. |
 | Object missing at download | `available` → `quarantined` via reconciliation | Alert; admin decides delete. |
@@ -135,4 +136,4 @@ Every transition writes a `file_audit_events` row (`action` = `upload_created`,
 `upload_verified`, `scan_completed`, `quarantined`, `expired`, `deletion_requested`, `deleted`,
 `deletion_failed`, `retention_changed`, `metadata_updated`) with actor, result, reason, trace ID,
 and JSONB metadata (before/after status, size, error class). Counters:
-`file_transitions_total{from,to}` and `file_deletion_failures_total`.
+`file_transitions_total{from,to}` and `files_deletion_failures_total`.

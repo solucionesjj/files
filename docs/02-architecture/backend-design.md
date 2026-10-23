@@ -46,7 +46,7 @@ Domain references no NuGet package except a primitives-free base. Application ma
 
 - One class per use case (`CreateUploadSessionHandler`, `CompleteUploadHandler`,
   `RedeemPublicLinkHandler`, `StreamFileHandler`, …), each returning `Result<T>`.
-- Ports: `IObjectStore`, `IEmailSender`, `IKeyGenerator`, `IVerifierHasher`,
+- Ports: `IObjectStore`, `IChunkStore`, `IEmailSender`, `IKeyGenerator`, `IVerifierHasher`,
   `IAuditWriter`, `IOutboxWriter`, `ICurrentActor`, `IUnitOfWork`, repositories, `TimeProvider`.
 - Authorization: resource-based handlers (`FileOwnerRequirement`,
   `IntegrationFileAccessRequirement`, `PortalRoleRequirement`, `LinkGrantRequirement`).
@@ -61,7 +61,14 @@ Domain references no NuGet package except a primitives-free base. Application ma
 - Dapper for atomic operations: link reservation, download counters, abuse buckets, outbox
   claim. SQL lives in `Infrastructure/Persistence/Sql/*.sql` as embedded resources.
 - `S3ObjectStore` implementing `IObjectStore` with AWS SDK v4. Works against LocalStack S3 via
-  `ServiceURL` + `ForcePathStyle`.
+  `ServiceURL` + `ForcePathStyle`. The API/worker is the only caller; no presigned URLs are
+  generated anywhere.
+- `LocalChunkStore` implementing `IChunkStore`: creates a staging file with `O_EXCL`, performs
+  `pwrite` at chunk offsets, fsyncs, verifies per-chunk hashes, enforces the free-space reserve,
+  and deletes files on abort/completion. The staging path is a host bind mount on EBS.
+- `S3CommitService`: verifies all chunks and total size/checksum, uploads the staging file with
+  server-side multipart (64 MiB parts) or `PutObject`, verifies `HeadObject`, and is idempotent
+  per session (a retry reuses staged bytes).
 - Cryptography: Argon2id (`Konscious.Security.Cryptography.Argon2` or libsodium bindings) for
   link keys; HMAC-SHA256 for API keys; SHA-256 for link/grant tokens.
 - `GraphEmailSender` (Microsoft Graph SDK) behind `IEmailSender`.
@@ -90,7 +97,7 @@ Domain references no NuGet package except a primitives-free base. Application ma
   when another replica holds it.
 - Outbox dispatcher: claims rows with `FOR UPDATE SKIP LOCKED`, dispatches, marks processed;
   exponential backoff, dead-letter after 10 attempts.
-- Health endpoints on port 8080 (`/health/live`, `/health/ready`) for ECS.
+- Health endpoints on port 8080 (`/health/live`, `/health/ready`) for Docker/Caddy health checks.
 
 ## 3. Request pipeline and conventions
 
@@ -102,6 +109,10 @@ Domain references no NuGet package except a primitives-free base. Application ma
 - **Concurrency:** `If-Match: "<version>"` on metadata PATCH; mismatch → 412 `stale_version`.
 - **Pagination:** cursor = base64url(JSON of sort key + id); `limit` 1..100 (default 25);
   response `{ items, nextCursor, hasMore }`.
+- **Uploads:** chunk endpoints accept `application/octet-stream` with a 16 MiB limit (Kestrel and
+  Caddy), write at the declared offset through `IChunkStore`, verify optional `X-Chunk-SHA256`,
+  and return the updated session counters. `complete` performs chunk verification and the S3
+  commit in a bounded background-free request (streaming 64 MiB parts).
 - **Streaming:** `Results.Stream` with a custom `Stream` that triggers completion callbacks;
   disable response buffering; set `Content-Length` when known; support `Range` on the integration content endpoint
   (not for grant-based owner/link downloads).
@@ -124,15 +135,20 @@ Environment variables use `__` separators. Full template in `.env.example`.
 | `Auth__LinkKeyPepper` | 32+ random bytes base64 | Rotatable; see runbook. |
 | `S3__Region` | `us-east-1` | |
 | `S3__Bucket` | `files-prod-...` | Required. |
-| `S3__ServiceUrl` | empty | Set for LocalStack/LocalStack S3. |
+| `S3__ServiceUrl` | empty | Set for LocalStack S3. |
 | `S3__ForcePathStyle` | `true` (local) / `false` (AWS) | |
+| `S3__AccessKeyId` / `S3__SecretAccessKey` | empty | LocalStack only; production uses the EC2 instance role. |
 | `S3__UseSsl` | `true` | Never false in production. |
 | `Storage__MaxFileSizeBytes` | `5368709120` | 5 GiB. |
-| `Storage__MultipartThresholdBytes` | `67108864` | 64 MiB. |
-| `Storage__PartSizeBytes` | `16777216` | 16 MiB. |
+| `Storage__ChunkSizeBytes` | `16777216` | 16 MiB client chunk. |
+| `Storage__S3PartSizeBytes` | `67108864` | 64 MiB server-side S3 part. |
+| `Storage__S3SinglePutThresholdBytes` | `67108864` | Below this, use `PutObject`. |
+| `Storage__StagingPath` | `/var/lib/files/staging` | Host bind mount on EBS. |
+| `Storage__StagingReserveBytes` | `10737418240` | Keep 10 GiB free at all times. |
+| `Storage__MaxConcurrentSessions` | `3` | Per host (and per integration). |
 | `Storage__UploadSessionTtlMinutes` | `60` | |
-| `Storage__PresignTtlMinutes` | `15` | |
-| `Storage__MaxProxyUploadBytes` | `104857600` | 100 MiB staging path. |
+| `Storage__MaxChunkCount` | `10000` | |
+| `Storage__AbortIncompleteAfterHours` | `24` | S3 multipart/staging cleanup. |
 | `Abuse__MaxKeyAttemptsPerWindow` | `5` | |
 | `Abuse__KeyAttemptWindowMinutes` | `15` | |
 | `Abuse__KeyLockoutMinutes` | `15` | |
@@ -192,8 +208,8 @@ logged; `Program.cs` logs only key names and non-sensitive values.
   `FileId` (when safe), `IntegrationId`, `Route`.
 - Redaction: `Authorization`, `X-Api-Key`, `key`, `token`, `grant`, `cookie`, `Set-Cookie`,
   `S3__SecretAccessKey`; never log request bodies of upload/link endpoints.
-- Traces: ASP.NET Core, HttpClient, EF Core, AWS SDK, Npgsql; custom spans for `s3.presign`,
-  `s3.complete`, `download.stream`, `key.verify`, `job.run`.
+- Traces: ASP.NET Core, HttpClient, EF Core, AWS SDK, Npgsql; custom spans for `chunk.write`,
+  `s3.commit`, `s3.head`, `download.stream`, `key.verify`, `job.run`.
 - Metrics: HTTP RED, uploads, downloads, link failures, reservation conflicts, job runs,
   outbox lag, S3 errors, email outcomes. Names in
   [observability-and-slos.md](../08-operations/observability-and-slos.md).

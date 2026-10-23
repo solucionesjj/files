@@ -43,11 +43,17 @@ which condition failed. Specific reasons are recorded only in audit events and m
 | `upload_session_expired` | 410 | Session TTL passed. | No | Create a new session. |
 | `upload_session_completed` | 409 | Session already completed. | No | Use the returned file. |
 | `upload_session_aborted` | 409 | Session aborted. | No | Create a new session. |
-| `upload_parts_incomplete` | 422 | S3 reports missing parts. | Yes | Upload missing parts and retry complete. |
-| `upload_size_mismatch` | 422 | Actual object size ≠ declared size. | No | Re-upload with the correct size. |
-| `upload_checksum_mismatch` | 422 | SHA-256 mismatch. | No | Re-upload. |
-| `presign_limit_exceeded` | 422 | Too many part numbers in one request (>100). | No | Split the request. |
-| `upload_abort_failed` | 502 | S3 abort failed; retried by cleanup. | Yes | Retry later. |
+| `upload_incomplete` | 422 | Not all chunks are staged, or staged size ≠ declared size. | Yes | Upload missing chunks and retry complete. |
+| `chunk_conflict` | 409 | Same chunk number with different size/content. | No | Restart the session or re-send the original chunk. |
+| `chunk_out_of_range` | 422 | Chunk number outside `1..chunkCount` or beyond declared size. | No | Use a valid chunk number. |
+| `chunk_too_large` | 413 | Chunk body exceeds `chunkSizeBytes`. | No | Split the chunk correctly. |
+| `chunk_checksum_mismatch` | 422 | `X-Chunk-SHA256` does not match. | No | Re-send the chunk. |
+| `upload_size_mismatch` | 422 | Staged size ≠ declared size. | No | Restart with the correct size. |
+| `upload_checksum_mismatch` | 422 | Whole-file SHA-256 mismatch. | No | Restart the upload. |
+| `staging_capacity_exceeded` | 507 | The EC2 staging reserve would be exhausted. | Yes (after cleanup) | Abort old sessions or wait for cleanup. |
+| `staging_write_failed` | 503 | Local disk write failed (I/O, permissions, full). | Yes | Retry after checking disk. |
+| `upload_commit_failed` | 502 | The API could not complete the S3 upload; staged bytes are retained. | Yes | Retry `complete`; do not re-upload chunks. |
+| `upload_abort_failed` | 502 | S3 multipart abort failed; cleanup retries. | Yes | Retry later. |
 
 ## Links, keys, grants
 
@@ -70,6 +76,7 @@ which condition failed. Specific reasons are recorded only in audit events and m
 | `invalid_cursor` | 400 | Cursor malformed/expired. | No | Restart pagination. |
 | `unsupported_media_type` | 415 | Wrong `Content-Type`. | No | Use the documented type. |
 | `payload_too_large` | 413 | Body/size exceeds the endpoint limit. | No | Reduce the payload. |
+| `length_required` | 411 | Chunk request without `Content-Length`. | No | Send a fixed-size chunk. |
 | `not_found` | 404 | Unknown route. | No | Check the path. |
 | `method_not_allowed` | 405 | Wrong method. | No | Check the contract. |
 | `conflict` | 409 | State conflict not covered by a specific code. | No | Re-read state. |

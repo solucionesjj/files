@@ -1,62 +1,73 @@
-# ADR-0010 — AWS hosting, container-first delivery, environment secrets
+# ADR-0010 — Initial hosting: one EC2 instance, Docker Compose, Caddy, and one private bucket
 
-- **Status:** Provisional (OQ-02, OQ-15)
+- **Status:** Accepted (replaces the ECS/RDS/ALB design for the construction phase)
 - **Date:** 2026-10-23
-- **Deciders:** Architecture, Operations
+- **Deciders:** Architecture, Operations, Security
 
 ## Context
 
-S3 is mandated. The source requires container-first delivery, three environments, IaC, and
-"secrets in environment files for the moment". The team is small; operational overhead must stay
-low while keeping private networking and least-privilege IAM.
+The construction phase has exactly one AWS EC2 machine and one S3 bucket. No ALB, ECS, RDS, ECR,
+NAT gateway, or CloudWatch is available. The machine runs Ubuntu 24.04 LTS and has a public IP
+exposed to the internet. The product still must be container-first, use PostgreSQL 18, serve an
+Angular portal, expose the API, keep S3 private and exclusive to Files, and be reproducible.
 
 ## Decision
 
-**Platform:** AWS, one account per environment (`files-dev`, `files-test`, `files-prod`), region
-`us-east-1` (OQ-02), Terraform-managed.
+**Host**
 
-**Compute:** ECS Fargate services behind an ALB:
+- One EC2 instance, Ubuntu 24.04 LTS x86_64, default `t3.medium`, 100 GiB gp3 encrypted EBS,
+  Elastic IP (stable public address), IMDSv2 required, termination protection enabled.
+- Default VPC public subnet; security group allows 80/443 from the internet and 22 only from
+  `admin_cidr`. No database port is exposed.
+- Bootstrap via Terraform `user_data`: Docker Engine + Compose plugin, AWS CLI, UFW, fail2ban,
+  unattended upgrades, directories (`/opt/files`, `/var/lib/files/{staging,postgres}`), 2 GiB swap.
 
-- `api` service: 2 tasks min in prod (0.5 vCPU/1 GiB each), autoscale 2–8 on CPU 60%/req count.
-- `worker` service: 1 task (0.5 vCPU/1 GiB), no public ingress.
-- Images in ECR, immutable tags `<git-sha>`; `latest` is never deployed.
+**Runtime (Docker Compose on the host)**
 
-**Data:** RDS PostgreSQL 18, `db.t4g.medium` Multi-AZ in prod (single-AZ dev/test), gp3 100 GiB
-autoscaling, encryption at rest, automated backups 35 days, PITR, deletion protection in prod.
+| Container | Exposure | Role |
+|---|---|---|
+| `caddy` | 80/443 public | TLS termination (automatic HTTPS), reverse proxy `/v1` and `/health` → API, static Angular SPA, security headers, body-size limit. |
+| `api` | internal only | ASP.NET Core API, chunk staging, S3 client, auth, audit. |
+| `worker` | none | Jobs, outbox, cleanup, deletion, reconciliation, backup trigger. |
+| `postgres` | internal only | PostgreSQL 18, data on EBS, healthcheck. |
+| `otel-collector` (optional profile) | internal | OTLP to SigNoz (self-hosted on the same host or external). |
 
-**Network:** VPC with 2 public + 2 private subnets, one NAT gateway in dev/test, two in prod
-(or one + VPC endpoints if cost-driven). S3 and ECR accessed via VPC gateway/interface endpoints
-where practical to reduce NAT cost.
+- The API is the **only** S3 client; it uses the EC2 instance role (no static keys).
+- Secrets live in `/opt/files/.env` (mode `0600`), loaded by Compose and provisioned by the
+  deployment pipeline. No AWS Secrets Manager in this phase.
+- PostgreSQL backups: nightly `pg_dump` (`-Fc`, gzip) from the host to
+  `s3://<bucket>/backups/postgres/`, retained 35 days by lifecycle. No PITR/WAL archiving.
+- TLS requires a DNS name pointing at the Elastic IP. Caddy obtains a public certificate
+  automatically. Without a domain, only a self-signed/HTTP setup is possible, which is not approved
+  for public use (OQ-15).
 
-**Storage:** private S3 bucket per environment; Block Public Access; SSE-S3 by default (SSE-KMS
-optional with a customer-managed key); versioning disabled (ADR-0008); lifecycle rules for
-`staging/` (1 day) and incomplete multipart uploads (7 days).
-
-**Secrets:** non-secret configuration is injected as environment variables (matching the source
-constraint). The database connection string is stored in AWS Secrets Manager and injected through
-the ECS `secrets` block; other sensitive values (Entra/Graph client secrets, peppers) use the same
-mechanism via an `app_secrets` map. Local development uses `.env`. Terraform state contains the DB
-password, so the state backend must be encrypted and access-controlled; automatic rotation is a
-documented follow-up. Secrets are never committed; `.env` is gitignored; `.env.example` contains
-placeholders.
-
-**Delivery:** GitHub Actions builds/tests, pushes images, runs migrations as a one-off ECS task,
-then deploys with the ECS circuit breaker (rollback on failure). Terraform applies per environment
-from a protected branch.
+**Provisioning:** Terraform covers the instance, Elastic IP, security group, IAM role/profile,
+the S3 bucket, and the restrictive bucket policy. Application deployment is Git + SSH + Docker
+Compose (see `deploy/`).
 
 ## Consequences
 
-- Fargate removes host patching; the trade-off is per-task cost and cold starts (mitigated by
-  min capacity ≥2 in prod).
-- Environment variables are visible to anyone with task-definition read access; IAM and account
-  boundaries are the control, and Secrets Manager is the planned upgrade.
-- Single-region; disaster recovery is restore-based (ADR-0008, DR doc).
-- Public SPA hosting: S3+CloudFront preferred; ALB static hosting acceptable for v1. Decide at
-  deployment time without changing the app.
+- Very low cost and a small operational surface, at the price of a **single point of failure**:
+  no HA, no automatic failover, and planned maintenance windows.
+- Availability target is 99.5% best effort; RPO ≤24 h and RTO ≤4 h (D-31). These are honest limits
+  for one host and logical backups.
+- 5 GiB uploads are bounded by the instance's network and EBS; disk monitoring and cleanup are
+  critical.
+- The API/worker and database compete for 4 GiB of RAM; resource limits and swap are mandatory.
+- Patching the host requires a short maintenance window (`apt` + Docker restart). Containers
+  restart automatically.
+- Scaling path (when construction ends): move PostgreSQL to RDS, run 2+ API tasks on ECS/ALB (or
+  keep Compose on a larger EC2), add CloudWatch/SigNoz, PITR, WAF, and a second AZ. The API/S3
+  boundary stays the same.
+- A public IP without a domain cannot get a trusted certificate; the domain/DNS decision gates
+  public launch.
 
 ## Alternatives considered
 
-- EKS/Kubernetes: rejected (operational overhead for two services).
-- App Runner: viable but weaker VPC/ALB integration and less control over task networking.
-- EC2 + Docker Compose: rejected (patching, no rolling deploys).
-- Azure Container Apps: rejected because S3 is mandated and cross-cloud egress/IAM is worse.
+- **ECS Fargate + ALB + RDS + ECR** (previous design): rejected for the current phase because
+  those services are not available; kept as the scale-up path.
+- **Lightsail / another VPS:** could work, but the user has an EC2 instance and S3; no benefit now.
+- **Bare-metal PostgreSQL on the host:** viable, but containers keep deployment reproducible and
+  match local development.
+- **Nginx instead of Caddy:** Nginx requires manual certbot wiring; Caddy automates TLS and static
+  serving with a simpler config.

@@ -25,22 +25,26 @@ row remains as a tombstone with `storage_key` retained for audit but never expos
 - On success: `deleted_at = now()`, `storage_key` retained, `deletion_error = null`.
 - On retryable failure (5xx, timeout, throttling): increment `deletion_attempts`, set
   `next_deletion_at` with exponential backoff (1 min → 1 h, jitter), keep `pending_deletion`,
-  emit `file_deletion_failures_total`, alert after 15 min.
+  emit `files_deletion_failures_total`, alert after 15 min.
 - On non-retryable failure (access denied): same state, alert immediately; operator runbook.
 - A reconciliation job detects deleted rows whose object still exists and re-queues deletion, and
   `available` rows whose object is missing (quarantine + alert).
 
 **Backups and replicas**
 
-- RDS automated backups + PITR (35 days) and snapshots are separate from the live table; deleted
-  rows persist there until the backup window passes.
+- A nightly logical `pg_dump` is written to `s3://<bucket>/backups/postgres/` and retained 35 days
+  by lifecycle; it is separate from the live table, so deleted rows persist there until the
+  backup window passes. There is no PITR/WAL archiving in the initial single-node phase.
+- Optional EBS snapshots (manual or scheduled outside Terraform) are treated as another backup
+  copy with the same erasure caveat.
 - S3 versioning is **disabled** in production to avoid hidden copies; lifecycle abort rules clean
   incomplete uploads. If versioning is enabled for operational reasons, a lifecycle rule must
   expire noncurrent versions within 24 h and this ADR must be revisited.
 - Any cross-region replication (if enabled) is documented, and deletion propagates via the
   provider; the product never promises "immediate, complete, global erasure".
 - The public product wording: "Files removes the object from primary storage immediately after
-  logical deletion; backup copies are retained for up to 35 days under the backup policy."
+  logical deletion; logical database backups are retained for up to 35 days under the backup
+  policy."
 
 **Audit**
 

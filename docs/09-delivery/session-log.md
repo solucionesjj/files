@@ -6,7 +6,49 @@ entry.
 
 ---
 
+## 2026-10-23 — Re-scope to one EC2 + exclusive S3 (current)
+
+**Change requested:** the construction phase has a single EC2 instance (Ubuntu 24.04 LTS, public
+IP) plus one S3 bucket; no ALB/ECS/RDS/ECR/CloudWatch. The bucket may be accessed **only** by
+Files. The previous ECS/RDS/ALB and presigned-upload design is superseded for this phase.
+
+**What changed**
+
+- Hosting: one EC2 (`t3.medium` default, 100 GiB gp3 EBS, Elastic IP) running Docker Compose with
+  Caddy, API, worker, and PostgreSQL 18. Caddy is the only public listener; SSH is restricted to
+  `admin_cidr` (D-31/D-32, ADR-0010).
+- Uploads: **API-proxied 16 MiB chunks** into a local EBS staging file, verified, then uploaded to
+  S3 by the API using server-side multipart. No presigned URLs; clients never touch S3 (D-07/D-30,
+  ADR-0003).
+- Schema: `upload_sessions` now stores chunk geometry/staging path; `upload_parts` became
+  `upload_chunks` (offset, size, hash). No S3 upload ID at session creation.
+- OpenAPI: chunk `PUT`/status endpoints replace presign endpoints; proxy upload removed.
+- S3: bucket policy denies object/list/multipart actions to every principal except the EC2 instance
+  role; no CORS; API/worker use the instance role.
+- Operations: Terraform rewritten (instance + storage modules), `deploy/` added (Compose, Caddy,
+  env template, backup/restore/smoke), backups are nightly `pg_dump` to S3 (RPO 24 h/RTO 4 h),
+  SLOs adjusted to 99.5%, cost model to ~US$80–90/month.
+- Docs updated across requirements, stories, architecture, data model, API, security, workflows,
+  operations, roadmap/backlog/traceability, AGENTS/README/Spanish summary.
+
+**Validated**
+
+- `V1`/`V2` applied on PostgreSQL 18.6 with the new upload tables; 27 tables; invariants pass.
+- OpenAPI parses and passes Redocly; chunk endpoints/schemas present, no presign remnants.
+- `terraform fmt`/`validate` succeed for the EC2 + S3 stack; no module cycles.
+- Local stack still uses LocalStack 3.8 (no S3 CORS needed).
+
+**Next**
+
+S1 starts the application scaffold as before, but the first vertical slice must use chunk uploads +
+staging + server-side S3 commit, and the production deploy follows `deploy/README.md`.
+
+---
+
 ## 2026-10-23 — Design package v1 (pre-implementation)
+
+> **Partially superseded:** hosting and upload decisions below were replaced by the re-scope
+> entry above. Keep this entry as history.
 
 **Goal:** Turn the source specification v0.2 into an implementation-ready package that future
 sessions can execute without re-deriving decisions.

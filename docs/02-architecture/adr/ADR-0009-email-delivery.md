@@ -16,8 +16,8 @@ confirmed delivery.
 - Primary provider: Microsoft Graph `POST /users/{sender}/sendMail` using an Entra app
   registration with application permission `Mail.Send`, restricted by an **application access
   policy** (Exchange PowerShell) to the single sending mailbox.
-- Credentials: client credentials with a certificate (preferred) or secret stored in the runtime
-  secret store; no SMTP password. TLS is implicit.
+- Credentials: client credentials with a certificate (preferred) or a secret stored in the ENV
+  file on the host; no SMTP password. TLS is implicit.
 - Sender: `Notifications__FromAddress` (e.g., `files-noreply@company.com`), display name "Files".
 - Templates: stored in `email_templates` (key, locale, subject, HTML, text, version) and seeded
   with defaults. Rendering uses a strict allowlist of variables (`fileName`, `expiresAt`,

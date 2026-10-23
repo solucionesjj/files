@@ -34,8 +34,11 @@ jobs:
       - name: Lint OpenAPI
         run: npx --yes @redocly/cli@latest lint docs/04-api/openapi/files-api.v1.yaml
 
-      - name: Validate docker compose
+      - name: Validate docker compose (local)
         run: docker compose config -q
+
+      - name: Validate docker compose (production, example env)
+        run: FILES_ENV_FILE=env.prod.example docker compose --env-file deploy/env.prod.example -f deploy/docker-compose.prod.yml config -q
 
       - uses: hashicorp/setup-terraform@v3
         with:

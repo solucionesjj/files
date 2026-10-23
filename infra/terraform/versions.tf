@@ -12,13 +12,12 @@ terraform {
     }
   }
 
-  # Remote state is strongly recommended. Bootstrap a versioned, encrypted,
-  # public-access-blocked S3 bucket and one state key per environment, then
-  # uncomment and adjust this block before running `terraform init`.
+  # Remote state (recommended). Bootstrap the bucket/versioning/encryption once,
+  # then uncomment and configure. Never commit state or real tfvars.
   #
   # backend "s3" {
-  #   bucket       = "REPLACE_WITH_STATE_BUCKET"
-  #   key          = "files/dev/terraform.tfstate"
+  #   bucket       = "files-tfstate-<account-id>-us-east-1"
+  #   key          = "files/prod/terraform.tfstate"
   #   region       = "us-east-1"
   #   encrypt      = true
   #   use_lockfile = true

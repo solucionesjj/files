@@ -1,5 +1,4 @@
 data "aws_caller_identity" "current" {}
-
 data "aws_region" "current" {}
 
 resource "random_id" "bucket_suffix" {
@@ -7,7 +6,7 @@ resource "random_id" "bucket_suffix" {
 }
 
 locals {
-  bucket_name = "files-${var.environment}-${data.aws_caller_identity.current.account_id}-${data.aws_region.current.region}-${random_id.bucket_suffix.hex}"
+  bucket_name = var.bucket_name != "" ? var.bucket_name : "files-${var.environment}-${data.aws_caller_identity.current.account_id}-${data.aws_region.current.region}-${random_id.bucket_suffix.hex}"
 }
 
 resource "aws_s3_bucket" "this" {
@@ -78,17 +77,25 @@ resource "aws_s3_bucket_policy" "this" {
         }
       },
       {
-        Sid       = "DenyAnonymousAccess"
+        Sid       = "DenyAllExceptFilesInstanceRole"
         Effect    = "Deny"
         Principal = "*"
-        Action    = "s3:*"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+          "s3:ListBucket",
+          "s3:AbortMultipartUpload",
+          "s3:ListMultipartUploadParts",
+          "s3:ListBucketMultipartUploads",
+        ]
         Resource = [
           aws_s3_bucket.this.arn,
           "${aws_s3_bucket.this.arn}/*",
         ]
         Condition = {
-          StringEquals = {
-            "aws:PrincipalType" = "Anonymous"
+          StringNotEquals = {
+            "aws:PrincipalArn" = var.files_principal_arn
           }
         }
       },
@@ -138,6 +145,19 @@ resource "aws_s3_bucket_lifecycle_configuration" "this" {
     }
   }
 
+  rule {
+    id     = "expire-database-backups"
+    status = "Enabled"
+
+    filter {
+      prefix = "backups/postgres/"
+    }
+
+    expiration {
+      days = var.backup_retention_days
+    }
+  }
+
   dynamic "rule" {
     for_each = var.bucket_versioning ? [1] : []
 
@@ -154,17 +174,4 @@ resource "aws_s3_bucket_lifecycle_configuration" "this" {
   }
 
   depends_on = [aws_s3_bucket_versioning.this]
-}
-
-resource "aws_s3_bucket_cors_configuration" "uploads" {
-  bucket = aws_s3_bucket.this.id
-
-  cors_rule {
-    id              = "portal-direct-upload"
-    allowed_headers = ["Content-Type"]
-    allowed_methods = ["PUT"]
-    allowed_origins = [var.portal_origin]
-    expose_headers  = ["ETag"]
-    max_age_seconds = 3600
-  }
 }

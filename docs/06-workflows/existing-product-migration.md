@@ -41,8 +41,8 @@ flowchart LR
   db[(Existing product DB)] --> exporter[Batch exporter]
   store[(Old storage)] --> exporter
   exporter -->|create session| api[Files API]
-  exporter -->|presigned PUT| s3[(Files S3)]
-  exporter -->|complete + verify| api
+  exporter -->|chunks| api
+  api -->|server-side upload| s3[(Files S3)]
   api --> mapping[(Mapping table:<br/>old_id → file_id, hash, status)]
   mapping --> reconcile[Reconciliation report]
 ```
@@ -53,8 +53,10 @@ Per file:
 2. Create a mapping row `pending` with `old_id`, size, hash, customer record ID.
 3. `POST /v1/integrations/upload-sessions` with
    `Idempotency-Key = "backfill:<old_id>:<hash>"`, file name, size, content type, checksum.
-4. Upload parts to the returned presigned URLs (concurrency ≤4; respect quotas).
-5. `POST .../complete`; verify the returned metadata and checksum.
+4. Upload the file in chunks to `PUT /v1/integrations/upload-sessions/{id}/chunks/{n}`
+   (concurrency ≤2; respect quotas and the 16 MiB chunk size).
+5. `POST .../complete`; the API stages/verifies and uploads to S3; verify the returned metadata
+   and checksum. No S3 URL or credential is involved.
 6. Store `fileId` in the mapping row and update the customer record reference in the same
    application transaction (or a controlled two-step with a reconciliation flag).
 7. Mark `done`; on failure, mark `failed` with a reason and retry later with the same idempotency

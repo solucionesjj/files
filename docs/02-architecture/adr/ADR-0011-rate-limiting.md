@@ -26,8 +26,8 @@ Two layers:
 
 Responses include `RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`; 429 includes
 `Retry-After`. Limits are configurable. Replica-local limits are acceptable because the
-authoritative abuse control is layer 2 and the ALB spreads traffic; worst case an attacker gets
-N× the coarse limit.
+authoritative abuse control is layer 2 and Caddy/the host spreads traffic; worst case an attacker
+gets N× the coarse limit (one API replica initially).
 
 **2. Authoritative abuse control — PostgreSQL**
 
@@ -41,8 +41,8 @@ N× the coarse limit.
 
 **Implementation notes**
 
-- Trust `X-Forwarded-For` only from the ALB; configure `ForwardedHeaders` with known networks and
-  a single proxy hop. Never trust client-supplied IPs.
+- Trust `X-Forwarded-For` only from Caddy (Docker network); configure `ForwardedHeaders` with the
+  known proxy network and a single hop. Never trust client-supplied IPs.
 - Locked-out requests return 429 `too_many_attempts` **before** key hashing (cheap rejection).
 - Metrics: `link_key_failures_total{reason}`, `link_lockouts_total`, `rate_limited_total{policy}`.
 - Redis replaces layer 2 only if measurements show contention; the interface

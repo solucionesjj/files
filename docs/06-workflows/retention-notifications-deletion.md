@@ -137,7 +137,7 @@ For each `pending_deletion` file with `next_deletion_at <= now()`:
    `next_deletion_at=NULL`, audit `deleted`, outbox `file.deleted`.
 3. On retryable failure: `deletion_attempts+1`, `next_deletion_at = now() + backoff`,
    `last_deletion_error` (sanitized), stay `pending_deletion`, metric
-   `file_deletion_failures_total{reason}`, alert if pending > 15 min.
+   `files_deletion_failures_total{reason}`, alert if pending > 15 min.
 4. On permanent failure (403/404 bucket): alert immediately; file stays non-downloadable.
 
 Backoff: `min(1h, 1m * 2^(attempts-1))` with ±20% jitter. After 10 attempts, alert severity high
@@ -150,11 +150,13 @@ retention purge job; the storage key is nulled only at purge.
 
 ### Upload cleanup (hourly)
 
-- Sessions `initiated|uploading` with `expires_at <= now()` → abort S3 multipart, mark
-  `upload_failed`, file `upload_failed` (then `pending_deletion` next run), audit.
+- Sessions in `initiated|uploading|received|failed` with `expires_at <= now()` → delete the local
+  staging file, abort any S3 multipart, mark `upload_failed`, file `upload_failed` (then
+  `pending_deletion` on a later run), audit.
 - S3 multipart uploads older than 24 h → `AbortMultipartUpload` (best effort; bucket lifecycle
   aborts at 7 days as a backstop).
-- Staging objects older than 1 day → delete.
+- Local staging files with no open session, or older than 24 h, → delete.
+- `staging/` S3 objects older than 1 day → delete.
 
 ### Reconciliation (daily, 02:00 UTC)
 
@@ -163,7 +165,7 @@ retention purge job; the storage key is nulled only at purge.
 2. **S3 → DB:** use an S3 Inventory report (preferred) or a bounded `ListObjectsV2` scan:
    - objects under `f/` with no file row → move to `orphan/` (copy+delete); the 7-day
      lifecycle rule removes them; alert with a key fingerprint (never the full key).
-   - staging objects with no open session → delete.
+   - `staging/` objects with no open session → delete; orphan local staging files → delete.
 3. Report counts: `reconcile_missing_db_total`, `reconcile_orphan_s3_total`,
    `reconcile_quarantined_total`; store the run in logs (and optionally a table if reporting is
    needed later).
@@ -212,7 +214,7 @@ records duration/result metrics. Misfires run once on recovery (state is in the 
 | Metric | Alert |
 |---|---|
 | `files_expired_total` | Informational. |
-| `file_deletion_failures_total` | >5 pending for 15 min → page. |
+| `files_deletion_failures_total` | >5 pending for 15 min → page. |
 | `notification_delivery_failures_total` | >10 in 1 h → ticket. |
 | `notification_events_pending` | >1000 or oldest > 2 h → page. |
 | `outbox_lag_seconds` | >60 s → page. |
@@ -235,5 +237,7 @@ records duration/result metrics. Misfires run once on recovery (state is in the 
 - **Integration files:** no notifications, indefinite retention, deletion only by owner/admin.
 - **Legal hold (future):** `legal_hold=true` blocks expiry and deletion; the column exists but is
   not exposed in v1.
-- **Backups:** deletion removes the object from the primary bucket; backups may retain copies for
-  up to 35 days (ADR-0008).
+- **Backups:** deletion removes the object from the primary bucket; nightly logical database
+  backups in `backups/postgres/` may retain metadata copies for up to 35 days (ADR-0008). S3
+  objects themselves are not replicated, so file erasure is immediate (subject to EBS snapshots,
+  if used).

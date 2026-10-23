@@ -57,16 +57,19 @@ Scenario: Regular user is denied
 
 ## Epic E2 — Human file management
 
-### US-003 — Upload a file
-**As** a portal user **I want** to upload a file with progress and validation **so that** it is
-securely stored and available for sharing.
-**Priority** M · **Milestone** M2/M3 · **Requirements** FR-UP-001..007, 009, 011, 012, 015, FR-RET-002
+### US-003 — Upload a file through the Files API
+**As** a portal user **I want** to upload a file in chunks with progress and validation **so that**
+it is securely staged, stored, and available for sharing without my browser touching S3.
+**Priority** M · **Milestone** M2/M3 · **Requirements** FR-UP-001..007, 009, 011, 012, 014..017, FR-RET-002
 
 ```gherkin
 Scenario: Small file upload completes and becomes available
   Given I selected a 10 MiB PDF within the allowed size
   When I confirm the upload
   Then Files creates an upload session and a pending file owned by me
+  And the session returns a chunk size and chunk count, never an S3 URL or credential
+  When I upload all chunks and call complete
+  Then the API verifies the staged bytes and uploads the object to S3 itself
   And the object is stored under a generated key with no filename in it
   And the file becomes "available" after size and content-type verification
   And the file list shows it with the global default retention
@@ -81,13 +84,27 @@ Scenario: Disallowed content type is rejected
   Given the allowlist excludes executable files
   When I request an upload session for "setup.exe"
   Then the response is 422 with code "unsupported_content_type"
-  And no presigned URL is issued
+  And no staging file is created
+
+Scenario: Insufficient staging disk
+  Given the staging reserve would be exhausted by a new 5 GiB session
+  When I request the session
+  Then the response is 507 with code "staging_capacity_exceeded"
+  And no temp file is created
 
 Scenario: Upload cancelled or expired
-  Given I started a multipart upload and stopped
-  When the session expires
-  Then the multipart upload is aborted
+  Given I started a chunked upload and stopped
+  When I abort the session or it expires
+  Then the staging file is deleted
+  And any S3 multipart upload is aborted
   And the file is not listed as available
+
+Scenario: Chunk retry is idempotent
+  Given I uploaded chunk 3 successfully
+  When my client retries chunk 3 with the same content
+  Then the API returns success without duplicating bytes
+  When I retry chunk 3 with different content
+  Then the response is 409 with code "chunk_conflict"
 ```
 
 ### US-004 — Browse and inspect my files
@@ -327,32 +344,39 @@ Scenario: Deleting someone else's file is denied
   And the file remains available
 ```
 
-### US-015 — Create an upload session and complete an upload
-**As** an enterprise system **I want** to upload directly to S3 using short-lived URLs
-**so that** large files do not pass through my application servers.
-**Priority** M · **Milestone** M2/M5 · **Requirements** FR-UP-002..007, FR-INT-004/007, FR-GEN-002
+### US-015 — Upload through the integration API
+**As** an enterprise system **I want** to upload files through the Files API in chunks **so that**
+large files are stored in S3 without my application or the browser talking to the bucket.
+**Priority** M · **Milestone** M2/M5 · **Requirements** FR-UP-002..007, 014..017, FR-INT-004/007
 
 ```gherkin
-Scenario: Multipart upload of a 2 GiB file
+Scenario: Chunked upload of a 2 GiB file
   Given I have file.write and a 2 GiB file within my quota
   When I create an upload session with size, content type, and checksum
-  Then I receive a file ID, upload session ID, and presigned part URLs
+  Then I receive a file ID, upload session ID, chunk size, and chunk count
+  And no S3 URL, bucket credential, or presigned token is present in the response
   And the file is not available yet
-  When I upload all parts and complete the session
-  Then Files verifies size and checksum and marks the file available
+  When I upload all chunks (in any order) and complete the session
+  Then Files verifies the staged file, uploads it to S3, and verifies the object
   And the file has indefinite retention, integration-only access, and no link
 
-Scenario: Presigned URL cannot overwrite another object
-  Given I have a presigned part URL for my session
-  When I try to use it for a different key or after expiry
-  Then S3 rejects the request
-  And the file remains unavailable
+Scenario: Complete retry after an S3 failure
+  Given all chunks are staged and the S3 commit failed transiently
+  When I retry complete
+  Then Files reuses the staged file and retries the S3 upload
+  And I do not need to re-upload the chunks
 
 Scenario: Size mismatch fails verification
-  Given I declared 100 MiB but uploaded 90 MiB
+  Given I declared 100 MiB but staged 90 MiB
   When I complete the session
-  Then the response is 422 with code "upload_size_mismatch"
+  Then the response is 422 with code "upload_incomplete"
   And the file is not available
+
+Scenario: Chunk access is session-scoped
+  Given another integration owns a different upload session
+  When I send a chunk to their session
+  Then the response is 404
+  And no bytes are written
 ```
 
 ### US-016 — Isolation of integration-owned files and explicit grants
@@ -432,8 +456,10 @@ Scenario: User uploads a file for a customer record
   Given a user is authorized for customer 4711 in the existing product
   When they upload a document
   Then the existing product backend creates an upload session as its integration
+  And sends the file to Files in chunks through the API
   And stores the returned file ID with customer 4711
   And no file bytes are stored in the existing product database
+  And the browser never receives an S3 URL or credential
 
 Scenario: User downloads the customer document
   Given the user is still authorized for customer 4711
@@ -721,7 +747,7 @@ Scenario: Template customization
 ### US-031 — Operate and observe the platform
 **As** an operator **I want** health endpoints, metrics, dashboards, alerts, and restore runbooks
 **so that** I can keep the SLOs and recover from failures.
-**Priority** M · **Milestone** M0/M7 · **Requirements** FR-GEN-001/006, NFR-001..019
+**Priority** M · **Milestone** M0/M7 · **Requirements** FR-GEN-001/006, NFR-001..021
 
 ```gherkin
 Scenario: Readiness reflects dependencies
@@ -739,8 +765,14 @@ Scenario: Deletion failures alert
   Given pending_deletion files exceed 5 for 15 minutes
   Then an alert routes to the on-call channel with the runbook link
 
-Scenario: Restore drill
-  Given a backup within the retention window
-  When the team restores it into the DR environment
-  Then RPO/RTO results are recorded in the drill log
+Scenario: Single-host backup and restore
+  Given the nightly `pg_dump` is in S3 under backups/postgres/
+  When the instance is replaced and the dump is restored
+  Then the database is recovered within the RPO/RTO target
+  And the restore result is recorded in the drill log
+
+Scenario: Host disk pressure
+  Given the staging or PostgreSQL disk is above 85% utilization
+  Then an alert fires before writes fail
+  And the runbook covers cleanup and resize
 ```

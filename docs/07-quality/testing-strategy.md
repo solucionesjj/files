@@ -48,6 +48,7 @@ no drop >2% in a PR without justification.
 
 - PostgreSQL 18 container, migrations applied with Flyway (same scripts as production).
 - LocalStack S3 container with a private bucket and a lifecycle test config.
+- A temporary staging directory per test (and a small reserve override to test `507`).
 - Mock OIDC: a local JWKS endpoint + signed test tokens (RSA key generated once) to exercise
   validation without Entra; plus a fake Graph server (WireMock) for email.
 - `WebApplicationFactory<Program>` with `TimeProvider` fake and deterministic key generation.
@@ -62,7 +63,7 @@ invalid input, rate limit (where applicable), and OpenAPI shape.
 | Area | Key cases |
 |---|---|
 | `/me`, `/config` | Provisioning, role claims, tenant mismatch, no roles. |
-| Portal upload | Session create, presign, complete, abort, size/type/checksum failures, quota, scanning path. |
+| Portal upload | Session create, chunk upload/resume, duplicate/conflict chunks, complete, abort, size/type/checksum failures, disk reserve, scanning path. |
 | Portal files | List filters/sort/pagination, detail, rename/tag/retention, If-Match conflict, delete. |
 | Links | Create public/private, key shown once, list, revoke, stats, limits, policy disabled. |
 | Public links | Metadata, wrong/right key, lockout, revoked/expired, concurrency with max=1, grant reuse. |
@@ -70,7 +71,6 @@ invalid input, rate limit (where applicable), and OpenAPI shape.
 | Grants | Stream, expiry, single-use, file expires between grant and stream, disconnect. |
 | Integration auth | Entra token mapping, disabled integration, missing permission, IP allowlist, API key rotation/expiry/revoke. |
 | Integration files | Create (idempotent), complete, metadata, availability, content (range), delete, grants, cross-integration denial. |
-| Proxy upload | ≤100 MiB success, >limit rejection, staging cleanup, failure rollback. |
 | Admin | Integration CRUD/permissions/credentials, retention policy version, migration, notifications, templates, settings, audit filters, auditor read-only. |
 | Jobs | Scheduler/sender/expiry/deletion/cleanup/reconcile, duplicate runs, advisory locks, retries. |
 | Outbox | At-least-once, dead-letter, lag, replay. |
@@ -104,7 +104,7 @@ invalid input, rate limit (where applicable), and OpenAPI shape.
 
 Scenarios (against API + LocalStack S3 + mocked Entra or test tenant):
 
-1. Sign in, upload small and multipart files, see them listed.
+1. Sign in, upload small and multi-chunk files (resume one), see them listed.
 2. Search/filter/sort/paginate.
 3. Rename, add/remove tags, extend retention, verify notification scheduling (UI/state).
 4. Download own file; verify count increments only after completion.
@@ -124,8 +124,8 @@ Run on Chromium in PR CI; full browser matrix (Edge/Firefox/Safari) nightly.
   404 (or 403 only where documented), no data in body.
 - **Auth matrix:** no token, expired, wrong audience/issuer/tenant, `alg=none`, app token on user
   route, user token on integration route.
-- **Upload tampering:** declared vs actual size/type, cross-key presign, reused/expired URL,
-  oversize part, extra object metadata.
+- **Upload tampering:** declared vs actual size/type, cross-session chunk, duplicate/conflicting
+  chunk, oversize chunk, out-of-order completion, staged-file tampering.
 - **Public key:** lockout thresholds, timing distribution (t-test on success/failure paths),
   grant reuse, enumeration.
 - **Headers:** no secrets in logs/traces (capture test), `Content-Disposition` encoding, no
@@ -140,8 +140,10 @@ Run on Chromium in PR CI; full browser matrix (Edge/Firefox/Safari) nightly.
 |---|---|
 | Metadata list p95 | ≤500 ms at 50 RPS, 10k files |
 | Download TTFB p95 | ≤800 ms, 50 concurrent streams |
-| Upload throughput | ≥100 MB/s aggregate with 20 multipart sessions |
+| Upload throughput | ≥50 MB/s aggregate with 3 concurrent chunked sessions |
 | 5 GiB download | API RSS <200 MiB, no buffering |
+| 5 GiB chunked upload | staging disk <6 GiB per session, commit retry without re-upload |
+| Disk reserve | uploads fail closed with 507 before the reserve |
 | Link key attempts | 429/lockout adds <5 ms when locked |
 | Job batch 500 | <60 s; no long locks |
 | Outbox lag | <5 s at 100 events/s |
@@ -165,7 +167,7 @@ Run on Chromium in PR CI; full browser matrix (Edge/Firefox/Safari) nightly.
 | E2E (Chromium) | PR + main | Critical paths |
 | Performance smoke | main / nightly | Budgets |
 | Image scan + SBOM | main | No critical CVEs (exception process) |
-| Deploy staging | main | Migrations + smoke tests |
+| Deploy to EC2 | main/tag | Backup + migrations + compose + smoke tests |
 | Deploy prod | Tag + approval | Same + rollback plan |
 
 ## 10. Test data and environments

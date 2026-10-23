@@ -180,7 +180,7 @@ The SPA receives only `tenantId`, `clientId`, `apiScope`, and `apiBaseUrl` via
 | Entra unavailable | New logins fail; existing tokens valid until expiry; API keeps serving metadata. |
 | JWKS fetch failure | Tokens cannot be validated → 401; alert. Keys are cached; outage tolerated for hours. |
 | Misconfigured audience | All tokens 401; startup validation checks configuration shape, not Entra. |
-| Clock skew | ≤2 min tolerated; NTP required on hosts (ECS handles). |
+| Clock skew | ≤2 min tolerated; NTP/chrony required on the EC2 host. |
 | User disabled in Entra | New tokens fail; existing token may work up to 1 h. `users.status` is not synced in v1. |
 | Tenant mismatch | 401; logged as a security event. |
 

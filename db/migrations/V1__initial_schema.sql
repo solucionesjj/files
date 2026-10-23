@@ -307,38 +307,46 @@ CREATE TABLE upload_sessions (
     file_id                 uuid NOT NULL UNIQUE REFERENCES files(id) ON DELETE CASCADE,
     initiator_type          text NOT NULL CHECK (initiator_type IN ('user', 'integration')),
     initiator_id            uuid NOT NULL,
-    mode                    text NOT NULL CHECK (mode IN ('single', 'multipart', 'proxy')),
     status                  text NOT NULL DEFAULT 'initiated'
-                            CHECK (status IN ('initiated', 'uploading', 'completed',
-                                              'failed', 'expired', 'aborted')),
+                            CHECK (status IN ('initiated', 'uploading', 'received',
+                                              'committing', 'completed', 'failed',
+                                              'expired', 'aborted')),
     expected_size_bytes     bigint NOT NULL CHECK (expected_size_bytes >= 0),
     expected_content_type   text NOT NULL,
     expected_checksum_sha256 text CHECK (expected_checksum_sha256 IS NULL
                                         OR expected_checksum_sha256 ~ '^[a-f0-9]{64}$'),
+    chunk_size_bytes        bigint NOT NULL CHECK (chunk_size_bytes > 0),
+    chunk_count             integer NOT NULL CHECK (chunk_count BETWEEN 1 AND 10000),
+    received_bytes          bigint NOT NULL DEFAULT 0
+                            CHECK (received_bytes >= 0 AND received_bytes <= expected_size_bytes),
+    staging_path            text NOT NULL UNIQUE,
     s3_upload_id            text,
-    part_size_bytes         bigint CHECK (part_size_bytes IS NULL OR part_size_bytes > 0),
+    s3_part_size_bytes      bigint CHECK (s3_part_size_bytes IS NULL OR s3_part_size_bytes > 0),
     expires_at              timestamptz NOT NULL,
     completed_at            timestamptz,
-    staging_key             text,
     last_error              text,
     created_at              timestamptz NOT NULL DEFAULT now(),
-    updated_at              timestamptz NOT NULL DEFAULT now()
+    updated_at              timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT ck_upload_sessions_completed CHECK (
+        (status = 'completed' AND completed_at IS NOT NULL) OR
+        (status <> 'completed')
+    )
 );
 
 CREATE INDEX ix_upload_sessions_open ON upload_sessions (expires_at)
-    WHERE status IN ('initiated', 'uploading');
-CREATE INDEX ix_upload_sessions_expired_open
-    ON upload_sessions (expires_at)
-    WHERE status IN ('initiated', 'uploading');
+    WHERE status IN ('initiated', 'uploading', 'received', 'committing');
+CREATE INDEX ix_upload_sessions_cleanup ON upload_sessions (updated_at)
+    WHERE status IN ('failed', 'expired', 'aborted');
 
-CREATE TABLE upload_parts (
+CREATE TABLE upload_chunks (
     upload_session_id   uuid NOT NULL REFERENCES upload_sessions(id) ON DELETE CASCADE,
-    part_number         integer NOT NULL CHECK (part_number BETWEEN 1 AND 10000),
+    chunk_number        integer NOT NULL CHECK (chunk_number BETWEEN 1 AND 10000),
+    offset_bytes        bigint NOT NULL CHECK (offset_bytes >= 0),
     size_bytes          bigint NOT NULL CHECK (size_bytes >= 0),
-    etag                text,
-    checksum_sha256     text,
-    created_at          timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (upload_session_id, part_number)
+    checksum_sha256     text CHECK (checksum_sha256 IS NULL
+                                    OR checksum_sha256 ~ '^[a-f0-9]{64}$'),
+    received_at         timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (upload_session_id, chunk_number)
 );
 
 -- ---------------------------------------------------------------------------

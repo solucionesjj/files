@@ -38,14 +38,16 @@ business authorization, end-user devices, and Microsoft's own infrastructure.
 
 ## 4. Trust boundaries
 
-1. Internet ↔ ALB/API (TLS; untrusted input).
-2. Browser ↔ Entra (OIDC; PKCE; tokens in the browser).
-3. Consumer backend ↔ Entra/API (machine credentials).
-4. API/Worker ↔ S3 (IAM role; private VPC/NAT; TLS).
-5. API/Worker ↔ RDS (private subnets; TLS optional in-VPC but recommended).
-6. Worker ↔ Graph (app permission restricted to one mailbox).
-7. CI/CD ↔ AWS (OIDC federation preferred over long-lived keys).
-8. Public visitor ↔ API (token + key + throttling).
+1. Internet ↔ Caddy/API (TLS; untrusted input on 80/443).
+2. Caddy ↔ API/SPA (Docker network; only Caddy is published).
+3. Browser ↔ Entra (OIDC; PKCE; tokens in the browser).
+4. Consumer backend ↔ Entra/API (machine credentials).
+5. API/Worker ↔ PostgreSQL (Docker network; no host port).
+6. API/Worker ↔ S3 (EC2 instance role only; bucket policy denies every other principal; no presigned URLs).
+7. Worker/API ↔ Graph (app permission restricted to one mailbox).
+8. Operator ↔ EC2 via SSH (restricted `admin_cidr`; key auth; fail2ban).
+9. CI/CD ↔ EC2 (SSH deploy user; no AWS keys).
+10. Public visitor ↔ API (token + key + throttling).
 
 ## 5. STRIDE analysis
 
@@ -65,8 +67,8 @@ Likelihood/impact: L/M/H. Status is the v1 control; verification is how we prove
 
 | ID | Threat | L/I | Mitigation | Verification |
 |---|---|---|---|---|
-| T-01 | Client alters size/content type/checksum to bypass validation | M/M | Server-declared expectations, signed `Content-Type`, `HeadObject` verification after upload, optional checksum, allowlist. | Upload negative tests; S3 integration tests. |
-| T-02 | Presigned URL reused for another key/part or after expiry | L/H | URL scoped to one key/upload ID/part, 15-min TTL, new key per file, no overwrite. | S3 policy tests; attempt cross-key upload. |
+| T-01 | Client alters size/content type/checksum to bypass validation | M/M | Declared expectations recorded at session creation; staged size and optional whole-file checksum verified before the S3 call; `HeadObject` verifies size/type/metadata after; content-type allowlist. | Chunk/complete negative tests; S3 integration tests. |
+| T-02 | Chunk replay or cross-session write | M/M | Chunk endpoint requires session ownership + chunk number/offset; idempotent only for same size/hash; sessions expire; staging paths are random and `0600`. | Cross-session and duplicate-chunk tests. |
 | T-03 | SQL injection | L/H | Parameterized EF/Dapper, no string concatenation, integration tests. | SAST/DAST; code review. |
 | T-04 | Audit tampering | L/H | Append-only API, no UPDATE/DELETE grants for the app role on audit tables, transactional writes, DB audit logs. | DB permission tests; review. |
 | T-05 | Filename/header injection (CRLF, path traversal) | M/M | Sanitizer, length limit, `Content-Disposition` RFC 5987 + ASCII fallback, `nosniff`, no filesystem paths. | Property-based tests; E2E download. |
@@ -88,23 +90,24 @@ Likelihood/impact: L/M/H. Status is the v1 control; verification is how we prove
 | I-03 | Credentials/tokens in logs, traces, errors | M/H | Redaction middleware, no body logging for auth/upload, structured logging allowlist, secret scanning in CI. | Log inspection test; CI secret scan. |
 | I-04 | Error oracle reveals link/key validity | M/M | Uniform 404 body; constant-time verify; dummy hash for unknown tokens; comparable timing; rate limit. | Timing tests; code review. |
 | I-05 | Enumeration via status codes | M/M | 404 for foreign resources and link/grant failures; 403 only in non-sensitive admin context. | API tests. |
-| I-06 | S3 bucket public or misconfigured | L/H | Block Public Access, bucket policy denies `*` principal, Terraform checks, no ACLs. | `terraform plan` checks; AWS Config rule. |
+| I-06 | S3 bucket accessed by another principal or made public | L/H | Block Public Access, no ACLs, SSE-S3, bucket policy explicitly denies object/list/multipart actions to every principal except the Files EC2 role; Terraform review. | `terraform plan` + bucket-policy tests; AWS Config rule (when available). |
 | I-07 | Link metadata leaks filename to token holder | M/L | Token is a capability; landing page shows only name/size/expiry; no owner email; accepted risk. | Privacy review. |
 | I-08 | Deleted data recoverable from backups | M/M | Documented 35-day backup window; no false erasure claims; encryption at rest; lifecycle. | DR doc review; legal sign-off. |
 | I-09 | Public link key in browser history/referrer | L/M | Key POST body, never URL; `Referrer-Policy: no-referrer`; `no-store`; no third parties on `/d/*`. | E2E header checks. |
-| I-11 | Link token or grant token captured in infrastructure access logs | M/M | Application logs emit only a fingerprint; ALB/CloudFront access logging is disabled for token-bearing paths (or restricted and retained ≤7 days if enabled); WAF logging, if added, must redact the URI. Grants are 120 s/single-use. | Log configuration review; staging log inspection. |
+| I-11 | Link/grant token captured in edge access logs | M/M | Caddy access logging is disabled globally (or restricted and retained ≤7 days with URI redaction); application logs emit only a fingerprint. Grants are 120 s/single-use. | Caddyfile review; staging log inspection. |
+| I-12 | Database backup in S3 exposed or tampered | L/H | Bucket policy denies backups to all but the instance role; SSE-S3; lifecycle 35 days; backup jobs run as the instance role; restore verifies checksum. | Bucket policy test; restore drill. |
 | I-10 | Email contents leak file data | L/L | Templates include only filename/expiry/portal URL; escaping; no attachments. | Template review; tests. |
 
 ### Denial of service
 
 | ID | Threat | L/I | Mitigation | Verification |
 |---|---|---|---|---|
-| D-01 | Upload flood / denial of wallet | M/M | Per-integration quotas, max file size, rate limits, daily bytes, S3 lifecycle cleanup. | k6 load with quota breach; cost alarms. |
+| D-01 | Upload flood / staging disk exhaustion | M/H | Per-integration/user quotas, max file size, 3 concurrent sessions/host, staging reserve, free-space check (`507`), rate limits, cleanup job. | Load test and disk-fill test. |
 | D-02 | Download egress abuse on public links | M/H | Max downloads per link, rate limits, reservation limits, per-link monitoring, optional expiry. | Load tests; alert on spikes. |
 | D-03 | Argon2 memory exhaustion via key attempts | M/M | Attempt throttling before hashing, lockout, bounded parallelism, small argon2 memory (19 MiB). | Stress test on link endpoints. |
 | D-04 | Job starvation / duplicate work | L/M | Advisory locks, batch limits, isolated worker, outbox lag alerts. | Chaos test with two workers. |
 | D-05 | Link token enumeration causes DB load | L/L | 256-bit tokens, rate limits, generic 404, indexed hash lookup. | Load test. |
-| D-06 | Large file stalls API during download | L/M | Streaming, no buffering, timeouts, autoscaling; worker separate. | Load test with 5 GiB file. |
+| D-06 | Large upload/download saturates the single EC2 | M/H | Streaming/pwrite, chunk size limits, 3 concurrent sessions, bandwidth and disk alerts, maintenance windows; scale-up path documented. | 5 GiB load/soak test; disk/CPU alerts. |
 
 ### Elevation of privilege
 
@@ -112,7 +115,9 @@ Likelihood/impact: L/M/H. Status is the v1 control; verification is how we prove
 |---|---|---|---|---|
 | E-01 | User reaches admin endpoints | L/H | Entra app-role policy on every admin route, server-side checks, tests. | Authorization matrix tests. |
 | E-02 | Integration accesses another integration's files | M/H | Explicit grants only, read-only; 404 otherwise; audit. | Cross-integration test suite. |
-| E-03 | Container/IAM escape grants bucket-wide access | L/H | Separate task roles, prefix-scoped S3, no credentials in env for S3 (task role), read-only root FS, non-root user. | IAM policy review; `tfsec`. |
+| E-03 | Container or host compromise grants bucket-wide access | L/H | Single EC2 instance role with prefix-scoped S3 and bucket-policy deny for others; no static AWS keys; containers run non-root with read-only root FS where possible; no Docker socket mounted into app containers. | IAM review; `tfsec`; container hardening checks. |
+| E-05 | SSH compromise of the public host | M/H | Port 22 only from `admin_cidr`; key-only auth; fail2ban; UFW; unattended upgrades; no password login; IMDSv2. | SSH config review; external port scan. |
+| E-06 | Host patching/root access bypasses application controls | M/H | OS patching, least-privilege deploy user, no application secrets in shell history, Docker group restricted; root access is break-glass. | Access review; audit of sudo. |
 | E-04 | Supply-chain compromise of a dependency | M/H | Lockfiles, Dependabot, `dotnet list package --vulnerable`, Trivy image scan, pinned actions, SBOM. | CI pipeline. |
 
 ## 6. Abuse analysis: the 8-character key
@@ -142,10 +147,10 @@ verify to reduce timing differences. Locked-out requests skip hashing (documente
 
 | Requirement | Where enforced |
 |---|---|
-| TLS 1.2+ everywhere, HSTS | ALB/CloudFront, app middleware |
+| TLS 1.2+ everywhere, HSTS | Caddy + app middleware |
 | Private S3, BPA, SSE, no ACLs | Terraform + bucket policy |
-| Least-privilege IAM per task | Terraform task roles |
-| No credentials in URLs/logs/errors | Redaction, API contract |
+| Least-privilege IAM | EC2 instance role + bucket policy deny |
+| No credentials/presigned URLs in URLs/logs/errors | Redaction, API contract, S3 exclusivity |
 | Argon2id for link keys; HMAC for API keys | `Files.Infrastructure.Crypto` |
 | 256-bit link/grant tokens | `IKeyGenerator` |
 | Tenant + audience + signature validation | Auth handler |
@@ -165,11 +170,12 @@ verify to reduce timing differences. Locked-out requests skip hashing (documente
 |---|---|---|
 | Public link metadata visible to token holder | Token is the capability; name/size needed for UX. | If customers require blind links. |
 | 8-char key has limited entropy | Mandated by spec; mitigated by throttling/monitoring. | If spec changes to 12 chars. |
-| Backups retain deleted content up to 35 days | Operationally required; disclosed. | Legal review. |
+| Backups retain metadata up to 35 days | Nightly logical dumps are operationally required; disclosed. | Legal review. |
 | Admins can delete but not read content | Least privilege; support may need break-glass later. | OQ-05. |
 | Malware scanning optional | Cost/complexity; gate available. | Make mandatory at launch if required. |
-| Single-region deployment | Cost/complexity; restore-based DR. | OQ-17. |
-| No WAF in v1 | ALB + rate limits + validation; add AWS WAF as defense in depth. | Before public launch if budget allows. |
+| Single EC2, no HA, public IP | Cost/availability constraint of the construction phase; 99.5% best effort, RPO 24 h. | Scale-up path (ADR-0010, OQ-17). |
+| Staging disk is a single EBS volume | One host only; uploads fail closed on capacity. | Monitor/expand; move to S3 multipart later. |
+| No WAF/rate limiting at the edge | Caddy + API rate limits + validation; a public IP is exposed. Add a WAF/reverse proxy when available. | Before public launch if budget allows. |
 | Entra compromise | Out of scope; CA/MFA are the controls. | Conditional Access review. |
 
 ## 9. Verification plan

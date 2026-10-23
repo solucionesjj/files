@@ -25,7 +25,7 @@ index-friendly IDs and a migration strategy that works for both the .NET app and
 ## Consequences
 
 - One transactional boundary for file state, link reservations, outbox, and audit.
-- Flyway can run in CI, local Docker, and a pre-deploy ECS task; rollback is forward-fix, using
+- Flyway can run in CI, local Docker, and a pre-deploy step on the EC2 host; rollback is forward-fix, using
   expand/contract for breaking changes (see deployment doc).
 - EF model drift must be detected by integration tests; DDL changes require updating both the SQL
   and the mapping.

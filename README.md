@@ -2,8 +2,8 @@
 
 Secure file storage, transfer, and integration platform.
 
-Files centralizes binary file storage in a **private Amazon S3 bucket** and exposes controlled
-operations to two kinds of consumers:
+Files centralizes binary file storage in a **private Amazon S3 bucket** that **only Files can
+access**, and exposes controlled operations to two kinds of consumers:
 
 - **People** — upload, organize, retain, and share files through the Files Portal (Microsoft Entra
   ID).
@@ -16,9 +16,35 @@ to their owner or explicitly granted integrations. Retention, expiration notific
 deletion, and audits are managed by the platform.
 
 > **Status (2026-10-23):** design and delivery package complete; application code not started.
-> See the [roadmap](docs/09-delivery/roadmap.md) and [AGENTS.md](AGENTS.md) for the next session.
+> The initial deployment target is **one EC2 instance (Ubuntu 24.04) + one S3 bucket**, with
+> Docker Compose, Caddy, and PostgreSQL 18 on the host. See the
+> [roadmap](docs/09-delivery/roadmap.md) and [AGENTS.md](AGENTS.md) for the next session.
 >
 > **Resumen en español:** [docs/00-resumen-ejecutivo.md](docs/00-resumen-ejecutivo.md).
+
+## Initial architecture
+
+```mermaid
+flowchart LR
+  user["Browser / integration"] -->|HTTPS| caddy["Caddy<br/>TLS + SPA + reverse proxy"]
+  caddy --> api["Files API"]
+  api --> pg[("PostgreSQL 18<br/>Docker")]
+  api -->|chunks| staging[("EBS staging")]
+  api -->|server-side upload / stream| s3[("S3 private bucket")]
+  worker["Files Worker"] --> pg
+  worker --> staging
+  worker --> s3
+  entra["Entra ID"] -.-> api
+  graph["Microsoft Graph"] -.-> worker
+  signoz["SigNoz (optional)"] -.-> api
+```
+
+- No ALB, ECS, RDS, ECR, NAT gateway, or CloudWatch in this phase.
+- The API/worker is the **only S3 client**; clients never receive presigned URLs or credentials.
+  Infrastructure automation may manage bucket configuration but cannot read or write objects.
+- Uploads are chunked through the API into local staging, verified, then uploaded to S3 by the API.
+- Downloads stream from S3 through the API with short-lived, single-use grants.
+- Nightly `pg_dump` backups go to `s3://<bucket>/backups/postgres/` (35 days); RPO 24 h/RTO 4 h.
 
 ## Documentation
 
@@ -29,8 +55,8 @@ deletion, and audits are managed by the platform.
 | User stories and acceptance criteria | [user-stories.md](docs/01-product/user-stories.md) |
 | Roles and authorization matrix | [rbac-and-personas.md](docs/01-product/rbac-and-personas.md) |
 | Decisions | [decisions.md](docs/01-product/decisions.md) |
-| Glossary | [glossary.md](docs/01-product/glossary.md) |
 | Open questions and defaults | [open-questions.md](docs/01-product/open-questions.md) |
+| Glossary | [glossary.md](docs/01-product/glossary.md) |
 | Architecture (C4, flows, deployment) | [architecture.md](docs/02-architecture/architecture.md) |
 | Backend / frontend design | [backend-design.md](docs/02-architecture/backend-design.md) · [frontend-design.md](docs/02-architecture/frontend-design.md) |
 | ADRs | [adr/](docs/02-architecture/adr/) |
@@ -50,8 +76,9 @@ deletion, and audits are managed by the platform.
 AGENTS.md                  # working agreement for future sessions
 docs/                      # product, architecture, data, API, security, workflows, ops, delivery
 db/migrations/             # canonical Flyway SQL (PostgreSQL 18)
-infra/terraform/           # AWS skeleton: VPC, S3, RDS, ECS/ALB, alarms
-infra/local/               # OTel collector and LocalStack S3 init config
+infra/terraform/           # EC2 + Elastic IP + SG + IAM + S3 bucket/policy
+deploy/                    # production Compose, Caddy, env template, backup/restore/smoke
+infra/local/               # LocalStack S3 init and OTel collector for local development
 scripts/                   # bootstrap and validation helpers
 docker-compose.yml         # local dependencies
 .github/workflows/ci.yml   # CI skeleton
@@ -59,7 +86,8 @@ docker-compose.yml         # local dependencies
 
 ## Local quickstart
 
-Prerequisites: Docker, .NET SDK 10, Node.js 22 LTS (Angular 20 also supports 20.19+), Terraform 1.9+ (IaC only). LocalStack is pinned to 3.8 in Compose because newer images require an auth token.
+Prerequisites: Docker, .NET SDK 10, Node.js 22 LTS (Angular 20 also supports 20.19+), Terraform
+1.9+ (IaC only).
 
 ```bash
 cp .env.example .env          # review; local values are non-secret
@@ -75,35 +103,53 @@ docker compose --profile tools run --rm flyway migrate
 | Mailpit (email UI) | `http://localhost:8025` (SMTP `localhost:1025`) |
 | OTel Collector | `localhost:4317` (gRPC), `localhost:4318` (HTTP) |
 
-The API and portal are not scaffolded yet. After S1 (see the roadmap):
+The API and portal are not scaffolded yet. After S1:
 
 ```bash
 dotnet run --project src/Files.Api     # http://localhost:8080
 cd web && npm install && npm start     # http://localhost:4200
 ```
 
+No S3 CORS is needed: the browser only talks to the API.
+
+## Production deployment
+
+Terraform creates the EC2 instance, Elastic IP, security group, instance role, and bucket. Then
+follow [`deploy/README.md`](deploy/README.md):
+
+1. Point DNS (e.g., `files.example.com`) at the Elastic IP.
+2. Copy `deploy/` to `/opt/files/app`, create `/opt/files/.env` (mode 0600).
+3. Start PostgreSQL, run Flyway, build the SPA, start API/worker/Caddy.
+4. Install the nightly backup cron and verify a dump in S3.
+5. Run `deploy/smoke.sh`.
+
+TLS requires a DNS name; Caddy obtains the certificate automatically. A bare public IP cannot get
+a trusted certificate (OQ-15).
+
 ## Validation
 
 ```bash
 make validate          # docs links/IDs, OpenAPI lint, compose config, Terraform fmt
 make db-verify         # apply migrations to a throwaway PostgreSQL 18 container
+cd infra/terraform && terraform init -backend=false && terraform validate
 ```
 
 ## Core decisions at a glance
 
 - **.NET 10 modular monolith + worker**, Angular + Bootstrap portal, PostgreSQL 18, EF Core +
   Dapper, Quartz in-memory scheduler with PG advisory locks.
-- **Uploads** go directly to S3 via short-lived presigned multipart URLs; **downloads** stream
-  through the API using 120-second single-use grants (no presigned GET, so counts and revocation
-  are exact).
-- **Public links** use a 256-bit token plus an 8-character key (Argon2id verifier), with
-  throttling, lockouts, and monitoring.
+- **API-only S3**: chunked uploads to local staging then server-side multipart; downloads streamed
+  with 120-second single-use grants; no presigned URLs anywhere.
+- **Public links**: 256-bit token plus an 8-character key (Argon2id verifier), throttling,
+  lockouts, monitoring.
 - **Retention** is explicitly finite or indefinite (null expiry, never a sentinel date), versioned
   by policy; notifications and deletion are idempotent background jobs.
-- **Integration files** are private, indefinitely retained, and cross-integration access requires
-  an explicit read-only grant.
+- **Integration files** are private, indefinitely retained; cross-integration access requires an
+  explicit read-only grant.
 - **Entra ID** for humans (OIDC + PKCE, app roles) and client credentials for machines, with
   optional API keys as a compatibility path.
+- **Single-node deployment** (D-31): 99.5% best-effort, nightly logical backups, documented
+  scale-up path to RDS/ECS/ALB when construction ends.
 
 ## License
 

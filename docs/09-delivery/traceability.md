@@ -10,7 +10,7 @@ targets for the implementation; when a suite is created, link its path.
 |---|---|---|---|
 | FR-ID-001..011 | US-001, US-002, US-021 | `AuthMatrixTests`, `EntraTokenValidationTests`, `JitProvisioningTests`, `TenantIsolationTests` | Integration, security |
 | FR-M2M-001..014 | US-010..US-016 | `IntegrationAuthTests`, `ApiKeyLifecycleTests`, `IntegrationPermissionsTests`, `IdorTests`, `IpAllowlistTests` | Integration, security |
-| FR-UP-001..015 | US-003, US-015, US-028 | `UploadSessionTests`, `MultipartTests`, `UploadVerificationTests`, `UploadCleanupJobTests`, `S3PolicyTests` | Integration, load |
+| FR-UP-001..017 | US-003, US-015, US-028 | `UploadSessionTests`, `ChunkUploadTests`, `StagingCapacityTests`, `UploadVerificationTests`, `UploadCleanupJobTests`, `S3PolicyTests` | Integration, load |
 | FR-FILE-001..005 | US-003, US-004, US-005, US-016 | `FileMetadataTests`, `FileUpdateTests`, `AuditWriteTests`, `SearchScopeTests` | Unit, integration |
 | FR-SRCH-001..006 | US-007, US-008 | `TagTests`, `SearchTests`, `FilterSortTests`, `CursorPaginationTests` | Integration |
 | FR-LINK-001..015 | US-020..US-024 | `LinkCreationTests`, `LinkRevocationTests`, `KeyVerificationTests`, `KeyThrottleTests`, `GrantConcurrencyTests`, `LinkStatsTests` | Unit, integration, security |
@@ -27,25 +27,26 @@ targets for the implementation; when a suite is created, link its path.
 | Requirement | Verification |
 |---|---|
 | NFR-001 availability | SLO dashboard, 30-day review, error-budget policy |
-| NFR-002 latency | k6 metadata/upload/download scenarios; p95 dashboards |
-| NFR-003 throughput | k6 50 concurrent downloads / 20 uploads; soak test |
+| NFR-002 latency | k6 metadata/chunk/download scenarios; p95 dashboards |
+| NFR-003 throughput | k6 20 concurrent downloads / 5 chunked uploads on one EC2; soak test |
 | NFR-004 capacity | load test at 5× baseline; DB/egress headroom review |
 | NFR-005 isolation | `IdorTests` for every endpoint; auth matrix; code review |
 | NFR-006 idempotency | `IdempotencyTests`, duplicate job runs, outbox replay tests |
-| NFR-007 recovery | quarterly restore drill; RTO/RPO recorded in runbooks |
-| NFR-008 durability | Terraform backup config tests; S3 durability; snapshot verification |
+| NFR-007 recovery | quarterly restore drill; RPO 24 h/RTO 4 h recorded in runbooks |
+| NFR-008 durability | nightly `pg_dump` marker test; S3 durability; optional EBS snapshot verification |
 | NFR-009 security | threat-model checklist; ZAP; tfsec; secret scanning; pen test |
 | NFR-010 audit | audit within 60 s; `AuditWriteTests`; dashboard |
 | NFR-011 observability | OTel traces/metrics; dashboards; alert tests |
 | NFR-012 testability | CI thresholds; coverage gates |
-| NFR-013 reproducibility | `docker compose up`; Terraform apply in a clean account; image digests |
+| NFR-013 reproducibility | `docker compose up`; Terraform EC2/S3 apply; Compose deploy with Git SHA |
 | NFR-014 configurability | config validation tests; admin settings tests |
 | NFR-015 portability | LocalStack S3 integration suite; S3-compatible adapter |
 | NFR-016 accessibility | axe-core E2E on core routes |
 | NFR-017 browsers | Playwright full matrix nightly |
 | NFR-018 cost visibility | cost tags, budgets, monthly review |
 | NFR-019 data residency | Terraform region pin; no cross-region without approval |
-| NFR-020 limits | quota tests; 429 headers |
+| NFR-020 limits | quota and staging reserve tests; 429/507 codes |
+| NFR-021 host capacity | disk/CPU/memory alerts; 80/90% thresholds |
 
 ## Documents and artifacts
 

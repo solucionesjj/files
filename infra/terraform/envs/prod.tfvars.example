@@ -1,45 +1,14 @@
-# Production environment.
-# Copy to envs/prod.tfvars and replace the placeholder portal origin.
-# Never commit secrets.
-#
-#   export TF_VAR_db_password='...'
-#   terraform plan -var-file=envs/prod.tfvars
-#
-# certificate_arn is required for prod by variable validation. Create/validate
-# the ACM certificate separately (see README) and paste its ARN here. Leaving
-# this empty intentionally fails `terraform plan`.
-certificate_arn = ""
-
+# Production single-node environment. Copy to envs/prod.tfvars.
 environment = "prod"
 region      = "us-east-1"
 
-vpc_cidr          = "10.22.0.0/16"
-nat_gateway_count = 2
-portal_origin     = "https://files.example.com" # replace with the real portal origin
+admin_cidr   = "203.0.113.10/32"   # replace with the office/VPN CIDR
+ssh_key_name = "files-admin"        # replace with an existing key pair
 
-bucket_versioning   = false # ADR-0008: avoid hidden copies of deleted objects
-multi_az            = true
-deletion_protection = true
+instance_type       = "t3.medium"
+root_volume_size_gb = 100
+enable_termination_protection = true
+delete_root_volume_on_termination = false
 
-db_engine_version = "18.6"
-db_instance_class = "db.t4g.medium"
-
-# Non-secret application configuration. Replace every placeholder.
-# app_environment = {
-#   Entra__TenantId         = "00000000-0000-0000-0000-000000000000"
-#   Entra__ApiClientId      = "00000000-0000-0000-0000-000000000000"
-#   Entra__ApiAudience      = "api://00000000-0000-0000-0000-000000000000"
-#   Entra__PortalClientId   = "00000000-0000-0000-0000-000000000000"
-#   Cors__AllowedOrigins__0 = "https://files.example.com"
-#   Portal__BaseUrl         = "https://files.example.com"
-#   Notifications__FromAddress = "files-noreply@example.com"
-#   OTEL_SERVICE_NAME       = "files-api"
-# }
-# api_image    = "<account>.dkr.ecr.us-east-1.amazonaws.com/files-prod-api:<git-sha>"
-# worker_image = "<account>.dkr.ecr.us-east-1.amazonaws.com/files-prod-worker:<git-sha>"
-# app_secrets = {
-#   Entra__ClientSecret = "arn:aws:secretsmanager:us-east-1:000000000000:secret:files/entra"
-# }
-# otel_endpoint = "https://otel.example.com:4317"
-
-# alarm_email = "oncall@example.com"
+bucket_versioning     = false
+backup_retention_days = 35

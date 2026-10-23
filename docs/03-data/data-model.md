@@ -17,7 +17,7 @@ erDiagram
   FILES ||--o{ FILE_TAGS : tagged
   TAGS ||--o{ FILE_TAGS : labels
   FILES ||--o{ UPLOAD_SESSIONS : "uploaded via"
-  UPLOAD_SESSIONS ||--o{ UPLOAD_PARTS : contains
+  UPLOAD_SESSIONS ||--o{ UPLOAD_CHUNKS : contains
   FILES ||--o{ DOWNLOAD_LINKS : exposes
   DOWNLOAD_LINKS ||--o{ DOWNLOAD_GRANTS : authorizes
   FILES ||--o{ DOWNLOAD_GRANTS : "streams"
@@ -56,8 +56,8 @@ tables without aggregate relationships.
 | `files` | File metadata, ownership, storage reference, lifecycle, retention, stats. | Owner XOR; retention mode/expiry consistency; deleted iff `deleted_at`; integration ⇒ `integration_only`; unique `storage_key`. |
 | `tags` | Reusable tags, global or per-user. | `UNIQUE NULLS NOT DISTINCT (scope, owner_user_id, name)` (case-insensitive via `citext`). |
 | `file_tags` | File ↔ tag. | PK (`file_id`, `tag_id`), cascade. |
-| `upload_sessions` | Upload intent, expected size/type/checksum, S3 upload ID, state. | One per file (`UNIQUE file_id`); status/expiry. |
-| `upload_parts` | Verified parts from S3/complete. | PK (`upload_session_id`, `part_number`). |
+| `upload_sessions` | Upload intent, expected size/type/checksum, chunk geometry, local staging path, S3 upload ID, state. | One per file (`UNIQUE file_id`); unique `staging_path`; `received_bytes <= expected_size_bytes`; status/expiry. |
+| `upload_chunks` | Chunks received by the API into the staging file. | PK (`upload_session_id`, `chunk_number`); offset/size/hash. |
 | `retention_policies` | Versioned global retention configuration. | One active (partial unique); `max_days >= default_days`. |
 | `notification_policies` | Versioned intervals and template key. | One active; intervals 1–10 positive values. |
 | `email_templates` | Versioned subject/HTML/text per key+locale. | One active per key+locale; version unique. |
@@ -107,8 +107,7 @@ tables without aggregate relationships.
 | `notification_events.status` | `scheduled`, `sending`, `accepted`, `delivered`, `bounced`, `failed`, `suppressed`, `superseded` |
 | `integrations.status` | `active`, `disabled` |
 | `integration_permissions.permission` | `file.write`, `file.read`, `file.delete` |
-| `upload_sessions.status` | `initiated`, `uploading`, `completed`, `failed`, `expired`, `aborted` |
-| `upload_sessions.mode` | `single`, `multipart`, `proxy` |
+| `upload_sessions.status` | `initiated`, `uploading`, `received`, `committing`, `completed`, `failed`, `expired`, `aborted` |
 
 Adding a value requires a new migration altering the `CHECK` and updating the API contract.
 Clients must tolerate unknown values in read models that may evolve (additive policy).
@@ -181,6 +180,24 @@ Unique (`scope_type`, `scope_id`, `idempotency_key`) + the operation in one tran
 request with the same key reads the stored response after the first commits; while in progress it
 returns 409.
 
+### Chunk write and completion
+
+```sql
+-- claim a chunk (idempotent)
+INSERT INTO upload_chunks (upload_session_id, chunk_number, offset_bytes, size_bytes, checksum_sha256)
+VALUES ($1, $2, (($2 - 1) * $3), $4, $5)
+ON CONFLICT (upload_session_id, chunk_number) DO NOTHING;
+
+UPDATE upload_sessions
+   SET received_bytes = received_bytes + $4,
+       status = CASE WHEN received_bytes + $4 = expected_size_bytes THEN 'received' ELSE 'uploading' END
+ WHERE id = $1 AND status IN ('initiated','uploading')
+RETURNING received_bytes, status;
+```
+
+`complete` locks the session `FOR UPDATE`, verifies the chunk rows and total size, and only then
+streams the staging file to S3. A retry after a failed S3 commit reuses the same staged bytes.
+
 ## 6. Index rationale
 
 | Index | Query it serves |
@@ -204,8 +221,9 @@ indexes require an ADR or a comment in the migration.
 
 | Operation | Transaction includes | External call |
 |---|---|---|
-| Create upload session | file + session + audit + outbox | S3 create multipart **before** commit; orphan cleaned if commit fails |
-| Complete upload | file state + session + parts + audit + outbox | S3 complete/head **before** commit; re-runnable |
+| Create upload session | file + session + audit + outbox | None (no S3 call); staging file created after commit |
+| Upload chunk | chunk row + session received_bytes/status | Local `pwrite` to the staging file; fsync per chunk |
+| Complete upload | file state + session + chunks + audit + outbox | Verify staging; S3 multipart/PutObject + HeadObject **before** commit; re-runnable |
 | Create link | link + audit + outbox + `files.access_mode` | — |
 | Issue grant | reservation + grant + event | — |
 | Complete download | grant + link + file + events + outbox | after streaming |
@@ -230,10 +248,10 @@ No distributed transaction is attempted; every external call is idempotent and r
 | `download_grants` | 7 days after terminal | Purge job |
 | `idempotency_records` | 24 h | Purge job |
 | `outbox_messages` processed/dead | 7 days / 30 days | Purge job |
-| `upload_sessions` terminal | 30 days | Purge job |
+| `upload_sessions` terminal + chunks | 30 days | Purge job (staging file deleted first) |
 | `retention_migrations` | 24 months | Purge job |
 | `daily_usage` | 24 months | Purge job |
-| Backups | 35 days (RDS PITR/snapshots) | AWS lifecycle |
+| Database backups | 35 days (`pg_dump` in S3 `backups/postgres/`) | S3 lifecycle + host cron |
 
 Documented in ADR-0008: backups may retain deleted content for up to 35 days; the product must
 not claim immediate complete erasure.
@@ -252,7 +270,8 @@ not claim immediate complete erasure.
 
 ## 10. Backups and DR
 
-- RDS automated backups + PITR 35 days, encrypted; final snapshot on deletion protection.
+- Nightly `pg_dump` to `s3://<bucket>/backups/postgres/`, 35-day lifecycle, encrypted by S3;
+  no PITR/WAL archiving in the single-node phase (RPO 24 h).
 - Cross-region snapshot copy daily (if DR region approved).
 - S3: versioning disabled in prod; if enabled, noncurrent versions expire in 24 h (ADR-0008).
 - Restore drills quarterly; results recorded in `docs/08-operations/runbooks.md`.

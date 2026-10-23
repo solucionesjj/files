@@ -1,33 +1,33 @@
-# Upload and Download Design
+# Upload and Download Design (API-Proxied)
 
-**Decisions:** ADR-0003, ADR-0005, ADR-0011 · **API:** `docs/04-api/openapi/files-api.v1.yaml`
+**Decisions:** ADR-0003, ADR-0005, ADR-0010, ADR-0011
+**API:** `docs/04-api/openapi/files-api.v1.yaml`
 
 ## 1. Objectives
 
-- Support up to 5 GiB (configurable) without proxying uploads through the API.
-- Never expose S3 credentials, bucket names, or object keys to clients.
+- Support up to 5 GiB on a single EC2 without exposing S3 to any client.
+- Stream bytes through the API, stage them on EBS, verify them, and commit to S3 from the API.
+- Never issue presigned URLs, S3 keys, or bucket credentials.
 - Verify every object before it becomes available.
 - Count only completed downloads; enforce link limits under concurrency.
-- Stream downloads with backpressure, audit every attempt, and revoke immediately.
 
-## 2. S3 layout and bucket policy
+## 2. S3 layout and exclusive access
 
 | Prefix | Purpose | Lifecycle |
 |---|---|---|
-| `f/{fileId}` | Final objects. No filename, owner, or extension in the key. | Deleted by the deletion job. |
-| `staging/{uploadSessionId}` | API-proxied uploads before promotion. | Expire after 1 day. |
-| `orphan/` | Objects found without a DB row during reconciliation (7-day grace). | Expire after 7 days. |
-| (multipart parts) | Incomplete uploads under the final key. | Abort after 7 days (bucket lifecycle) and 24 h (worker). |
+| `f/{fileId}` | Final objects. No filename, owner, or extension. | Deleted by the deletion job. |
+| `staging/` | Reserved for server-side staging if a future flow needs it. | Expire after 1 day. |
+| `orphan/` | Objects found without a DB row (7-day grace). | Expire after 7 days. |
+| `backups/postgres/` | Nightly `pg_dump` files from the host. | Expire after 35 days. |
+| (multipart parts) | Incomplete uploads under the final key. | Abort after 7 days (lifecycle) / 24 h (worker). |
 
 - Bucket per environment: `files-<env>-<account-id>-<region>-<suffix>`.
-- Block Public Access (all four flags), no ACLs, bucket owner enforced.
-- SSE-S3 by default (`AES256`); SSE-KMS with a customer-managed key optional. Every `PutObject`,
-  `CreateMultipartUpload`, and `CopyObject` sets encryption explicitly even if the bucket default
-  exists.
-- Versioning **disabled** in production (ADR-0008); if enabled, noncurrent versions expire in 24 h.
-- TLS-only bucket policy; deny `s3:*` to `*` principals; deny unencrypted puts.
-- CORS: allow `PUT` from the portal origin, headers `Content-Type`, methods `PUT`, max age 1 h.
-  No `GET` CORS is needed because downloads go through the API.
+- Block Public Access (all four flags), no ACLs, owner enforced, SSE-S3, versioning off.
+- **Only the EC2 instance role has object/list/multipart access.** The bucket policy denies those
+  actions to every other principal (`StringNotEquals aws:PrincipalArn`), including the deployment
+  role. No presigned URLs are generated. The API/worker uses the instance role (no static keys).
+- No S3 CORS: the browser talks to the API only. The API still allows the configured portal
+  origin (for local `ng serve`); in production Caddy serves the SPA same-origin.
 
 ## 3. Upload session creation
 
@@ -46,102 +46,75 @@ Request (portal adds retention/tags):
 
 Server steps:
 
-1. Authenticate/authorize; for integrations, verify `file.write`, active status, IP, quota.
-2. Validate `fileName` (1–512 chars, no control chars, no path separators after sanitization),
-   `sizeBytes` ≤ max (per integration or global), `contentType` in the allowlist and consistent
-   with the extension when known.
-3. Determine retention: portal → requested (if allowed) or active default; integration →
-   `indefinite`, `expires_at = NULL`; snapshot `retention_policy_id`/`retention_days`.
-4. Check quotas: open sessions per integration, daily bytes (`daily_usage` + open sessions),
-   global storage quota.
-5. Insert `files` (`pending_upload`) and `upload_sessions` (`mode = single|multipart`), owned by
-   the caller. Choose multipart when `sizeBytes >= Storage__MultipartThresholdBytes` (64 MiB).
-6. Create the S3 multipart upload with key `f/{fileId}`, `Content-Type`, SSE, and metadata
-   (`files-file-id`, `files-upload-session-id`). Store `s3_upload_id`.
-7. Generate presigned `UploadPart` URLs (first batch, typically all parts for ≤1.6 GiB) or a
-   single `PutObject` URL. Sign only `Content-Type` and the exact key/upload/part.
-8. Commit and return the session. If the DB commit fails after S3 initiation, abort the multipart
-   upload (best effort) and let the lifecycle cleanup catch the rest.
+1. Authenticate/authorize; for integrations verify `file.write`, active status, IP, quota.
+2. Validate `fileName`, `sizeBytes` ≤ max, content type allowlist, and `sizeBytes ≥ 0`.
+3. Determine retention: portal → requested/default; integration → `indefinite`, `expires_at = NULL`.
+4. Check quotas: open sessions per integration/user, daily bytes, S3 storage, and **staging
+   capacity** (`free_bytes - reserve >= expected_size + 64 MiB`).
+5. Compute chunk geometry: `chunkSize = 16 MiB`, `chunkCount = max(1, ceil(size/chunkSize))`,
+   `chunkCount ≤ 10,000`.
+6. Insert `files` (`pending_upload`) and `upload_sessions` with a unique staging path
+   `/var/lib/files/staging/{sessionId}.part`; create the file with `O_EXCL` and `0600`.
+7. Commit and return `{fileId, uploadSessionId, chunkSizeBytes, chunkCount, expiresAt,
+   receivedBytes: 0}`. **No S3 call is made at this point.**
 
-Open-session limits: 5 per integration, 10 per user (configurable). Session TTL: 60 min,
-renewable by requesting more parts (extends within limits); expired sessions are aborted.
+If the DB commit fails after file creation, the temp file is removed; the cleanup job also catches
+orphans.
 
-## 4. Part sizing and presigning
+## 4. Chunk upload
 
-| Parameter | Default |
-|---|---|
-| Part size | 16 MiB (min 5 MiB except last) |
-| Max parts | 10,000 |
-| Presign TTL | 15 min |
-| URLs per request | 100 |
-| Client concurrency | ≤4 recommended |
+`PUT /v1/{portal|integrations}/upload-sessions/{sessionId}/chunks/{chunkNumber}`
 
-- Part count = `ceil(size / partSize)`; if >10,000, the server increases part size (up to 5 GiB
-  parts) or rejects.
-- Presigned URLs are returned in batches; the client calls `/parts` for the rest. Expired URLs can
-  be re-presigned while the session is valid (same part number).
-- The client must send the signed `Content-Type` for single PUT; multipart parts do not sign
-  content type by default (S3 part uploads ignore it), but the final object's type comes from
-  `CreateMultipartUpload`.
+- Body: raw bytes (`application/octet-stream`), `Content-Length` required, ≤ `chunkSizeBytes`.
+- Optional `X-Chunk-SHA256`; when present it is verified before the bytes are committed.
+- `chunkNumber` in `1..chunkCount`; the offset is `(chunkNumber-1) * chunkSizeBytes`.
+- The last chunk may be smaller; a session with `sizeBytes = 0` has one zero-length chunk.
+- Chunks may arrive out of order and in parallel (client ≤2 in flight by default).
+- Ownership is checked on every request (session initiator).
+- The API writes with `pwrite` at the offset, fsyncs, then records the chunk row and increments
+  `received_bytes` atomically.
+- Idempotency: a repeated chunk number with the same size/hash returns success; different
+  bytes/size returns `409 chunk_conflict`.
+- A chunk beyond the declared size or chunk count returns `422 chunk_out_of_range`; an oversized
+  body returns `413 chunk_too_large`; a full disk returns `507 staging_capacity_exceeded`.
+- `GET .../upload-sessions/{id}` returns the received chunk numbers and bytes for resume.
 
-## 5. Client upload sequence (portal)
+The session becomes `received` when `received_bytes == expected_size_bytes`; it is not complete
+until `complete` verifies and commits to S3.
 
-1. Validate file locally (size/type), compute SHA-256 only for files ≤100 MiB (Web Crypto requires
-   buffering; skip for large files).
-2. `POST /v1/portal/upload-sessions` → session + parts.
-3. Upload parts with XHR/fetch (progress events), 3–4 concurrent, retry a part 3 times with
-   backoff on network/5xx; re-presign on 403/expired URL.
-4. On all parts complete → `POST .../complete`.
-5. Poll `GET /v1/portal/files/{id}` until `available` (or `processing`), then show success.
-6. Cancel → `DELETE .../{id}`; closing the tab leaves cleanup to the worker.
+## 5. Completion, verification, and S3 commit
 
-## 6. Completion and verification
+`POST .../upload-sessions/{id}/complete` (idempotent):
 
-`POST .../complete` (idempotent):
+1. Lock the session `FOR UPDATE`; require initiator, state `received|failed|committing`, not
+   expired.
+2. Verify all `chunk_count` rows exist, offsets/sizes are consistent, and the sum equals
+   `expected_size_bytes`; optional whole-file SHA-256 is computed by streaming the staging file.
+3. If verification fails: `422 upload_incomplete`/`upload_checksum_mismatch`; the session remains
+   resumable until expiry.
+4. Set `committing`; initiate an S3 multipart upload (or `PutObject` when below 64 MiB) and upload
+   the staged file in 64 MiB parts. The API is the only S3 caller.
+5. `CompleteMultipartUpload` + `HeadObject`; verify size, content type, metadata `files-file-id`,
+   and encryption.
+6. On success: set file `available` (or `processing` if scanning), `scan_status`, `available_at`;
+   write audit/outbox; increment daily usage; delete chunk rows; delete the staging file **after**
+   S3 verification.
+7. On S3 failure: set `failed`, keep the staging file and chunks, record sanitized `last_error`,
+   return `502 upload_commit_failed`. Retrying `complete` reuses the staged file.
+8. If scanning is enabled, the file stays `processing` until the scan is clean.
 
-1. Load the session; require owner, state `initiated|uploading`, not expired.
-2. **Multipart:** `ListParts`; verify every part from 1..N exists with non-zero size; for each
-   recorded part compare size; `CompleteMultipartUpload` using the listed ETags.
-   **Single:** no-op (the object already exists); if missing → `422 upload_parts_incomplete`.
-3. `HeadObject`; verify:
-   - `ContentLength == expected_size_bytes`,
-   - `ContentType` equals the declared type,
-   - metadata `files-file-id` matches,
-   - `ChecksumSHA256` equals the provided checksum when supplied.
-4. If malware scanning is enabled: set `processing`, `scan_status = pending`, enqueue `file.scan`;
-   else set `available`, `scan_status = not_scanned`, `available_at = now()`.
-5. Write parts, audit (`upload_verified`), outbox (`file.uploaded`/`file.available`), increment
-   `daily_usage.bytes_uploaded`, delete the session's staging key if proxy.
-6. Return the file metadata.
+## 6. Staging disk management
 
-Failure semantics:
+- Host EBS: 100 GiB gp3 (default), mounted at `/var/lib/files`; PostgreSQL data and staging live
+  on separate subdirectories.
+- Reserve: 10 GiB free at all times (`Storage__StagingReserveBytes`).
+- Max concurrent sessions per host: 3; per integration/user: configurable (default 3).
+- Temp files are `0600`, owned by the API container user, under a directory not served by Caddy.
+- A worker job every 10 minutes removes expired/aborted staging files, fails sessions older than
+  their TTL, and aborts S3 multipart uploads older than 24 h (lifecycle is the backstop at 7 days).
+- Alerts: disk >80% warning, >90% critical, staging reserve breached, write failures.
 
-| Failure | Result | Cleanup |
-|---|---|---|
-| Missing/incorrect parts | `422 upload_parts_incomplete` | Session stays open; client fixes and retries. |
-| Size mismatch | `422 upload_size_mismatch`, file `upload_failed` | Abort multipart; client re-uploads. |
-| Checksum mismatch | `422 upload_checksum_mismatch`, file `upload_failed` | Abort; re-upload. |
-| Type mismatch | `422 unsupported_content_type` | Abort. |
-| S3 5xx | `503 dependency_unavailable` | Retry complete (idempotent). |
-| Already completed | `409 upload_session_completed` | Return current file metadata (idempotent response). |
-
-## 7. Proxy upload (integration, ≤100 MiB)
-
-`POST /v1/integrations/files` (`multipart/form-data`):
-
-1. Enforce `max_proxy_upload_bytes` (100 MiB) at the request limit and while streaming.
-2. Stream to `staging/{uploadSessionId}` in S3 (no local disk buffering), with SSE.
-3. Verify size/content type via `HeadObject`.
-4. `CopyObject` to `f/{fileId}`, set metadata and SSE, then delete staging.
-5. Mark `available` (or `processing` if scanning), write audit/outbox, return metadata.
-6. On failure, delete staging and mark `upload_failed`.
-
-This path exists for consumers that cannot reach S3 directly (§15.5). It is not used by the
-portal. If an `Idempotency-Key` is supplied, the stored request hash uses the file name, size, and
-the `checksumSha256` form field; the checksum is required for a safe replay, otherwise a retry may
-create a duplicate file.
-
-## 8. Download authorization
+## 7. Download authorization
 
 | Source | Authentication | Checks before grant/stream |
 |---|---|---|
@@ -152,47 +125,38 @@ create a duplicate file.
 
 ### Grant flow (owner/private/public)
 
-1. `POST` endpoint → generate 32 random bytes → `grant_token_hash = SHA-256(token)`.
-2. If the link has `max_downloads`, atomically reserve a slot (see §10); otherwise skip.
-3. Insert `download_grants` (`state=issued`, `expires_at=now()+120s`, source, user, IP hash, link).
+1. Generate 32 random bytes; store `SHA-256(token)`.
+2. If the link has `max_downloads`, atomically reserve a slot.
+3. Insert `download_grants` (`state=issued`, TTL 120 s, source, user, IP hash, link).
 4. Return `{grantToken, expiresAt, downloadUrl}`; never echo the key.
-5. `GET /v1/download-grants/{grantToken}`:
-   - look up by hash; require `state=issued` and not expired;
-   - `UPDATE ... SET state='redeemed', redeemed_at=now() WHERE id=$1 AND state='issued'` (atomic;
-     zero rows → 404);
-   - re-check file downloadability (expiry may have passed);
-   - stream.
-6. After the response completes, mark `completed`, release the reservation, increment counts,
-   write `download_events`; if the response fails/aborts, mark `failed` and release.
+5. `GET /v1/download-grants/{grantToken}` consumes the grant atomically, rechecks file state, and
+   streams from S3.
+6. On completion, mark `completed`, release the reservation, increment counts, and write
+   `download_events`; on failure/abort, mark `failed` and release.
 
-A grant is a bearer capability: the browser navigates to the URL without an `Authorization`
-header. It is 256-bit, single-use, 120 s, `no-store`, `no-referrer`, and not logged.
-
-**Expiry sweep:** a job runs every minute and, for grants still `issued`/`redeemed` past
-`expires_at`, marks them `expired` and decrements `download_links.reserved_downloads` (never below
-zero). This releases slots held by crashed clients so `max_downloads` cannot leak. The update is
-idempotent and guarded by the grant state.
+A grant is a bearer capability (browser navigation needs no Authorization header), 256-bit,
+single-use, 120 s, `no-store`, `no-referrer`, never logged.
 
 ### Integration download
 
 `GET /v1/integrations/files/{fileId}/content` — authorize on every request, stream, support
-`Range`, count on completion. No grant; server-to-server clients can follow redirects safely.
+`Range`, count on completion.
 
-## 9. Streaming implementation
+## 8. Streaming implementation
 
-- Open the S3 object with `GetObjectAsync` (or ranged request) **before** writing headers; map
-  `NoSuchKey` to `404 file_unavailable` (and quarantine the file via an async event).
+- Open the S3 object before writing headers; map `NoSuchKey` to `404 file_unavailable` and emit a
+  reconciliation event.
 - Set `Content-Type`, `Content-Length`, `Content-Disposition` (ASCII fallback + RFC 5987),
-  `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`, `Accept-Ranges: bytes` (integration
-  only), and `Referrer-Policy: no-referrer` (grant).
-- Copy with a pooled 64 KiB buffer, honoring `RequestAborted`; do not buffer the whole object.
+  `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`, `Referrer-Policy: no-referrer`,
+  and `Accept-Ranges: bytes` (integration only).
+- Copy with a pooled 64 KiB buffer, honor `RequestAborted`, never buffer the whole object.
 - On disconnect, stop reading and release resources; do not count the download unless the full
-  body (or the requested range) was written.
-- Never set `Content-Encoding`; preserve the stored content type.
+  body was written.
+- Never set `Content-Encoding`; preserve the stored type.
 
-## 10. Counting and concurrency
+## 9. Counting and concurrency
 
-### Reservation
+Reservation SQL:
 
 ```sql
 UPDATE download_links
@@ -204,63 +168,54 @@ UPDATE download_links
 RETURNING successful_downloads, reserved_downloads;
 ```
 
-Zero rows → generic 404. The reservation is inserted with the grant in the same transaction.
+Completion, in one transaction: mark grant `completed` (state predicate), decrement
+`reserved_downloads`, increment link/file counts, set `last_download_at`, append
+`download_events`, outbox event. A crash between stream and update loses one count
+(`download_completion_lost_total`); reservations expire after 120 s via the grant-expiry job.
 
-### Completion
+Rules: counts increment only on successful completion; a grant is one counted download; range is
+not supported on grants; integration range responses count once per completed response; owner
+downloads use `source=owner`.
 
-Inside a transaction: mark grant `completed` (state predicate), decrement `reserved_downloads`,
-increment `successful_downloads` on the link and `successful_downloads` on the file, set
-`last_download_at`, append `download_events` (`completed`) and an outbox event. A crash between
-the stream and this update loses one count (`download_completion_lost_total` metric); the
-reservation expires after 120 s and is released.
+## 10. Abuse controls (public path)
 
-### Rules
+- Check `abuse_lockouts` before hashing; locked → `429` without Argon2.
+- Wrong key: record attempt, progressive delay 0.5/1/2/4 s, 15-min lockout after 5 failures/link+IP;
+  soft-lock at 100 failures/link/hour + alert.
+- Grant endpoint 30/min/IP; metadata 60/min/IP; IPs hashed with a daily pepper.
+- Argon2id m=19 MiB, t=2, p=1; bounded concurrency.
 
-- Counts increment **only** on successful stream completion (per ADR-0005).
-- A grant = one counted download. Range is not supported on grants.
-- Integration range responses count once per completed response (documented; informational).
-- Owner downloads count and are tagged `source=owner`.
-- Link `max_downloads` is enforced against `successful + reserved`; UI shows "used" as
-  `successful` and "pending" as `reserved`.
-
-## 11. Abuse controls on the public path
-
-- Before key verification: check `abuse_lockouts` for (`link_ip`, `link`); if locked → `429`
-  without hashing.
-- Verify key with Argon2id; on failure insert `download_key_attempts` and compute the window
-  count; apply progressive delay (`0.5/1/2/4 s`), then 15-min lockout after 5 failures.
-- Soft-lock the link at 100 failures/hour and emit an alert.
-- Grant endpoint rate limit 30/min/IP; metadata 60/min/IP.
-- IPs are hashed with a daily pepper; raw IPs are not stored.
-
-## 12. Limits reference
+## 11. Limits reference
 
 | Limit | Default | Config |
 |---|---|---|
 | Max file size | 5 GiB | `Storage__MaxFileSizeBytes`, per integration |
-| Multipart threshold | 64 MiB | `Storage__MultipartThresholdBytes` |
-| Part size | 16 MiB | `Storage__PartSizeBytes` |
-| Max parts | 10,000 | fixed (S3) |
+| Client chunk | 16 MiB | `Storage__ChunkSizeBytes` |
+| Max chunks | 10,000 | `Storage__MaxChunkCount` |
+| S3 part | 64 MiB | `Storage__S3PartSizeBytes` |
+| Single PutObject threshold | 64 MiB | `Storage__S3SinglePutThresholdBytes` |
 | Session TTL | 60 min | `Storage__UploadSessionTtlMinutes` |
-| Presign TTL | 15 min | `Storage__PresignTtlMinutes` |
-| Proxy upload | 100 MiB | `Storage__MaxProxyUploadBytes` |
+| Staging reserve | 10 GiB | `Storage__StagingReserveBytes` |
+| Concurrent sessions | 3/host | `Storage__MaxConcurrentSessions` |
 | Grant TTL | 120 s | `Storage__GrantTtlSeconds` |
-| Concurrent sessions | 5/integration, 10/user | `platform_settings` |
-| Open multipart cleanup | 24 h | `Storage__AbortIncompleteAfterHours` |
+| Cleanup | 24 h stale / 7 d lifecycle | `Storage__AbortIncompleteAfterHours` |
+| Request body (Caddy) | 20 MiB | `deploy/Caddyfile` |
 
-## 13. Test matrix
+## 12. Test matrix
 
 | Test | Type |
 |---|---|
-| 0 B, 1 B, exactly threshold−1/+1, 5 GiB (sparse/streamed) uploads | Integration (LocalStack S3) |
-| Multipart with out-of-order parts, retried part, expired presign | Integration |
-| Size/type/checksum mismatch, missing part, aborted session | Integration |
-| Presigned URL cross-key/cross-part attempt | Security integration |
-| Concurrent grants with `max_downloads=1` | Concurrency |
-| Grant reuse after completion/expiry | Integration |
-| Expiry between grant and stream | Integration |
-| Client disconnect mid-stream (no count) | Integration |
+| 0 B, 1 B, exactly chunk boundaries, 5 GiB chunked upload | Integration (LocalStack) |
+| Out-of-order chunks, duplicate chunk, conflicting chunk | Integration |
+| Chunk hash mismatch, oversized chunk, out-of-range chunk | Integration |
+| Disk reserve breach (`507`), write failure | Integration/chaos |
+| Complete before all chunks, size mismatch, checksum mismatch | Integration |
+| S3 commit failure then retry without re-upload | Integration/fault injection |
+| Session expiry cleanup, orphan staging file cleanup | Integration |
+| No presigned headers/URLs in any response | Contract/security |
+| 5 GiB download RSS <200 MiB | Load |
 | Range requests (integration) | Integration |
-| 5 GiB download memory ceiling (<200 MiB RSS) | Load |
-| S3 5xx/timeout during complete/delete | Chaos/fault injection |
-| Key lockout thresholds and timing | Security/perf |
+| Concurrent grants with `max_downloads=1` | Concurrency |
+| Grant reuse/expiry | Integration |
+| Client disconnect mid-stream (no count) | Integration |
+| Key lockout thresholds/timing | Security/perf |

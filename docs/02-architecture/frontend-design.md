@@ -7,7 +7,7 @@
 - `@azure/msal-angular` + `@azure/msal-browser` for Entra ID (Authorization Code + PKCE).
 - TypeScript strict, ESLint + Prettier, SCSS.
 - Testing: Vitest/Jest unit tests (Angular default), Playwright E2E.
-- Workspace lives in `web/`; build output is static and served by S3+CloudFront or the ALB.
+- Workspace lives in `web/`; build output is static and served by Caddy on the EC2 host.
 
 ```
 web/src/app/
@@ -73,9 +73,12 @@ Lazy-load every feature route. Preload the shell only.
      `grantToken`.
   2. Navigate to `/v1/download-grants/{grantToken}`; the API streams the file.
   Never fetch a 5 GiB file into a Blob. Grants are 120 s, single-use, and `no-store`.
-- **Uploads** use presigned S3 PUTs with XHR (progress events), 3 parts in flight, retry per
-  part with exponential backoff, pause/resume within a session. The browser never receives AWS
-  credentials. The client sends the S3 `Content-Type` exactly as signed.
+- **Uploads** use chunked `PUT`s to the Files API with XHR (progress events), 2 chunks in flight,
+  retry per chunk with exponential backoff, and resume via `GET .../upload-sessions/{id}`. Chunk
+  size comes from the session response (16 MiB default). The browser never receives an S3 URL,
+  credential, or CORS configuration; it never talks to S3.
+- The client splits files locally, sends `X-Chunk-SHA256` for each chunk when practical, and on
+  `complete` polls the file until `available`/`processing`.
 
 ## 5. Key screens and UX rules
 
@@ -93,7 +96,9 @@ Lazy-load every feature route. Preload the shell only.
   per file and overall; cancel; retry failed parts; "remaining time" estimate.
 - On completion, poll `GET /v1/portal/files/{id}` until `available` or `processing` (scan) with
   backoff; show scan status.
-- If the tab closes mid-upload, the session expires server-side; the UI explains this.
+- If the tab closes mid-upload, the session remains open for its TTL; reopening the page can
+  resume using the received-chunk list. If it expires, the staging file is removed and the UI
+  explains that the upload must restart.
 
 ### Links
 - Create link dialog: type (private/public), optional expiry, optional max downloads; public
@@ -130,9 +135,9 @@ Lazy-load every feature route. Preload the shell only.
 - Never store access tokens in `localStorage`; use MSAL `sessionStorage`.
 - Never render filenames with `innerHTML`; Angular interpolation only. Sanitize display names
   server-side; the UI trusts the API's sanitization for `Content-Disposition`.
-- CSP (served by the web host): `default-src 'self'`; `connect-src` API + Entra + S3 origin;
-  `img-src 'self' data:`; no `unsafe-inline` (Angular build with strict CSP may require nonces
-  for styles — configure at deploy).
+- CSP (served by Caddy): `default-src 'self'`; `connect-src` API + Entra; `img-src 'self' data:`;
+  no `unsafe-inline` (Angular build with strict CSP may require nonces for styles — configure at
+  deploy). No S3 origin is allowed.
 - No secrets in `config.json`; no analytics/trackers on `/d/*`.
 - Validate `returnUrl` against an allowlist to prevent open redirects.
 
@@ -147,8 +152,9 @@ Lazy-load every feature route. Preload the shell only.
 
 - Unit: guards, interceptors, upload orchestration (mocked XHR), error mapping, pipes.
 - Component: list filters, link dialog (key shown once), key entry validation.
-- E2E (Playwright) against the real API + LocalStack S3 + mocked Entra (or test tenant): sign-in,
-  upload, search, download, create/redeem public link, revoke, admin policy change.
+- E2E (Playwright) against the real API + PostgreSQL + LocalStack S3 + mocked Entra (or test
+  tenant): sign-in, chunked upload/resume, search, download, create/redeem public link, revoke,
+  admin policy change.
 - Accessibility: axe-core scan on key routes in CI.
 - Contract: DTOs type-checked against the OpenAPI schema (openapi-typescript) in CI.
 

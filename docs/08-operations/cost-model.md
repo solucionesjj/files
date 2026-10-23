@@ -1,160 +1,139 @@
-# Cost Model
+# Cost Model (Single EC2 + S3)
 
 **Currency:** USD · **Region:** us-east-1 · **Basis:** AWS public on-demand prices, October 2026.
-Prices are estimates; validate with the AWS Pricing Calculator before committing a budget
-(OQ-20). Excludes taxes, support plans, and one-time engineering.
+Verify with the AWS Pricing Calculator; excludes taxes, support, domain registration, and
+engineering time. Initial phase: one EC2, one EBS volume, one S3 bucket, one Elastic IP.
 
-## 1. Baseline assumptions (production)
+## 1. Baseline assumptions
 
 | Driver | Assumption |
 |---|---|
-| Stored objects | 500 GiB (10,000 files) |
+| Host | EC2 `t3.medium` on-demand, 730 h/month |
+| EBS | 100 GiB gp3, encrypted |
+| Public IPv4 | Elastic IP attached |
+| Stored objects | 500 GiB in S3 Standard (10,000 files) |
 | New ingress | 50 GiB/month |
-| Egress (downloads) | 200 GiB/month |
-| API requests | 5 million/month |
-| S3 GET requests | 100,000/month |
-| Average download size | 5 MiB |
-| Database | RDS PostgreSQL 18, `db.t4g.medium`, Multi-AZ, 100 GiB gp3 |
-| API compute | 2 × (0.5 vCPU, 1 GiB) Fargate |
-| Worker compute | 1 × (0.5 vCPU, 1 GiB) Fargate |
-| NAT | 1–2 gateways, 100 GiB processed |
-| Telemetry | Self-hosted SigNoz (1 task) |
-| Logs | 20 GiB/month |
+| Egress | 200 GiB/month (API streams from S3 to clients) |
+| Requests | ~5M API calls/month; ~200k S3 GET, ~20k PUT |
+| Backups | 50 GiB of nightly `pg_dump` in S3 (35-day lifecycle) |
+| Telemetry | OTel Collector only; SigNoz external or not deployed |
+| Domain/TLS | DNS managed externally; Caddy/Let's Encrypt |
 
 ## 2. Unit prices used
 
 | Item | Price |
 |---|---|
+| EC2 `t3.medium` | $0.0416 / hour |
+| EC2 `t3.small` | $0.0208 / hour |
+| EBS gp3 | $0.08 / GB-month |
+| Elastic IP (attached) | $0.005 / hour (~$3.65/month) |
 | S3 Standard storage | $0.023 / GB-month |
 | S3 PUT/COPY/POST | $0.005 / 1,000 requests |
 | S3 GET | $0.0004 / 1,000 requests |
 | Internet egress (first 10 TB) | $0.09 / GB |
-| RDS `db.t4g.medium` | $0.0656 / hour |
-| RDS `db.t4g.large` | $0.1312 / hour |
-| RDS gp3 storage | $0.115 / GB-month (Multi-AZ ≈ 2×) |
-| Fargate vCPU | $0.04048 / vCPU-hour |
-| Fargate memory | $0.004445 / GB-hour |
-| ALB | $0.0225 / hour + $0.008 / LCU-hour |
-| NAT Gateway | $0.045 / hour + $0.045 / GB |
-| CloudWatch Logs ingest | $0.50 / GB |
-| CloudWatch Logs storage | $0.03 / GB-month |
-| ECR storage | $0.10 / GB-month |
-| Route 53 hosted zone | $0.50 / month |
-| ACM certificate | $0 |
+| EBS snapshot (optional) | ~$0.05 / GB-month |
+| Route 53 hosted zone (optional) | $0.50 / month + queries |
 
-## 3. Scenario A — Development
+## 3. Scenario A — Production baseline (`t3.medium`, 100 GiB)
 
 | Item | Calculation | Monthly |
 |---|---|---|
-| RDS t4g.small, single-AZ, 20 GiB | 0.0328 × 730 + 20 × 0.115 | $26 |
-| Fargate API 0.25 vCPU/0.5 GiB | 0.25 × 730 × 0.04048 + 0.5 × 730 × 0.004445 | $9 |
-| Fargate worker 0.25 vCPU/0.5 GiB | same | $9 |
-| NAT (1) + 30 GiB | 0.045 × 730 + 30 × 0.045 | $34 |
-| ALB | 0.0225 × 730 + 1 LCU | $22 |
-| S3 20 GiB + 10 GiB egress | 20 × 0.023 + 10 × 0.09 | $1.4 |
-| Logs 5 GiB + metrics | 5 × 0.5 + 3 | $5.5 |
-| ECR + Route 53 | — | $1 |
-| SigNoz | local/disabled | $0 |
-| **Total** | | **≈ $108/mo** |
+| EC2 `t3.medium` | 0.0416 × 730 | $30.37 |
+| EBS 100 GiB gp3 | 100 × 0.08 | $8.00 |
+| Elastic IP | 0.005 × 730 | $3.65 |
+| S3 storage 500 GiB | 500 × 0.023 | $11.50 |
+| S3 requests | ~200k GET + 20k PUT | $0.18 |
+| Egress 200 GiB | 200 × 0.09 | $18.00 |
+| Backup storage 50 GiB | 50 × 0.023 | $1.15 |
+| Optional EBS snapshot 100 GiB | 100 × 0.05 | $5.00 |
+| Domain (amortized) | ~$1/month | $1.00 |
+| **Total (no snapshot)** | | **≈ $74/mo** |
+| **Total (with snapshot)** | | **≈ $79/mo** |
+| **Planning number (+10%)** | | **$80–90/mo** |
 
-## 4. Scenario B — Production baseline
+SigNoz self-hosted on the same host does not add EC2 cost but competes for 4 GiB of RAM; an
+external SigNoz or a second `t3.small` adds roughly $20–40/month.
 
-| Item | Calculation | Monthly |
-|---|---|---|
-| RDS t4g.medium Multi-AZ, 100 GiB gp3 | 0.0656 × 730 × 2 + 100 × 0.115 × 2 | $119 |
-| Backup storage over free tier | estimate | $0–10 |
-| Fargate API 2 × (0.5 vCPU, 1 GiB) | 1 × 730 × 0.04048 + 2 × 730 × 0.004445 | $36 |
-| Fargate worker (0.5 vCPU, 1 GiB) | 0.5 × 730 × 0.04048 + 1 × 730 × 0.004445 | $18 |
-| NAT (1) + 100 GiB | 0.045 × 730 + 100 × 0.045 | $37 |
-| NAT (second, HA) | 0.045 × 730 | +$33 |
-| ALB + 1 LCU avg | 0.0225 × 730 + 0.008 × 730 | $22 |
-| S3 storage 500 GiB | 500 × 0.023 | $12 |
-| S3 requests | ~5k PUT + 100k GET, negligible | $0.1 |
-| Egress 200 GiB | 200 × 0.09 | $18 |
-| CloudWatch Logs 20 GiB | 20 × 0.5 + storage + alarms | $21 |
-| SigNoz (1 task, 1 vCPU/2 GiB + storage) | ~$36 + storage/collector | $43 |
-| ECR, Route 53, KMS | — | $2 |
-| **Total (one NAT)** | | **≈ $326/mo** |
-| **Total (two NATs, HA)** | | **≈ $359/mo** |
-| **Planning number (with 10% buffer)** | | **$360–400/mo** |
+## 4. Scenario B — Development / staging
 
-The original target of $180–320 is achievable only with a single NAT, single-AZ database, or
-SigNoz disabled; those reduce resilience. This document recommends the $360–400 range for a
-production-grade baseline.
+| Item | Monthly |
+|---|---|
+| EC2 `t3.small` (50 GiB gp3) | $15.18 + $4.00 |
+| Elastic IP | $3.65 |
+| S3 50 GiB + 20 GiB egress | $1.15 + $1.80 |
+| Backups 10 GiB | $0.23 |
+| **Total** | **≈ $26/mo** (plus domain) |
+
+Local development is $0 AWS (LocalStack). A staging copy of production adds ~$50–80/month;
+delete it when idle or stop the instance (Elastic IP still billed while allocated).
 
 ## 5. Scenario C — Growth (12–18 months)
 
 | Driver | Assumption |
 |---|---|
+| Host | `t3.large` (2 vCPU, 8 GiB) |
+| EBS | 500 GiB gp3 |
 | Stored | 2 TiB |
 | Egress | 1 TiB/month |
-| Requests | 20 million/month |
-| API | 4 × (1 vCPU, 2 GiB) |
-| Worker | 2 × (0.5 vCPU, 1 GiB) |
-| DB | t4g.large Multi-AZ, 200 GiB |
-| NAT | 2, 500 GiB processed |
-| SigNoz | 2 tasks |
+| Backups | 200 GiB |
+| Telemetry | External SigNoz |
 
 | Item | Monthly |
 |---|---|
-| RDS (0.1312 × 730 × 2 + 200 × 0.115 × 2) | $238 |
-| Fargate API (4 vCPU × 730 × 0.04048 + 8 GiB × 730 × 0.004445) | $144 |
-| Fargate worker | $36 |
-| NAT (2 × 32.85 + 500 × 0.045) | $88 |
-| ALB + LCU | $42 |
-| S3 storage 2 TiB | $47 |
-| Egress 1 TiB | $90 |
-| Logs 100 GiB + metrics | $65 |
-| SigNoz | $86 |
-| Other | $5 |
-| **Total** | **≈ $841/mo** |
-| **With 10% buffer** | **≈ $925/mo** |
+| EC2 `t3.large` | $60.74 |
+| EBS 500 GiB | $40.00 |
+| Elastic IP | $3.65 |
+| S3 2 TiB | $47.10 |
+| Egress 1 TiB | $90.00 |
+| Backups 200 GiB | $4.60 |
+| S3 requests | ~$1 |
+| **Total** | **≈ $247/mo** |
+| **With +10%** | **≈ $272/mo** |
 
-At growth, **egress (11%) and the database (28%)** dominate; storage itself is only ~6%.
+At growth, **egress and EC2** dominate; storage is ~19%. If traffic requires a second API host,
+add its EC2/EBS and eventually a load balancer.
 
 ## 6. Unit economics (baseline)
 
 | Metric | Value |
 |---|---|
-| All-in cost per stored GiB/month | $360 / 500 ≈ **$0.72** (marginal S3: $0.023) |
-| Cost per download (5 MiB) | ≈ $0.0005 (egress + request + compute share) |
-| Cost per file/month | $360 / 10,000 ≈ **$0.036** |
-| Cost per GB transferred | $0.09 egress + ~$0.001 proxy compute |
-| Fixed vs variable | ~65% fixed (DB, NAT, ALB, SigNoz) at baseline |
+| All-in cost per stored GiB/month | $80 / 500 ≈ **$0.16** |
+| Marginal storage cost | $0.023/GiB-month |
+| Cost per download (5 MiB) | ≈ $0.0005 (egress + compute) |
+| Cost per file/month | $80 / 10,000 ≈ **$0.008** |
+| Cost per GB transferred | $0.09 egress + small API compute |
+| Fixed vs variable | ~70% fixed (EC2, EBS, EIP, domain) |
 
-The high fixed share means small deployments are relatively expensive; consolidating dev/staging
-or using a shared SigNoz instance improves the ratio.
+The single node is cheap but has poor elasticity: capacity jumps come in instance-size steps, and
+disk must be expanded before uploads need it.
 
 ## 7. Optimization levers
 
 | Lever | Estimated saving | Trade-off |
 |---|---|---|
-| One NAT in production | $33/mo | No NAT HA; single-AZ egress dependency |
-| VPC endpoints for S3/ECR/Logs | $5–20/mo at baseline; more at growth | Setup complexity; endpoint hourly cost |
-| Fargate Savings Plan (1 yr) | ~20% of compute ($11/mo baseline) | Commitment |
-| Worker on Fargate Spot | ~50% of worker ($9/mo) | Interruption tolerance (jobs are idempotent) |
-| S3 Intelligent-Tiering / IA after 90 days | Up to 40% of storage cost | Retrieval fees; small at baseline |
-| Log volume reduction (sampling, levels) | $5–10/mo | Less debugging detail |
-| SigNoz self-hosted vs SaaS | $50–150/mo | Operational effort |
-| Delete stale dev environments | $100+/mo per environment | — |
-| Negotiated egress (CloudFront/private pricing) | 10–30% of egress | Contract; CDN architecture change |
-| RDS reserved instance (1 yr) | ~30% of DB compute | Commitment |
+| `t3.small` for low traffic | ~$15/mo | Less headroom for 5 GiB staging + PostgreSQL. |
+| 1-year EC2 Savings Plan / Reserved Instance | ~25–30% of EC2 (~$8/mo) | Commitment. |
+| Keep EBS at 100 GiB; lifecycle staging/orphans | Avoids growth | Monitor; resize when >70%. |
+| S3 Intelligent-Tiering/IA for cold files | Up to 40% of storage | Retrieval fees; small at baseline. |
+| Compress/shorten logs, OTel sampling | $1–5/mo | Less debugging detail. |
+| External SigNoz instead of self-hosted | Avoids ~$20–40/mo host cost | Data leaves the host. |
+| Delete idle staging EC2 / release EIP | ~$50/mo | Staging unavailable. |
+| Negotiated egress / CDN later | 10–30% of egress | Architecture change; not in the initial phase. |
 
 ## 8. Budget controls
 
-- AWS Budgets per environment with alerts at 80%, 100%, and 120% of the monthly plan.
-- Cost allocation tags: `Product=Files`, `Environment`, `Service` (api/worker/storage/db).
-- Cost anomaly detection on S3 egress and NAT processed bytes (denial-of-wallet).
-- Monthly review: storage growth, egress per integration, top files by bytes, Fargate utilization,
-  DB storage headroom.
-- Chargeback (optional): attribute S3 storage and egress to integrations via `daily_usage` and
-  object metadata (approximation; S3 cost allocation by prefix is not exact).
+- AWS Budgets for the account with alerts at 80/100/120% of ~$90/month.
+- Cost allocation tags: `Product=Files`, `Environment`, `Service` (api/worker/storage).
+- Monthly review: EC2 utilization, EBS growth, S3 storage/egress, backup size.
+- Guard against denial of wallet: upload quotas, 5 GiB cap, 3 concurrent sessions, egress
+  monitoring, public link limits.
+- If SigNoz is external, include its subscription/fee separately.
 
-## 9. What is not included
+## 9. Not included
 
-- Engineering, support, and on-call time.
-- Entra ID licensing (assumed existing Microsoft 365 E3/E5).
-- Domain registration and legal/compliance costs.
-- Penetration testing and audits.
-- Disaster-recovery region duplication (adds ~60–80% of baseline if warm).
+- Engineering, on-call, and support time.
+- Entra ID licensing (assumed existing Microsoft 365).
+- Domain registration/SSL (Let's Encrypt is free).
+- Penetration testing, audits, legal.
+- A second environment/HA/DR region.
 - Data migration from the existing product.

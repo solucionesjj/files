@@ -13,8 +13,9 @@ complete. No application code yet. Terraform skeleton under `infra/terraform/`.
 - **Portal** (Angular + Bootstrap) for tenant employees to upload, organize, retain, and share
   files.
 - **API** (.NET 10) for machine integrations to upload/retrieve files without a user session.
-- **Private S3** storage (multipart uploads, streamed downloads), PostgreSQL 18 metadata,
-  Entra ID identity, Graph email, SigNoz telemetry.
+- **Private S3** storage, reachable only by Files, with chunked API uploads and streamed
+  downloads; PostgreSQL 18 and Caddy run in Docker on **one EC2 instance**; Entra ID identity,
+  Graph email, SigNoz telemetry.
 - Public links require an **8-character download key** in addition to a 256-bit link token.
 - One Entra tenant and one AWS account per environment (v1).
 
@@ -35,7 +36,8 @@ Source specification: `FILES_Product_Requirements_Technical_Specifications.md` (
 | `docs/07-quality/` | Testing strategy. |
 | `docs/08-operations/` | IaC, deployment/rollback, SLOs/alerting, cost model, runbooks. |
 | `docs/09-delivery/` | Roadmap, backlog, traceability, session log. |
-| `infra/terraform/` | AWS skeleton: VPC, S3, RDS, ECS/ALB, alarms. |
+| `infra/terraform/` | AWS single-node: EC2, Elastic IP, security group, instance role, S3 bucket/policy. |
+| `deploy/` | Production Compose, Caddy, env template, backup/restore/smoke scripts. |
 | `docker-compose.yml` | Local PostgreSQL 18, LocalStack S3, Mailpit, OTel Collector, Flyway. |
 | `scripts/` | Bootstrap and validation helpers. |
 
@@ -48,8 +50,12 @@ milestone you are implementing. Check `git log` for what changed since the last 
 |---|---|---|
 | IDs | UUIDv7 (`uuidv7()`), exposed as UUID strings | ADR-0002 |
 | DB changes | SQL migrations, forward-only; **no EF migrations, no EnsureCreated** | ADR-0002 |
-| Downloads | API streams; **no presigned GET**; grants are 120 s single-use | ADR-0003/0005 |
+| Transfers | **API-only S3**: chunked uploads to local staging then server-side S3; downloads streamed; no presigned URLs ever | ADR-0003 |
+| S3 access | Only the EC2 instance role; bucket policy denies all other principals | D-30 |
+| Hosting | Single EC2 Ubuntu 24.04, Docker Compose, Caddy TLS, PostgreSQL 18 container; no ALB/ECS/RDS | ADR-0010 |
 | Counts | Increment only on completed stream; reservation for `max_downloads` | ADR-0005 |
+| Staging | 16 MiB chunks, 10 GiB reserve, 3 concurrent sessions; complete commits to S3 and can be retried | ADR-0003 |
+| Backups | Nightly `pg_dump` to `s3://<bucket>/backups/postgres/`, 35 days; RPO 24 h/RTO 4 h | D-31/D-33 |
 | Link token | 32 bytes base64url (43 chars), SHA-256 at rest | ADR-0005 |
 | Download key | Exactly 8 chars `[A-Za-z0-9]`, Argon2id verifier, versioned pepper, never logged | ADR-0005 |
 | API keys | `flk_<kid>_<secret>`, HMAC-SHA256 peppered, show once | ADR-0004 |
@@ -60,7 +66,6 @@ milestone you are implementing. Check `git log` for what changed since the last 
 | Jobs | Quartz in-memory + PG advisory locks; transactional outbox | ADR-0007 |
 | Errors | RFC 9457, stable `code`, 404 for foreign link/file | ADR-0012 |
 | Email | Microsoft Graph `sendMail` (provisional OQ-01) | ADR-0009 |
-| Hosting | AWS ECS Fargate + RDS + S3 + ALB, Terraform | ADR-0010 |
 | Frontend | Angular standalone + Bootstrap 5.3 + MSAL, Spanish UI | ADR-0013 |
 
 When a decision must change: add/update an ADR or `decisions.md`, update affected requirements,
@@ -104,8 +109,11 @@ cd web && npm install && npm start
 # OpenAPI
 npx --yes @redocly/cli@latest lint docs/04-api/openapi/files-api.v1.yaml
 
-# Terraform
+# Terraform (single EC2 + S3)
 cd infra/terraform && terraform init -backend=false && terraform validate
+
+# Production deployment assets
+deploy/docker-compose.prod.yml · deploy/Caddyfile · deploy/backup.sh
 ```
 
 Local endpoints: API `http://localhost:8080`, Portal `http://localhost:4200`, LocalStack S3
@@ -123,8 +131,9 @@ Local endpoints: API `http://localhost:8080`, Portal `http://localhost:4200`, Lo
 | Security designs + threat model | Done |
 | Workflows (lifecycle/upload/download/retention) | Done |
 | Testing strategy | Done |
-| IaC skeleton | Done, `terraform validate` (review on change) |
+| IaC skeleton | Done: single EC2 + S3, `terraform validate` (review on change) |
 | Local stack, CI, scripts | Done |
+| Deployment assets | Done: Compose, Caddy, backup/restore/smoke |
 | Application code | **Not started** |
 | Terraform applied to AWS | Not started |
 
@@ -132,10 +141,11 @@ Local endpoints: API `http://localhost:8080`, Portal `http://localhost:4200`, Lo
 
 1. **S1 / M0:** run `scripts/bootstrap-solution.sh` (review it first), create the .NET solution and
    Angular workspace, health endpoints, config validation, OTel wiring; bring up compose; run CI.
+   Add the API/worker Dockerfiles required by `deploy/docker-compose.prod.yml`.
 2. **S2 / M1:** EF Core mapping + repositories + audit/outbox writers; user/integration persistence.
 3. **S3 / M1:** Entra JWT validation, JIT provisioning, role policies, integration admin + API keys.
-4. **S4–S5 / M2:** `IObjectStore`, upload sessions, presigned multipart, completion verification,
-   cleanup; integration tests with LocalStack S3.
+4. **S4–S5 / M2:** `IObjectStore`, `IChunkStore` staging, chunk endpoints, server-side S3 commit,
+   completion verification, disk reserve, cleanup; integration tests with LocalStack S3.
 5. **S6–S8:** portal, then links/public downloads.
 
 Do not jump to UI before the upload/download vertical slice works end to end; it validates auth,
@@ -143,8 +153,11 @@ DB, S3, streaming, audit, and counts together.
 
 ## 8. Guardrails / common mistakes
 
-- ❌ Presigned S3 GET URLs for downloads — breaks counting/revocation (ADR-0003).
-- ❌ Incrementing counts when a grant or URL is created — must be on completion.
+- ❌ Any presigned S3 URL (upload or download) — clients must never touch S3 (D-30).
+- ❌ Proxying a 5 GiB upload without staging — the S3 commit must be retryable.
+- ❌ Accepting chunks without checking staging free space/reserve.
+- ❌ Publishing the API/PostgreSQL port or allowing SSH from 0.0.0.0/0.
+- ❌ Incrementing counts when a grant is created — must be on completion.
 - ❌ Treating `max_downloads` as a soft limit — reservations are atomic and enforce it.
 - ❌ Storing an 8-char key in plaintext or logging it; ❌ putting it in the URL.
 - ❌ Using `DateTime.UtcNow` instead of `TimeProvider`; ❌ comparing client-supplied time for expiry.
@@ -153,6 +166,7 @@ DB, S3, streaming, audit, and counts together.
 - ❌ Giving admins content access "for support" without an ADR and audit design.
 - ❌ Far-future timestamps for indefinite retention.
 - ❌ Auto-migrating the database on API startup or editing an applied migration.
+- ❌ Committing `/opt/files/.env`, S3 keys, or Terraform state.
 - ❌ Logging `Authorization`, `key`, `token`, `grant`, object keys, or filenames.
 - ❌ Committing real secrets or `.env` files.
 

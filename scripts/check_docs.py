@@ -51,8 +51,17 @@ REQUIRED = [
     ".env.example",
     "Makefile",
     "infra/local/otel-collector.yaml",
-    "infra/local/s3/cors.json",
     "infra/local/s3/init-s3.sh",
+    "deploy/docker-compose.prod.yml",
+    "deploy/Caddyfile",
+    "deploy/env.prod.example",
+    "deploy/backup.sh",
+    "deploy/restore.sh",
+    "deploy/smoke.sh",
+    "deploy/README.md",
+    "deploy/files-backup.cron",
+    "deploy/otel-collector.yaml",
+    ".github/workflows/deploy.yml",
 ]
 
 for rel in REQUIRED:
