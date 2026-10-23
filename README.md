@@ -44,7 +44,9 @@ flowchart LR
   Infrastructure automation may manage bucket configuration but cannot read or write objects.
 - Uploads are chunked through the API into local staging, verified, then uploaded to S3 by the API.
 - Downloads stream from S3 through the API with short-lived, single-use grants.
+- **ClamAV** scans staged files before they reach S3; infected files are quarantined.
 - Nightly `pg_dump` backups go to `s3://<bucket>/backups/postgres/` (35 days); RPO 24 h/RTO 4 h.
+- Production domain: `files.sacservices.cloud` (Network Solutions A record; Caddy TLS).
 
 ## Documentation
 
@@ -87,7 +89,7 @@ docker-compose.yml         # local dependencies
 ## Local quickstart
 
 Prerequisites: Docker, .NET SDK 10, Node.js 22 LTS (Angular 20 also supports 20.19+), Terraform
-1.9+ (IaC only).
+1.9+ (IaC only). ClamAV runs on the x86_64 production host; local development keeps scanning off.
 
 ```bash
 cp .env.example .env          # review; local values are non-secret
@@ -118,7 +120,7 @@ Terraform creates (or imports) the EC2 instance, Elastic IP, security group, ins
 bucket. If the host/bucket already exist, import them or skip Terraform and apply the same policy
 manually. Then follow [`deploy/README.md`](deploy/README.md):
 
-1. Point DNS (e.g., `files.example.com`) at the Elastic IP.
+1. Point DNS (e.g., `files.sacservices.cloud`) at the Elastic IP.
 2. Copy `deploy/` to `/opt/files/app`, create `/opt/files/.env` (mode 0600).
 3. Start PostgreSQL, run Flyway, build the SPA, start API/worker/Caddy.
 4. Install the nightly backup cron and verify a dump in S3.

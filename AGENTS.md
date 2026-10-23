@@ -14,8 +14,8 @@ complete. No application code yet. Terraform skeleton under `infra/terraform/`.
   files.
 - **API** (.NET 10) for machine integrations to upload/retrieve files without a user session.
 - **Private S3** storage, reachable only by Files, with chunked API uploads and streamed
-  downloads; PostgreSQL 18 and Caddy run in Docker on **one EC2 instance**; Entra ID identity,
-  Graph email, SigNoz telemetry.
+  downloads; PostgreSQL 18, Caddy, and ClamAV run in Docker on **one EC2 instance**; Entra ID
+  identity, Microsoft 365 SMTP email, SigNoz telemetry.
 - Public links require an **8-character download key** in addition to a 256-bit link token.
 - One Entra tenant and one AWS account per environment (v1).
 
@@ -54,8 +54,12 @@ milestone you are implementing. Check `git log` for what changed since the last 
 | S3 access | Only the EC2 instance role; bucket policy denies all other principals | D-30 |
 | Hosting | Single EC2 Ubuntu 24.04, Docker Compose, Caddy TLS, PostgreSQL 18 container; no ALB/ECS/RDS | ADR-0010 |
 | Counts | Increment only on completed stream; reservation for `max_downloads` | ADR-0005 |
-| Staging | 16 MiB chunks, 10 GiB reserve, 3 concurrent sessions; complete commits to S3 and can be retried | ADR-0003 |
+| Staging | 16 MiB chunks, 10 GiB reserve, 3 concurrent sessions; complete scans/commits to S3 and can be retried | ADR-0003 |
+| Malware | ClamAV scans the staged file **before** S3; infected files are never uploaded; scanner failure keeps `processing` | D-35 |
+| Email | Microsoft 365 mailbox: POP inbound only; **SMTP AUTH 587** for sending | D-09 / ADR-0009 |
+| Domain | `files.sacservices.cloud` (Network Solutions A record → Elastic IP); Caddy TLS | D-34 |
 | Backups | Nightly `pg_dump` to `s3://<bucket>/backups/postgres/`, 35 days; RPO 24 h/RTO 4 h | D-31/D-33 |
+| Host size | `t3.large` (8 GiB) for ClamAV + PostgreSQL + API/worker | D-35 |
 | Link token | 32 bytes base64url (43 chars), SHA-256 at rest | ADR-0005 |
 | Download key | Exactly 8 chars `[A-Za-z0-9]`, Argon2id verifier, versioned pepper, never logged | ADR-0005 |
 | API keys | `flk_<kid>_<secret>`, HMAC-SHA256 peppered, show once | ADR-0004 |
@@ -65,7 +69,6 @@ milestone you are implementing. Check `git log` for what changed since the last 
 | Deletion | Logical first, physical async, tombstone retained; backups caveat | ADR-0008 |
 | Jobs | Quartz in-memory + PG advisory locks; transactional outbox | ADR-0007 |
 | Errors | RFC 9457, stable `code`, 404 for foreign link/file | ADR-0012 |
-| Email | Microsoft Graph `sendMail` (provisional OQ-01) | ADR-0009 |
 | Frontend | Angular standalone + Bootstrap 5.3 + MSAL, Spanish UI | ADR-0013 |
 
 When a decision must change: add/update an ADR or `decisions.md`, update affected requirements,
@@ -154,6 +157,8 @@ DB, S3, streaming, audit, and counts together.
 ## 8. Guardrails / common mistakes
 
 - ❌ Any presigned S3 URL (upload or download) — clients must never touch S3 (D-30).
+- ❌ Uploading a file to S3 before ClamAV returns clean when scanning is enabled.
+- ❌ Assuming POP can send email; outbound uses SMTP AUTH 587.
 - ❌ Proxying a 5 GiB upload without staging — the S3 commit must be retryable.
 - ❌ Accepting chunks without checking staging free space/reserve.
 - ❌ Publishing the API/PostgreSQL port or allowing SSH from 0.0.0.0/0.

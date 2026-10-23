@@ -24,7 +24,7 @@ flowchart LR
   visitor["Link visitor<br/>(browser, no account)"]
   consumer["Existing enterprise product<br/>(backend integration)"]
   entra["Microsoft Entra ID"]
-  mail["Microsoft 365<br/>(Graph sendMail)"]
+  mail["Microsoft 365 mailbox<br/>(SMTP AUTH 587)"]
   signoz["SigNoz (self-hosted or external)<br/>OTLP"]
 
   subgraph aws["AWS account (construction phase)"]
@@ -52,13 +52,13 @@ flowchart LR
   api -.->|OIDC validate| entra
   human -->|OIDC PKCE| entra
   consumer -->|client credentials| entra
-  worker -->|sendMail| mail
+  worker -->|SMTP AUTH / TLS| mail
   api -.->|OTLP| signoz
   worker -.->|OTLP| signoz
 ```
 
-External dependencies: Microsoft Entra ID (human/machine identity), Microsoft Graph (email),
-Amazon S3 (blobs), SigNoz (telemetry; self-hosted or external).
+External dependencies: Microsoft Entra ID (human/machine identity), the Microsoft 365 mailbox
+(SMTP AUTH for email; POP is inbound only), Amazon S3 (blobs), and SigNoz (telemetry).
 
 ## 3. Container view (C4 level 2)
 
@@ -76,13 +76,14 @@ flowchart TB
     subgraph data["Data"]
       pg[("PostgreSQL 18<br/>container · EBS volume")]
       staging[("Staging directory<br/>EBS")]
+      clam["ClamAV<br/>clamd :3310"]
     end
     subgraph obs["Optional"]
       otel["OTel Collector"]
     end
   end
   s3[("S3 private bucket")]
-  graph["Graph API"]
+  smtp["Microsoft 365 SMTP :587"]
   entra["Entra ID"]
 
   internet --> caddy
@@ -92,9 +93,10 @@ flowchart TB
   worker --> pg
   api --> staging
   worker --> staging
+  worker --> clam
   api -->|instance role| s3
   worker -->|instance role| s3
-  worker --> graph
+  worker --> smtp
   api -.-> entra
   api -.-> otel
   worker -.-> otel
@@ -106,6 +108,7 @@ flowchart TB
 | Files API | AuthN/Z, metadata, chunk staging, S3 upload/stream, audit, admin. | Internal Docker network only. |
 | Files Worker | Notifications, expiration, deletion, cleanup, reconciliation, outbox. | None. |
 | PostgreSQL 18 | Metadata, policies, audit, outbox, idempotency. | Internal only; no host port. |
+| ClamAV | Scans staged files before S3 commit (ClamAV signatures on a volume). | Internal only; port 3310 not published. |
 | OTel Collector | OTLP export to SigNoz. | Internal (optional). |
 
 The host also runs a `pg_dump` backup job (cron/systemd timer) that writes to
@@ -142,7 +145,7 @@ flowchart TB
     s3["IObjectStore → S3 (SDK v4)"]
     chunkStore["IChunkStore → local staging"]
     key["Key/verifier services"]
-    mail["Graph mail sender"]
+    mail["SMTP mail sender (MailKit)"]
     audit["Audit + outbox writers"]
   end
 
@@ -175,12 +178,13 @@ no framework references. The API composes everything via DI.
 |---|---|---|
 | Outbox dispatcher | every 2 s | Dispatch committed events (email, audit projections, metrics). |
 | Notification scheduler | hourly | Compute due notifications per interval; upsert unique events. |
-| Notification sender | every minute | Send via Graph with retries; record accepted/failed. |
+| Notification sender | every minute | Send via Microsoft 365 SMTP AUTH with retries; record accepted/failed. |
 | Expiration job | every 15 min | `available` → `pending_deletion` after expiry; revoke links. |
 | Deletion job | every 5 min | Delete S3 object, mark `deleted`; retry failures. |
 | Grant expiry | every minute | Expire grants and release download reservations. |
 | Link expiry | every 15 min | Mark active links past expiry. |
-| Upload cleanup | every 10 min | Delete expired staging files, abort stale multipart uploads, mark sessions failed. |
+| Upload cleanup | every 10 min | Delete expired staging files, abort stale multipart uploads, mark sessions failed. Do not delete files in `processing` until the scan/commit finishes or times out. |
+| Scan & commit | every minute | Claim `processing` files, scan staging with ClamAV, quarantine infected files, commit clean files to S3, mark available. |
 | Reconciliation | daily | Compare DB and S3; quarantine missing objects; move orphans to `orphan/`. |
 | Retention purge | daily | Purge events/tombstones/idempotency rows per policy. |
 | Backup verification | daily | Check the latest `pg_dump` in S3 exists and is non-empty; alert otherwise. |
@@ -195,7 +199,7 @@ safety net for overlapping cron ticks.
 |---|---|---|---|
 | Create upload session | Client → API | Before staging file | Small JSON; no S3. |
 | Upload chunk | Client → API → staging file | Every request | 16 MiB max; idempotent. |
-| Complete upload | Client → API → S3 | Session owner + verification | API does multipart/PutObject; HeadObject. |
+| Complete upload | Client → API → (scan) → S3 | Session owner + verification | API commits when scanning is off; the worker scans then commits when on. |
 | Download | Client ↔ API ↔ S3 | Per request/grant | Streamed, counted, audited. |
 | Public link | Visitor → API (grant) → API stream | Key + link + file checks | Grant 120 s, single use. |
 | Delete/expire | Worker → S3 | System job + DB state | Idempotent. |
@@ -216,6 +220,7 @@ sequenceDiagram
   participant A as Files API
   participant D as PostgreSQL
   participant F as Staging file (EBS)
+  participant W as Worker / ClamAV
   participant S as S3
 
   C->>A: POST /upload-sessions (name,size,type,checksum)
@@ -231,11 +236,23 @@ sequenceDiagram
   end
   C->>A: POST /upload-sessions/{id}/complete
   A->>A: verify all chunks + total size/checksum
-  A->>S: multipart upload from staging (or PutObject)
-  A->>S: HeadObject verify
-  A->>D: file available/processing + audit/outbox
-  A->>F: delete staging file
-  A-->>C: file metadata
+  alt scanning enabled
+    A->>D: file processing + enqueue scan/commit
+    W->>F: stream staging file to clamd
+    alt clean
+      W->>S: multipart upload from staging + HeadObject
+      W->>D: available + audit/outbox
+    else infected
+      W->>D: quarantined + audit/outbox (no S3 upload)
+    end
+    W->>F: delete staging file
+    A-->>C: file metadata (processing)
+  else scanning disabled
+    A->>S: multipart upload from staging + HeadObject
+    A->>D: available + audit/outbox
+    A->>F: delete staging file
+    A-->>C: file metadata (available)
+  end
 ```
 
 If the S3 commit fails, the session stays `failed` with the staging file intact; retrying
@@ -279,13 +296,14 @@ See [file-lifecycle.md](../06-workflows/file-lifecycle.md) and
 flowchart TB
   dns["DNS name (required for TLS)"] --> eip["Elastic IP"]
   eip --> sg["Security group<br/>80/443 world · 22 admin CIDR"]
-  sg --> ec2["EC2 · Ubuntu 24.04 · t3.medium<br/>100 GiB gp3 EBS"]
+  sg --> ec2["EC2 · Ubuntu 24.04 · t3.large<br/>100 GiB gp3 EBS"]
   subgraph ec2box["Docker Compose"]
     caddy["Caddy :80/:443"] --> api["API :8080"]
     api --> pg[("PostgreSQL 18")]
     api --> staging[("Staging dir")]
     worker["Worker"] --> pg
     worker --> staging
+    worker --> clam["ClamAV"]
   end
   ec2 --> ec2box
   api -->|instance role| s3[("S3 bucket")]
@@ -294,13 +312,13 @@ flowchart TB
   api -.->|OTLP| signoz["SigNoz"]
   worker -.->|OTLP| signoz
   ec2 -->|443| entra["Entra ID"]
-  ec2 -->|443| graph["Graph"]
+  ec2 -->|587 STARTTLS| m365["Microsoft 365 SMTP"]
 ```
 
 - The API and PostgreSQL are not reachable from the internet; Caddy is the only listener.
 - The Elastic IP keeps the public address stable across instance stop/start (within the account).
-- DNS/TLS is a hard prerequisite for public launch; the domain points to the Elastic IP and Caddy
-  obtains the certificate. A bare IP cannot get a trusted certificate (OQ-15).
+- Production domain `files.sacservices.cloud` (Network Solutions A record → Elastic IP) is a hard
+  prerequisite; Caddy obtains the certificate. A bare IP cannot get a trusted certificate (OQ-15).
 - SSH is restricted to `admin_cidr`; IMDSv2 is required; UFW mirrors the security group.
 
 ## 9. Trust boundaries
@@ -311,7 +329,7 @@ flowchart TB
 | Caddy ↔ API | Local Docker network | No published API port; `ForwardedHeaders` only from Caddy. |
 | API/Worker ↔ PostgreSQL | Docker network | Strong password, no host port, least-privilege DB role. |
 | API/Worker ↔ S3 | IAM instance role | Prefix-scoped identity policy + bucket policy deny-all-except-role; TLS. |
-| Worker ↔ Graph | Outbound HTTPS | App permission restricted to one mailbox. |
+| Worker ↔ Microsoft 365 SMTP | Outbound TLS 587 | Mailbox credentials in `.env`; STARTTLS; no POP for sending. |
 | Host ↔ operator | SSH | Restricted CIDR, key auth, fail2ban, no password login. |
 | Public visitor ↔ API | Untrusted | Token + key + throttling; generic errors. |
 
@@ -329,8 +347,9 @@ flowchart TB
 | Host | EC2 + gp3 EBS + Elastic IP | Ubuntu 24.04 LTS. |
 | Auth | Microsoft.Identity.Web / JwtBearer; MSAL Angular | Latest stable compatible. |
 | Jobs | Quartz.NET, in-memory scheduler + PG advisory locks | 3.x. |
-| Email | Microsoft Graph SDK (`sendMail`) | Latest stable. |
+| Email | Microsoft 365 SMTP AUTH (MailKit); Graph SDK optional | Latest stable. |
 | Telemetry | OpenTelemetry .NET → OTLP → SigNoz (optional self-hosted) | Latest stable. |
+| Malware | ClamAV `clamd` container, signatures via freshclam | 1.4+/stable. |
 | IaC | Terraform | ≥1.9 (repo tested with 1.13). |
 
 ## 11. Cross-cutting concerns
@@ -346,7 +365,7 @@ flowchart TB
   tokens, filenames; access logs disabled for token-bearing paths (threat model I-11).
 - **Telemetry:** OTel traces (ASP.NET, HttpClient, EF Core, S3), RED + business metrics; SigNoz
   optional but recommended externally if host resources are tight.
-- **Resilience:** retries with exponential backoff for S3/Graph; circuit breaker for Graph;
+- **Resilience:** retries with exponential backoff for S3/SMTP; circuit breaker for SMTP;
   timeouts; upload sessions survive client disconnects; S3 commit retries reuse staging.
 - **Data protection:** Argon2id for link keys, HMAC-SHA256 for API keys, SHA-256 for link/grant
   tokens; SSE-S3 at rest; TLS in transit.

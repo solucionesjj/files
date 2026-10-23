@@ -19,10 +19,10 @@ info:
     name: Files Platform Team
   license:
     name: Proprietary
-    url: https://files.example.com/terms
+    url: https://files.sacservices.cloud/terms
 
 servers:
-  - url: https://files.example.com/v1
+  - url: https://files.sacservices.cloud/v1
     description: Production
   - url: http://localhost:8080/v1
     description: Local development
@@ -823,7 +823,7 @@ paths:
               $ref: '#/components/schemas/CompleteUploadRequest'
       responses:
         '200':
-          description: File verified.
+          description: File verified (available, or processing while scanning/committing).
           content:
             application/json:
               schema:

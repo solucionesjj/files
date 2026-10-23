@@ -61,6 +61,7 @@ REQUIRED = [
     "deploy/README.md",
     "deploy/files-backup.cron",
     "deploy/otel-collector.yaml",
+    "deploy/clamav/clamd.conf",
     ".github/workflows/deploy.yml",
 ]
 

@@ -8,7 +8,7 @@
 | State | Meaning | Downloads | Visible in portal | Can transition to |
 |---|---|---|---|---|
 | `pending_upload` | Upload session created; object not verified. | No | No (or "uploading" if in progress) | `processing`, `available`, `upload_failed`, `pending_deletion` |
-| `processing` | Object verified; scanning or post-processing pending. | No | Yes (badge "processing") | `available`, `quarantined` |
+| `processing` | Chunks verified; staged file awaiting scan and/or S3 commit. | No | Yes (badge "processing") | `available`, `quarantined`, `pending_deletion` |
 | `available` | Verified, downloadable subject to authorization and expiry. | Yes | Yes | `expired`, `pending_deletion`, `quarantined` |
 | `quarantined` | Malware/policy violation or missing object. | No | Yes (admin only detail) | `pending_deletion` |
 | `expired` | Logical expiry passed. | No | No (filter "expired") | `pending_deletion` |
@@ -45,10 +45,11 @@ stateDiagram-v2
 | # | From | Trigger | Guard | To | Side effects (same transaction) |
 |---|---|---|---|---|---|
 | T1 | — | `POST upload-session` (portal/integration) | Authorized, quota, size/type allowed, staging capacity available | `pending_upload` | Insert file + session, create empty staging file on EBS, audit `upload_created`, outbox. No S3 call. |
-| T2 | `pending_upload` | `complete` | All chunks staged; size/type/checksum verified; S3 upload + HeadObject verified | `processing` | Set size, checksum, `available_at=null`, scan pending, delete staging, audit `upload_verified`, outbox `file.uploaded`. |
+| T2 | `pending_upload` | `complete` (scanning enabled) | All chunks staged; size/type/checksum verified | `processing` | Set size, checksum, `available_at=null`, `scan_status=pending`, upload session `committing`, enqueue `scan.commit`, audit `upload_verified`. No S3 upload yet. |
 | T2a | `pending_upload` | `complete` (scanning disabled) | Same | `available` | Set `available_at=now()`, scan `not_scanned`, delete staging, audit, outbox `file.available`. |
-| T3 | `processing` | Scan result clean | Scanner completed | `available` | `scan_status=clean`, `available_at=now()`, audit, outbox. |
-| T4 | `processing` | Scan result infected/failed | — | `quarantined` | `scan_status=infected/failed`, `quarantine_reason`, revoke links, audit, alert. |
+| T3 | `processing` | Scan clean + S3 commit verified | ClamAV clean; multipart/PutObject + HeadObject verified | `available` | `scan_status=clean`, `available_at=now()`, delete staging/chunks, session `completed`, audit `scan_completed`, outbox `file.available`. |
+| T4 | `processing` | Scan infected | ClamAV infected | `quarantined` | `scan_status=infected`, `quarantine_reason`, **no S3 upload**, delete staging/chunks, revoke links, audit, alert. |
+| T4b | `processing` | Scanner unavailable/timeout | — | `processing` | `scan_status=failed`, retry with backoff, alert; staging retained, not downloadable. |
 | T5 | `available` | Expiration job | `expires_at <= now()` and no legal hold | `expired` → `pending_deletion` (one run) | Revoke active links, recompute `access_mode` to `owner_only`, cancel pending notifications, audit `expired`, outbox `file.expired`, set `next_deletion_at=now()`. |
 | T6 | `available` | Owner/integration delete | Owner (or admin) and permission | `pending_deletion` | `deletion_requested_by`, reason, revoke links, recompute `access_mode`, audit, outbox `file.deletion_requested`, `next_deletion_at=now()`. |
 | T7 | `quarantined` | Admin delete | Admin + reason | `pending_deletion` | Audit, revoke links. |
@@ -110,9 +111,9 @@ between the two is not served. A link's validity never overrides the file predic
 | State | `expires_at` | `deleted_at` | Object in S3 | Links |
 |---|---|---|---|---|
 | `pending_upload` | per retention | null | none (local staging only) | none |
-| `processing` | per retention | null | yes | none until available |
+| `processing` | per retention | null | no (staging until commit) | none until available |
 | `available` | per retention | null | yes | allowed |
-| `quarantined` | per retention | null | yes | revoked |
+| `quarantined` | per retention | null | no (unless missing-object quarantine) | revoked |
 | `expired` | past | null | yes (until deletion) | revoked |
 | `pending_deletion` | past/any | null | maybe | revoked |
 | `deleted` | unchanged | not null | no | revoked |
@@ -125,7 +126,7 @@ between the two is not served. A link's validity never overrides the file predic
 | S3 commit fails after verification | `failed` (session) / `pending_upload` (file) | Retry `complete`; staged bytes are retained. |
 | Staging file lost (host issue) | `pending_upload` | Restart session; no S3 object exists yet. |
 | Verification mismatch | `pending_upload` (resumable) or `upload_failed` | Fix/re-upload chunks; cleanup removes staging. |
-| Scanner unavailable | `processing` | Retry scan; alert if >1 h; files stay unavailable (fail closed). |
+| Scanner unavailable | `processing` | Retry scan/commit; alert if >1 h; files stay unavailable (fail closed), staging retained. |
 | S3 delete fails | `pending_deletion` | Backoff up to 1 h; alert after 15 min; manual runbook. |
 | Object missing at download | `available` → `quarantined` via reconciliation | Alert; admin decides delete. |
 | DB unavailable | No transition | Jobs retry; downloads fail closed. |

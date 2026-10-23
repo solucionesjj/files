@@ -6,7 +6,42 @@ entry.
 
 ---
 
-## 2026-10-23 — Re-scope to one EC2 + exclusive S3 (current)
+## 2026-10-23 — Domain, network, email, and malware answers (current)
+
+**Answers received**
+
+- Domain: **`files.sacservices.cloud`**, managed at **Network Solutions**; an `A` record will point
+  to the Elastic IP when production deploys.
+- Network: `us-east-1`, account **default VPC and public subnet** (Terraform creates the instance,
+  not a custom network).
+- Email: Microsoft 365 mailbox with **POP**; notifications will be sent through the same mailbox
+  via **SMTP AUTH** (`smtp.office365.com:587`, STARTTLS), because POP is receive-only.
+- Malware: **ClamAV** on the EC2, scanning the staged file **before** the S3 commit.
+
+**Changes made**
+
+- D-34…D-36, OQ-01/02/09/15/20/26 resolved; ADR-0009 rewritten for SMTP (Graph optional);
+  ADR-0010/0003 updated for domain, `t3.large`, and scan-before-commit.
+- Requirements FR-UP-015/018, user stories, lifecycle (T2/T3/T4), upload flow, OpenAPI descriptions,
+  threat model (malware + SMTP), backend config (`Smtp__*`, `ClamAV__*`), observability/runbooks,
+  cost model, roadmap/backlog, deploy assets, README/AGENTS/Spanish summary.
+- Production Compose adds `clamav` (clamd 3310, signatures volume, 2 GiB limit) and the custom
+  `deploy/clamav/clamd.conf` with `MaxFileSize`/`StreamMaxLength` raised for 5 GiB files.
+- Terraform default instance is now `t3.large` (8 GiB) for ClamAV + PostgreSQL + API/worker;
+  `us-east-1` remains the default; default VPC/subnet is used unless `vpc_id`/`subnet_id` are set.
+- `deploy/env.prod.example` uses `files.sacservices.cloud`, M365 SMTP settings, and ClamAV on.
+
+**Notes**
+
+- ClamAV images are **amd64-only**; the production EC2 is x86_64. Local Apple Silicon development
+  keeps scanning off (and cannot run the ClamAV image without emulation).
+- The mailbox address/password and confirmation that SMTP AUTH is enabled are still required; if
+  the tenant blocks SMTP AUTH, use the Graph `Mail.Send` fallback.
+- `files.sacservices.cloud` must resolve to the Elastic IP before Caddy can obtain TLS.
+
+---
+
+## 2026-10-23 — Re-scope to one EC2 + exclusive S3 (partially superseded)
 
 **Change requested:** the construction phase has a single EC2 instance (Ubuntu 24.04 LTS, public
 IP) plus one S3 bucket; no ALB/ECS/RDS/ECR/CloudWatch. The bucket may be accessed **only** by

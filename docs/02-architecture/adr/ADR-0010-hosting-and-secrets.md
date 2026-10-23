@@ -15,7 +15,7 @@ Angular portal, expose the API, keep S3 private and exclusive to Files, and be r
 
 **Host**
 
-- One EC2 instance, Ubuntu 24.04 LTS x86_64, default `t3.medium`, 100 GiB gp3 encrypted EBS,
+- One EC2 instance, Ubuntu 24.04 LTS x86_64, default `t3.large` (8 GiB, for ClamAV + PostgreSQL + API/worker), 100 GiB gp3 encrypted EBS,
   Elastic IP (stable public address), IMDSv2 required, termination protection enabled.
 - Default VPC public subnet; security group allows 80/443 from the internet and 22 only from
   `admin_cidr`. No database port is exposed.
@@ -30,6 +30,7 @@ Angular portal, expose the API, keep S3 private and exclusive to Files, and be r
 | `api` | internal only | ASP.NET Core API, chunk staging, S3 client, auth, audit. |
 | `worker` | none | Jobs, outbox, cleanup, deletion, reconciliation, backup trigger. |
 | `postgres` | internal only | PostgreSQL 18, data on EBS, healthcheck. |
+| `clamav` | internal | clamd on 3310; scans staged files before S3 commit; signature volume. |
 | `otel-collector` (optional profile) | internal | OTLP to SigNoz (self-hosted on the same host or external). |
 
 - The API is the **only** S3 client; it uses the EC2 instance role (no static keys).
@@ -37,9 +38,9 @@ Angular portal, expose the API, keep S3 private and exclusive to Files, and be r
   deployment pipeline. No AWS Secrets Manager in this phase.
 - PostgreSQL backups: nightly `pg_dump` (`-Fc`, gzip) from the host to
   `s3://<bucket>/backups/postgres/`, retained 35 days by lifecycle. No PITR/WAL archiving.
-- TLS requires a DNS name pointing at the Elastic IP. Caddy obtains a public certificate
-  automatically. Without a domain, only a self-signed/HTTP setup is possible, which is not approved
-  for public use (OQ-15).
+- Production name: **`files.sacservices.cloud`** (DNS at Network Solutions, A record to the
+  Elastic IP). Caddy obtains/renews the certificate automatically. A bare IP is only for temporary
+  tests with a self-signed cert (OQ-15/OQ-26).
 
 **Provisioning:** Terraform covers the instance, Elastic IP, security group, IAM role/profile,
 the S3 bucket, and the restrictive bucket policy. Application deployment is Git + SSH + Docker
@@ -51,9 +52,10 @@ Compose (see `deploy/`).
   no HA, no automatic failover, and planned maintenance windows.
 - Availability target is 99.5% best effort; RPO ≤24 h and RTO ≤4 h (D-31). These are honest limits
   for one host and logical backups.
-- 5 GiB uploads are bounded by the instance's network and EBS; disk monitoring and cleanup are
-  critical.
-- The API/worker and database compete for 4 GiB of RAM; resource limits and swap are mandatory.
+- 5 GiB uploads and ClamAV scans are bounded by the instance's network, CPU, and EBS; disk and
+  memory monitoring are critical. ClamAV needs ~1.5–2 GiB; `t3.medium` (4 GiB) is too tight.
+- The API/worker, PostgreSQL, and ClamAV compete for 8 GiB of RAM; resource limits and swap are
+  mandatory.
 - Patching the host requires a short maintenance window (`apt` + Docker restart). Containers
   restart automatically.
 - Scaling path (when construction ends): move PostgreSQL to RDS, run 2+ API tasks on ECS/ALB (or

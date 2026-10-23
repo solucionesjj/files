@@ -49,7 +49,9 @@ dotnet add src/Files.Infrastructure package Npgsql.EntityFrameworkCore.PostgreSQ
 dotnet add src/Files.Infrastructure package EFCore.NamingConventions
 dotnet add src/Files.Infrastructure package Dapper
 dotnet add src/Files.Infrastructure package AWSSDK.S3
-dotnet add src/Files.Infrastructure package Microsoft.Graph
+dotnet add src/Files.Infrastructure package Microsoft.Graph  # optional fallback
+dotnet add src/Files.Infrastructure package MailKit
+dotnet add src/Files.Infrastructure package nClam
 dotnet add src/Files.Infrastructure package Konscious.Security.Cryptography.Argon2
 
 dotnet add src/Files.Api package Microsoft.AspNetCore.OpenApi

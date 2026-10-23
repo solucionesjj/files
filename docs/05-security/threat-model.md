@@ -6,7 +6,8 @@ public link flow. **Status:** v1 baseline; revisit before launch and after any n
 
 ## 1. Scope
 
-In scope: Portal, API, worker, PostgreSQL, S3, Entra ID integration, Graph email, public link
+In scope: Portal, API, worker, PostgreSQL, S3, Entra ID integration, Microsoft 365 SMTP email,
+ClamAV scanning, public link
 flow, admin surface, CI/CD, and the AWS runtime. Out of scope: the consuming enterprise product's
 business authorization, end-user devices, and Microsoft's own infrastructure.
 
@@ -44,7 +45,7 @@ business authorization, end-user devices, and Microsoft's own infrastructure.
 4. Consumer backend ↔ Entra/API (machine credentials).
 5. API/Worker ↔ PostgreSQL (Docker network; no host port).
 6. API/Worker ↔ S3 (EC2 instance role only; bucket policy denies every other principal; no presigned URLs).
-7. Worker/API ↔ Graph (app permission restricted to one mailbox).
+7. Worker/API ↔ Microsoft 365 SMTP (587/STARTTLS; mailbox credentials in `.env`).
 8. Operator ↔ EC2 via SSH (restricted `admin_cidr`; key auth; fail2ban).
 9. CI/CD ↔ EC2 (SSH deploy user; no AWS keys).
 10. Public visitor ↔ API (token + key + throttling).
@@ -73,6 +74,7 @@ Likelihood/impact: L/M/H. Status is the v1 control; verification is how we prove
 | T-04 | Audit tampering | L/H | Append-only API, no UPDATE/DELETE grants for the app role on audit tables, transactional writes, DB audit logs. | DB permission tests; review. |
 | T-05 | Filename/header injection (CRLF, path traversal) | M/M | Sanitizer, length limit, `Content-Disposition` RFC 5987 + ASCII fallback, `nosniff`, no filesystem paths. | Property-based tests; E2E download. |
 | T-06 | Link counter manipulation | L/M | Atomic SQL reservations, state predicates, unique grant tokens. | Concurrency tests (parallel grants). |
+| T-07 | Malware upload reaches storage/download | M/H | ClamAV scans the staged file **before** the S3 commit; infected files are quarantined and never uploaded; scanner failure keeps the file unavailable; signatures refreshed by freshclam. | EICAR test, infected fixture, scanner-down test. |
 
 ### Repudiation
 
@@ -158,7 +160,7 @@ verify to reduce timing differences. Locked-out requests skip hashing (documente
 | 404 for foreign resources | Error mapper |
 | Rate limits + key lockouts | ASP.NET limiter + Postgres abuse tables |
 | Audit append-only | DB grants + no update routes |
-| Malware gate (optional) | Scan status + download policy |
+| Malware gate (ClamAV) | Pre-S3 scan + quarantine + download policy |
 | Backup encryption + retention documented | ADR-0008, DR doc |
 | Dependency/image scanning, SBOM | CI |
 | No admin content access | RBAC matrix |
@@ -173,7 +175,7 @@ verify to reduce timing differences. Locked-out requests skip hashing (documente
 | Backups retain metadata up to 35 days | Nightly logical dumps are operationally required; disclosed. | Legal review. |
 | S3 objects have no secondary copy (versioning/replication off) | Avoids hidden copies and cost in the construction phase; accidental deletion/misconfiguration would be unrecoverable. | Enable versioning/replication before critical data. |
 | Admins can delete but not read content | Least privilege; support may need break-glass later. | OQ-05. |
-| Malware scanning optional | Cost/complexity; gate available. | Make mandatory at launch if required. |
+| ClamAV signature lag / zero-day malware | Detection is definition-based; no guarantee for unknown malware. | Keep signatures updated; add sandbox/AV later. |
 | Single EC2, no HA, public IP | Cost/availability constraint of the construction phase; 99.5% best effort, RPO 24 h. | Scale-up path (ADR-0010, OQ-17). |
 | Staging disk is a single EBS volume | One host only; uploads fail closed on capacity. | Monitor/expand; move to S3 multipart later. |
 | No WAF/rate limiting at the edge | Caddy + API rate limits + validation; a public IP is exposed. Add a WAF/reverse proxy when available. | Before public launch if budget allows. |

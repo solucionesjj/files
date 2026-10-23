@@ -21,9 +21,9 @@ variable "environment" {
 }
 
 variable "instance_type" {
-  description = "EC2 instance type. t3.medium (2 vCPU/4 GiB) is the recommended starting point."
+  description = "EC2 instance type. t3.large (2 vCPU/8 GiB) is recommended with ClamAV; t3.medium is too tight."
   type        = string
-  default     = "t3.medium"
+  default     = "t3.large"
 }
 
 variable "ami_id" {

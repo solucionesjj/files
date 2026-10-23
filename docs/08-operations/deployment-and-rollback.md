@@ -44,13 +44,14 @@ maintenance windows; Caddy keeps the SPA available while the API restarts.
 
 ## 3. First deployment (bootstrap)
 
-1. Terraform apply (EC2 + EIP + S3 + IAM). Point DNS at the EIP.
+1. Terraform apply (EC2 + EIP + S3 + IAM). Point `files.sacservices.cloud` (Network Solutions) at the EIP.
 2. SSH as the admin/deploy user; verify Docker, UFW, fail2ban.
 3. `git clone` the repository to `/opt/files/app` at the release tag.
 4. Create `/opt/files/.env` from `deploy/env.prod.example`; fill secrets (0600).
 5. `cd /opt/files/app && docker compose --env-file /opt/files/.env -f deploy/docker-compose.prod.yml up -d postgres`.
 6. Run migrations once: `docker compose --env-file /opt/files/.env -f deploy/docker-compose.prod.yml --profile tools run --rm migrator`.
-7. Build and start API/worker/Caddy; copy the built SPA to `/var/lib/files/portal`.
+7. Build and start API/worker/Caddy (Compose also starts ClamAV; wait for its health and
+   signatures); copy the built SPA to `/var/lib/files/portal`.
 8. Install the backup cron/timer; run one backup and verify it in S3.
 9. Run `deploy/smoke.sh`; sign in and upload/download a test file.
 
@@ -133,7 +134,7 @@ Production smoke uses a dedicated synthetic integration and deletes its files im
 
 The deploy job writes `/opt/files/.env` atomically (`umask 077`, temp file + `mv`) from GitHub
 Environment secrets. Required values: DB password/connection string, Entra tenant/client/audience,
-Graph tenant/client/secret/mailbox, API-key/link-key peppers, S3 bucket/region, SigNoz endpoint.
+M365 SMTP host/username/password/from mailbox, API-key/link-key peppers, S3 bucket/region, SigNoz endpoint.
 Never echo the file; never commit it. Rotate via the runbook.
 
 ## 10. Incident hooks

@@ -31,9 +31,9 @@
 ### `files-portal` configuration
 
 - Platform: **Single-page application**.
-- Redirect URIs: `https://files.<domain>/auth/callback`,
+- Redirect URIs: `https://files.sacservices.cloud/auth/callback`,
   `http://localhost:4200/auth/callback` (dev only).
-- Front-channel logout URL: `https://files.<domain>/auth/logout` (optional).
+- Front-channel logout URL: `https://files.sacservices.cloud/auth/logout` (optional).
 - API permissions: `Files.Access` (delegated), `openid`, `profile`, `email`; admin consent granted.
 - No client secret, no certificates, no `.default` scope.
 

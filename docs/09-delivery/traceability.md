@@ -10,7 +10,7 @@ targets for the implementation; when a suite is created, link its path.
 |---|---|---|---|
 | FR-ID-001..011 | US-001, US-002, US-021 | `AuthMatrixTests`, `EntraTokenValidationTests`, `JitProvisioningTests`, `TenantIsolationTests` | Integration, security |
 | FR-M2M-001..014 | US-010..US-016 | `IntegrationAuthTests`, `ApiKeyLifecycleTests`, `IntegrationPermissionsTests`, `IdorTests`, `IpAllowlistTests` | Integration, security |
-| FR-UP-001..017 | US-003, US-015, US-028 | `UploadSessionTests`, `ChunkUploadTests`, `StagingCapacityTests`, `UploadVerificationTests`, `UploadCleanupJobTests`, `S3PolicyTests` | Integration, load |
+| FR-UP-001..018 | US-003, US-015, US-028 | `UploadSessionTests`, `ChunkUploadTests`, `StagingCapacityTests`, `ClamAvScanCommitTests`, `UploadVerificationTests`, `UploadCleanupJobTests`, `S3PolicyTests` | Integration, load |
 | FR-FILE-001..005 | US-003, US-004, US-005, US-016 | `FileMetadataTests`, `FileUpdateTests`, `AuditWriteTests`, `SearchScopeTests` | Unit, integration |
 | FR-SRCH-001..006 | US-007, US-008 | `TagTests`, `SearchTests`, `FilterSortTests`, `CursorPaginationTests` | Integration |
 | FR-LINK-001..015 | US-020..US-024 | `LinkCreationTests`, `LinkRevocationTests`, `KeyVerificationTests`, `KeyThrottleTests`, `GrantConcurrencyTests`, `LinkStatsTests` | Unit, integration, security |

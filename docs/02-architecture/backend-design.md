@@ -6,12 +6,12 @@
 src/
   Files.Domain/            # entities, value objects, enums, invariants, domain events
   Files.Application/       # use cases, DTOs, validators, ports, authorization policies
-  Files.Infrastructure/    # EF Core, Dapper, S3, Graph, crypto, telemetry, outbox
+  Files.Infrastructure/    # EF Core, Dapper, S3, SMTP/Graph, ClamAV, crypto, telemetry, outbox
   Files.Api/               # minimal API endpoints, auth wiring, middleware, health
   Files.Worker/            # Quartz jobs, outbox dispatcher, advisory locks
 tests/
   Files.UnitTests/
-  Files.IntegrationTests/  # Testcontainers: PostgreSQL 18 + LocalStack S3 + mock OIDC/Graph
+  Files.IntegrationTests/  # Testcontainers: PostgreSQL 18 + LocalStack S3 + Mailpit/ClamAV + mock OIDC
   Files.ContractTests/     # OpenAPI conformance
 web/                       # Angular workspace
 db/migrations/             # Flyway SQL (canonical DDL)
@@ -23,7 +23,7 @@ deterministic builds. `global.json` pins SDK `10.0.x` with `rollForward=latestPa
 
 Dependency rule: `Domain ← Application ← Infrastructure`, `Api → Application + Infrastructure`.
 Domain references no NuGet package except a primitives-free base. Application may reference
-`Microsoft.Extensions.*` abstractions only; no EF/S3/Graph types.
+`Microsoft.Extensions.*` abstractions only; no EF/S3/SMTP/ClamAV types.
 
 ## 2. Project responsibilities
 
@@ -71,7 +71,10 @@ Domain references no NuGet package except a primitives-free base. Application ma
   per session (a retry reuses staged bytes).
 - Cryptography: Argon2id (`Konscious.Security.Cryptography.Argon2` or libsodium bindings) for
   link keys; HMAC-SHA256 for API keys; SHA-256 for link/grant tokens.
-- `GraphEmailSender` (Microsoft Graph SDK) behind `IEmailSender`.
+- `SmtpEmailSender` (MailKit, STARTTLS 587) behind `IEmailSender`; `GraphEmailSender` is an
+  optional adapter selected by `Notifications__Provider`.
+- `ClamAvScanner` implementing `IClamAvScanner`: streams the staging file to `clamd` (INSTREAM),
+  enforces timeouts, and returns clean/infected/failed; no file content is logged.
 - OpenTelemetry instrumentation and redaction.
 
 ### Files.Api
@@ -97,6 +100,8 @@ Domain references no NuGet package except a primitives-free base. Application ma
   when another replica holds it.
 - Outbox dispatcher: claims rows with `FOR UPDATE SKIP LOCKED`, dispatches, marks processed;
   exponential backoff, dead-letter after 10 attempts.
+- `ScanCommitJob`: claims `processing` files, scans the staging file, quarantines infected files,
+  commits clean files to S3, deletes staging, and updates file/session state idempotently.
 - Health endpoints on port 8080 (`/health/live`, `/health/ready`) for Docker/Caddy health checks.
 
 ## 3. Request pipeline and conventions
@@ -153,9 +158,17 @@ Environment variables use `__` separators. Full template in `.env.example`.
 | `Abuse__KeyAttemptWindowMinutes` | `15` | |
 | `Abuse__KeyLockoutMinutes` | `15` | |
 | `Abuse__MaxFailuresPerLinkPerHour` | `100` | |
-| `Notifications__Provider` | `Graph` | `Graph` or `Smtp` (future). |
-| `Notifications__FromAddress` | `files-noreply@...` | |
-| `Notifications__GraphTenantId` | GUID | |
+| `Notifications__Provider` | `Smtp` | `Smtp` (M365 SMTP AUTH) or `Graph` fallback. |
+| `Notifications__FromAddress` | `files@...` | |
+| `Smtp__Host` | `smtp.office365.com` | STARTTLS on 587. |
+| `Smtp__Port` | `587` | |
+| `Smtp__UseStartTls` | `true` | Certificate validation required. |
+| `Smtp__Username` | mailbox address | |
+| `Smtp__Password` | secret | App password/password; never logged. |
+| `Notifications__GraphTenantId` | GUID | Only for the optional Graph adapter. |
+| `ClamAV__Host` / `ClamAV__Port` | `clamav` / `3310` | Internal Docker network. |
+| `ClamAV__ScanTimeoutSeconds` | `900` | 5 GiB may take minutes. |
+| `Features__MalwareScanning` | `true` | Scan before S3 commit. |
 | `Features__PublicLinks` | `true` | Global switch. |
 | `Features__MalwareScanning` | `false` | |
 | `Cors__AllowedOrigins__0` | `https://files...` | Exact origins. |

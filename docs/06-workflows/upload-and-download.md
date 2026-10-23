@@ -8,7 +8,7 @@
 - Support up to 5 GiB on a single EC2 without exposing S3 to any client.
 - Stream bytes through the API, stage them on EBS, verify them, and commit to S3 from the API.
 - Never issue presigned URLs, S3 keys, or bucket credentials.
-- Verify every object before it becomes available.
+- Verify every object before it becomes available and scan it with ClamAV before it reaches S3.
 - Count only completed downloads; enforce link limits under concurrency.
 
 ## 2. S3 layout and exclusive access
@@ -92,16 +92,25 @@ until `complete` verifies and commits to S3.
    `expected_size_bytes`; optional whole-file SHA-256 is computed by streaming the staging file.
 3. If verification fails: `422 upload_incomplete`/`upload_checksum_mismatch`; the session remains
    resumable until expiry.
-4. Set `committing`; initiate an S3 multipart upload (or `PutObject` when below 64 MiB) and upload
-   the staged file in 64 MiB parts. The API is the only S3 caller.
-5. `CompleteMultipartUpload` + `HeadObject`; verify size, content type, metadata `files-file-id`,
-   and encryption.
-6. On success: set file `available` (or `processing` if scanning), `scan_status`, `available_at`;
-   write audit/outbox; increment daily usage; delete chunk rows; delete the staging file **after**
-   S3 verification.
-7. On S3 failure: set `failed`, keep the staging file and chunks, record sanitized `last_error`,
-   return `502 upload_commit_failed`. Retrying `complete` reuses the staged file.
-8. If scanning is enabled, the file stays `processing` until the scan is clean.
+4. Set the upload session to `committing` and the file to `processing` (or commit immediately when
+   scanning is disabled, see below).
+5. **Scanning enabled:** enqueue `scan.commit`; return file metadata with `status=processing`. The
+   worker streams the staged file to ClamAV (`clamd` INSTREAM):
+   - **infected:** set `quarantined`, `scan_status=infected`, delete the staging file/chunks, audit
+     and alert; **never upload to S3**.
+   - **clean:** set `scan_status=clean`; upload the staged file to S3 (multipart 64 MiB parts, or
+     `PutObject` below 64 MiB); `HeadObject` verifies size, content type, metadata and encryption;
+     set `available`, write audit/outbox, delete staging/chunks.
+   - **scanner unavailable/timeout:** keep `processing`/`scan_status=failed`, retry with backoff and
+     alert; the file is not downloadable and staging is retained.
+6. **Scanning disabled:** the API uploads the staged file to S3 immediately, verifies it, sets
+   `available`, and deletes staging/chunks.
+7. **S3 failure:** keep the file `processing`/session `committing`, retain staging and chunks,
+   record sanitized `last_error`, retry the commit with backoff. `POST /complete` returns the
+   current metadata (`processing`) and is idempotent; do not re-upload chunks.
+8. The worker marks the upload session `completed` only after the S3 object is verified (or the
+   file is quarantined). Once `complete` succeeds, the session no longer expires at the 60-minute
+   upload TTL; the scan/commit job owns it and retries for up to 24 hours before failing it.
 
 ## 6. Staging disk management
 
@@ -112,6 +121,10 @@ until `complete` verifies and commits to S3.
 - Temp files are `0600`, owned by the API container user, under a directory not served by Caddy.
 - A worker job every 10 minutes removes expired/aborted staging files, fails sessions older than
   their TTL, and aborts S3 multipart uploads older than 24 h (lifecycle is the backstop at 7 days).
+  It must **not** delete a `processing` file's staging until the scan/commit job has finished or
+  reached its retry/timeout limit.
+- ClamAV: `clamd` on port 3310 (internal), signatures on a dedicated volume, `StreamMaxLength` /
+  `MaxFileSize` set above 5 GiB, one concurrent scan (configurable) to bound memory/CPU.
 - Alerts: disk >80% warning, >90% critical, staging reserve breached, write failures.
 
 ## 7. Download authorization
@@ -214,6 +227,10 @@ downloads use `source=owner`.
 | Session expiry cleanup, orphan staging file cleanup | Integration |
 | No presigned headers/URLs in any response | Contract/security |
 | 5 GiB download RSS <200 MiB | Load |
+| Clean file scanned before S3 | Integration (ClamAV) |
+| Infected file quarantined and absent from S3 | Integration/security |
+| Scanner unavailable → retry, file not downloadable | Chaos |
+| Scan disabled path commits directly | Integration |
 | Range requests (integration) | Integration |
 | Concurrent grants with `max_downloads=1` | Concurrency |
 | Grant reuse/expiry | Integration |

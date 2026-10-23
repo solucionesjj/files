@@ -50,7 +50,7 @@ no drop >2% in a PR without justification.
 - LocalStack S3 container with a private bucket and a lifecycle test config.
 - A temporary staging directory per test (and a small reserve override to test `507`).
 - Mock OIDC: a local JWKS endpoint + signed test tokens (RSA key generated once) to exercise
-  validation without Entra; plus a fake Graph server (WireMock) for email.
+  validation without Entra; Mailpit (SMTP) for email; a ClamAV container for scanning tests.
 - `WebApplicationFactory<Program>` with `TimeProvider` fake and deterministic key generation.
 - Per-test schema reset via transaction rollback or `TRUNCATE ... CASCADE` in dependency order;
   migrations once per collection.
@@ -149,7 +149,7 @@ Run on Chromium in PR CI; full browser matrix (Edge/Firefox/Safari) nightly.
 | Outbox lag | <5 s at 100 events/s |
 
 - k6 scripts in `tests/perf/` (metadata, upload orchestration, download, public link abuse).
-- Fault injection: S3 5xx/timeout, Graph 429, DB connection loss, worker kill during deletion,
+- Fault injection: S3 5xx/timeout, SMTP 4xx/5xx, DB connection loss, ClamAV down, worker kill during deletion,
   clock skew — assertions on state, retries, and metrics.
 - Soak test 2 h at 2× baseline before launch.
 

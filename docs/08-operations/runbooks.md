@@ -96,12 +96,15 @@ SELECT * FROM outbox_messages WHERE state='dead' ORDER BY created_at DESC LIMIT 
 
 ## Email failures
 
-1. Check `notification_delivery_failures_total{reason}` and Graph responses.
-2. 429/5xx: retries continue; reduce batch size if throttled. 403: verify `Mail.Send`, application
-   access policy, and mailbox. 400: invalid recipient.
-3. Reset permanent `failed` events with attempts<5 to `scheduled` after fixing the cause.
-4. Expiration/deletion continue regardless. Verify accepted vs delivered (provider acceptance is
-   not inbox delivery).
+1. Check `notification_delivery_failures_total{reason}` and worker logs for SMTP responses.
+2. Authentication failures: verify the Microsoft 365 mailbox has SMTP AUTH enabled, the
+   `Smtp__Username` is the full address, and the password/app password is valid; MFA may require
+   an app password or the Graph fallback.
+3. 4xx transient/5xx: retries continue; reduce batch size if throttled. 5xx invalid recipient:
+   fail permanently and alert.
+4. Reset permanent `failed` events with attempts<5 to `scheduled` after fixing the cause.
+5. Expiration/deletion continue regardless. SMTP acceptance is not inbox delivery (no automatic
+   delayed-bounce handling in v1).
 
 ## Download abuse
 
@@ -110,6 +113,18 @@ SELECT * FROM outbox_messages WHERE state='dead' ORDER BY created_at DESC LIMIT 
    links in `platform_settings` after approval.
 3. Check `download_events` for any `completed` during the attack; notify the owner if found.
 4. Post-incident: rotate the link (new token/key), review limits, consider WAF/edge blocking.
+
+## ClamAV failures
+
+**Symptoms:** `clamav_up=0`, scan failures, files stuck in `processing`, ClamAV container restarting.
+
+1. `docker compose ... ps clamav`; logs; memory (`docker stats`). ClamAV needs ~2 GiB.
+2. First start downloads signatures (freshclam); wait for health. If signature download fails,
+   check outbound 443/DNS and the `clamdb` volume.
+3. If clamd is down, files remain `processing` (not downloadable); do not commit them to S3.
+4. After recovery, restart the worker or wait for the scan/commit job; verify EICAR test.
+5. If signatures are corrupt, stop ClamAV, remove/recreate the `clamdb` volume only after
+   confirming signatures can be re-downloaded, then start.
 
 ## Database
 

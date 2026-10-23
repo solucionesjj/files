@@ -1,7 +1,7 @@
 # API Conventions
 
 **Contract:** [`openapi/files-api.v1.yaml`](openapi/files-api.v1.yaml) (OpenAPI 3.1)
-**Base URL:** `https://files.<domain>/v1` · **Errors:** [`error-catalog.md`](error-catalog.md)
+**Base URL:** `https://files.sacservices.cloud/v1` · **Errors:** [`error-catalog.md`](error-catalog.md)
 
 ## 1. Versioning and compatibility
 
@@ -41,7 +41,7 @@
 
 ```json
 {
-  "type": "https://files.example.com/problems/file-unavailable",
+  "type": "https://files.sacservices.cloud/problems/file-unavailable",
   "title": "File unavailable",
   "status": 404,
   "code": "file_unavailable",
@@ -102,10 +102,11 @@ never receive a bucket credential, presigned URL, or S3 endpoint.
    smaller. Each chunk is idempotent by number: same size/hash → success, different → `409`.
 4. `GET /portal/upload-sessions/{id}` (or integration) returns the received chunk numbers and
    bytes for resuming after a disconnect.
-5. `POST .../complete` verifies every chunk, total size, and optional checksum, then the API
-   uploads the staged file to S3 (multipart above 64 MiB, single `PutObject` below) and verifies
-   the object with `HeadObject`. Returns file metadata (`available`, or `processing` while
-   scanning).
+5. `POST .../complete` verifies every chunk, total size, and optional checksum. If scanning is
+   enabled, the file returns as `processing`; the worker scans it with ClamAV and only then uploads
+   it to S3 (multipart above 64 MiB, single `PutObject` below) and verifies with `HeadObject`.
+   Infected files become `quarantined` and never reach S3. With scanning disabled, the API commits
+   immediately and returns `available`. Poll `GET /portal/files/{id}` until a final state.
 6. `DELETE .../upload-sessions/{id}` aborts and deletes the staging file. Expired sessions and
    orphaned staging files are removed by the worker; incomplete S3 multipart uploads are aborted.
 
@@ -272,7 +273,7 @@ TOKEN=$(curl -s -X POST "https://login.microsoftonline.com/$TENANT/oauth2/v2.0/t
   -d "grant_type=client_credentials&client_id=$CLIENT_ID&client_secret=$SECRET&scope=api://$API_ID/.default" \
   | jq -r .access_token)
 
-curl -s -X POST https://files.example.com/v1/integrations/upload-sessions \
+curl -s -X POST https://files.sacservices.cloud/v1/integrations/upload-sessions \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: $(uuidgen)" \
@@ -288,22 +289,22 @@ SESSION=$(... | jq -r .uploadSessionId)
 split -b 16777216 --numeric-suffixes=1 --suffix-length=3 customer-4711.pdf chunk-
 for f in chunk-*; do
   n=$((10#${f#chunk-}))
-  curl -fsS -X PUT "https://files.example.com/v1/integrations/upload-sessions/$SESSION/chunks/$n" \
+  curl -fsS -X PUT "https://files.sacservices.cloud/v1/integrations/upload-sessions/$SESSION/chunks/$n" \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/octet-stream" \
     -H "X-Chunk-SHA256: $(sha256sum "$f" | cut -d' ' -f1)" \
     --data-binary "@$f"
 done
 
-curl -fsS -X POST "https://files.example.com/v1/integrations/upload-sessions/$SESSION/complete" \
+curl -fsS -X POST "https://files.sacservices.cloud/v1/integrations/upload-sessions/$SESSION/complete" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{}'
 ```
 
 ### Public download (cURL)
 
 ```bash
-curl -s -X POST https://files.example.com/v1/public/download-links/$TOKEN/downloads \
+curl -s -X POST https://files.sacservices.cloud/v1/public/download-links/$TOKEN/downloads \
   -H "Content-Type: application/json" -d '{"key":"Ab3xY9Qz"}'
 # -> {"grantToken":"...","expiresAt":"...","downloadUrl":"/v1/download-grants/..."}
-curl -L -o file.pdf "https://files.example.com${DOWNLOAD_URL}"
+curl -L -o file.pdf "https://files.sacservices.cloud${DOWNLOAD_URL}"
 ```

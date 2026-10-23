@@ -109,9 +109,10 @@ Priority: **M** = must (v1 release blocker), **S** = should (v1 unless schedule 
 | FR-UP-012 | The system SHOULD reject files whose detected content type is not in the permitted allowlist. | S | §7 | US-003 |
 | FR-UP-013 | Local staging files, S3 incomplete uploads, and orphaned objects MUST be cleaned up by lifecycle rules and a worker job. | M | §7 | US-028 |
 | FR-UP-014 | The API MUST enforce a bounded staging area on the EC2 EBS volume (reserve + free-space check) and reject new sessions with `507 staging_capacity_exceeded` when insufficient space remains. | M | §7 | US-003 |
-| FR-UP-015 | A file MUST NOT become available until chunk verification and the S3 upload verification succeed. | M | §7 | US-003 |
+| FR-UP-015 | A file MUST NOT become available until chunk verification, malware scanning (when enabled), and the S3 upload verification succeed. | M | §7 | US-003 |
 | FR-UP-016 | No presigned S3 URL, S3 access key, or direct bucket credential may be issued to a client, browser, or integration. | M | §7 | US-003, US-015 |
 | FR-UP-017 | Chunk uploads MUST be idempotent per chunk number and resumable; a repeated chunk with the same size/hash MUST return success without duplicating bytes. | M | §7 | US-003 |
+| FR-UP-018 | When malware scanning is enabled, the staged file MUST be scanned with ClamAV before the S3 commit; infected files MUST NOT be uploaded, MUST be quarantined, and scanner failures MUST leave the file unavailable for retry. | M | §7, §8 | US-003, US-015 |
 
 ### 2.4 File metadata, tags, search (FR-FILE, FR-SRCH)
 

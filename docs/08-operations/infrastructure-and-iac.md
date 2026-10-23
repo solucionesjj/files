@@ -11,14 +11,14 @@ CloudWatch.
 | Resource | Value |
 |---|---|
 | AMI | Ubuntu 24.04 LTS x86_64 (Canonical) |
-| Instance | `t3.medium` (2 vCPU, 4 GiB) default, configurable |
+| Instance | `t3.large` (2 vCPU, 8 GiB) default for ClamAV + PostgreSQL + API/worker |
 | Root volume | 100 GiB gp3, encrypted, `delete_on_termination = false` |
 | Address | Elastic IP (stable public IPv4) |
 | Network | Default VPC public subnet, or an existing `vpc_id`/public `subnet_id` |
 | Security group | 80/443 from `0.0.0.0/0`; 22 only from `admin_cidr`; all egress |
 | S3 | One private bucket, SSE-S3, BPA, versioning off |
 | IAM | One EC2 instance role, prefix-scoped S3; bucket policy denies all other principals |
-| Host software | Docker Engine + Compose plugin, AWS CLI, UFW, fail2ban |
+| Host software | Docker Engine + Compose plugin, AWS CLI, UFW, fail2ban, ClamAV container |
 | DNS/TLS | A record → Elastic IP; Caddy automatic HTTPS (domain required) |
 
 Environments: start with one (`prod` or `staging`). Local development uses Docker Compose on the
@@ -69,9 +69,9 @@ The apply outputs the Elastic IP, instance ID, bucket name, and an SSH command.
 
 First deployment steps (documented in `deploy/README.md`):
 
-1. Point DNS `files.example.com` at the Elastic IP.
+1. Point DNS `files.sacservices.cloud` (Network Solutions) at the Elastic IP.
 2. Copy `deploy/` to `/opt/files/deploy`.
-3. Create `/opt/files/.env` with DB password, Entra IDs/secrets, peppers, Graph mailbox, S3 bucket.
+3. Create `/opt/files/.env` with DB password, Entra IDs/secrets, peppers, M365 SMTP mailbox, S3 bucket.
 4. Start PostgreSQL, run migrations, build/start API/worker/Caddy.
 5. Install the nightly backup cron and verify one dump in S3.
 
@@ -80,7 +80,8 @@ First deployment steps (documented in `deploy/README.md`):
 - Internet → EC2 security group 80/443 → Caddy. SSH 22 only from `admin_cidr`.
 - API `:8080` is not published; Caddy reaches it over the Docker network.
 - PostgreSQL has no host port; it is reachable only by API/worker containers.
-- Host egress 443 to S3, Entra, Graph, Docker Hub/GitHub, and SigNoz. No inbound database access.
+- Host egress 443 to S3, Entra, ClamAV signatures, Docker Hub/GitHub, and SigNoz; **587 to
+  smtp.office365.com** for email. No inbound database access.
 - UFW mirrors the security group as defense in depth; fail2ban watches SSH.
 - IMDSv2 required; the AWS SDK uses IMDSv2 through the host network.
 
@@ -145,8 +146,11 @@ First deployment steps (documented in `deploy/README.md`):
 
 ## 9. Observability infrastructure
 
+- ClamAV (`clamd` 3310) scans staged files before S3; signatures on a 2 GiB volume; one scan at
+  a time. The published image is amd64-only (the production EC2 is x86_64); local Apple Silicon
+  development keeps scanning off.
 - OTel Collector container (optional profile) exports OTLP to SigNoz (self-hosted on the same EC2
-  if resources allow, or external). On `t3.medium`, self-hosting SigNoz may be tight; an external
+  if resources allow, or external). On `t3.large`, self-hosting SigNoz may be tight alongside ClamAV; an external
   SigNoz instance is preferred.
 - Host metrics: `docker stats`, `node_exporter` if SigNoz is added, `df`, `free`, `systemd` logs.
 - Logs: Docker `json-file` with rotation (e.g., 10 MB × 3) or journald; no access logs for

@@ -48,6 +48,9 @@ understood. All maintenance windows are announced and excluded only if declared 
 | `files_upload_bytes_total` | counter | owner_type |
 | `upload_chunks_total` | counter | result |
 | `upload_staging_bytes` | gauge | — |
+| `clamav_scans_total` | counter | result |
+| `clamav_scan_duration_seconds` | histogram | — |
+| `clamav_up` | gauge | — |
 | `staging_disk_free_bytes` | gauge | — |
 | `files_downloads_total` | counter | source, result |
 | `files_download_bytes_total` | counter | source |
@@ -110,6 +113,8 @@ Caddy access logs are disabled for token-bearing URIs.
 | Outbox lag | >60 s for 10 min | P2 | `runbooks.md#outbox-lag` |
 | Job stale | last success >2× schedule | P2 | `runbooks.md#outbox-lag` |
 | Notification failures | >10 permanent failures in 1 h | P2 | `runbooks.md#email-failures` |
+| ClamAV down/failing | `clamav_up=0` or scan failures >3 in 15 min | P1 | `runbooks.md#clamav-failures` |
+| Files stuck processing | >10 processing >30 min | P2 | `runbooks.md#clamav-failures` |
 | Key abuse | >100 failures/link/hour or lockouts spike | P2/P1 | `runbooks.md#download-abuse` |
 | Backup missing/stale | >26 h | P1 | `runbooks.md#backup-failure` |
 | TLS certificate | <14 days or renewal failure | P1 | `runbooks.md#tls` |
@@ -145,7 +150,7 @@ service:
     logs: { receivers: [otlp], processors: [memory_limiter, batch], exporters: [otlp/signoz] }
 ```
 
-On a `t3.medium`, self-hosting SigNoz may not fit alongside PostgreSQL/API. Prefer an external
+On a `t3.large`, self-hosting SigNoz may not fit alongside PostgreSQL/API/ClamAV. Prefer an external
 SigNoz instance or reduce retention/sampling.
 
 ## 6. Health endpoints

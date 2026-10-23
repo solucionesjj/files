@@ -83,7 +83,7 @@ duplicate an email).
   `portalUrl`, `fileId`. Strict allowlist; unknown placeholders cause a rendering failure (no
   send) rather than leaking data.
 - Never include: file content, object keys, download links/keys, credentials, other users' data.
-- Sending via Graph `sendMail` (ADR-0009): batch 50/minute, `202 Accepted` → `accepted`; 429/5xx →
+- Sending via Microsoft 365 SMTP AUTH (ADR-0009): batch 50/minute, SMTP 2xx → `accepted`; 4xx/5xx →
   retry; 400/403 → `failed` (permanent).
 - Retry policy: attempts 1..5 with backoff 1 m, 5 m, 15 m, 1 h, 6 h (+jitter). After 5 failures →
   `failed`, metric + alert; operator can reset via a runbook/CLI.
@@ -150,8 +150,9 @@ retention purge job; the storage key is nulled only at purge.
 
 ### Upload cleanup (hourly)
 
-- Sessions in `initiated|uploading|received|failed` with `expires_at <= now()` → delete the local
-  staging file, abort any S3 multipart, mark `upload_failed`, file `upload_failed` (then
+- Sessions in `initiated|uploading|received` with `expires_at <= now()` (not `committing` or
+  `processing`) → delete the local staging file, abort any S3 multipart, mark `upload_failed`,
+  file `upload_failed` (then
   `pending_deletion` on a later run), audit.
 - S3 multipart uploads older than 24 h → `AbortMultipartUpload` (best effort; bucket lifecycle
   aborts at 7 days as a backstop).

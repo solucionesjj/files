@@ -47,7 +47,7 @@ Outputs: `public_ip`, `ssh_command`, `bucket_name`/`bucket_arn`, `instance_id`, 
 
 ## What gets created
 
-- Canonical Ubuntu 24.04 LTS x86_64 AMI (override with `ami_id`), `t3.medium` default, 100 GiB
+- Canonical Ubuntu 24.04 LTS x86_64 AMI (override with `ami_id`), `t3.large` default (ClamAV needs ~2 GiB), 100 GiB
   encrypted gp3 root volume, IMDSv2 required, termination protection enabled.
 - Elastic IP associated with the instance.
 - Security group: 80/443 from the internet; 22 only from `admin_cidr`; all egress.
@@ -78,7 +78,7 @@ terraform import module.instance.aws_instance.this <instance-id>
 
 ## After apply (manual, documented in `deploy/README.md`)
 
-1. Create `A files.example.com → <public_ip>`.
+1. Create `A files.sacservices.cloud → <public_ip>` at Network Solutions.
 2. SSH: `ssh -i <key>.pem ubuntu@<public_ip>`.
 3. Copy the `deploy/` directory and create `/opt/files/.env` (mode 0600) from
    `deploy/env.prod.example`; fill DB/Entra/Graph/pepper values.

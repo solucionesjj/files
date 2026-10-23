@@ -22,7 +22,7 @@ IDs match [requirements.md](../01-product/requirements.md).
 |---|---|---|---|---|---|---|---|
 | US-001 | Sign in with Entra ID | E1 | M | M1 | FR-ID-001..004, 008, 009 | S1 | Todo |
 | US-002 | Role-based administration | E1 | S | M1 | FR-ID-010, 011 | US-001 | Todo |
-| US-003 | Upload a file | E2 | L | M2/M3 | FR-UP-001..017 | US-001, T-04 | Todo |
+| US-003 | Upload a file | E2 | L | M2/M3 | FR-UP-001..018 | US-001, T-04 | Todo |
 | US-004 | Browse and inspect files | E2 | M | M3 | FR-FILE-001/002, FR-RET-004 | US-003 | Todo |
 | US-005 | Edit metadata and retention | E2 | M | M3 | FR-FILE-003/004, FR-RET-003/006 | US-004 | Todo |
 | US-006 | Download my own file | E2 | M | M3 | FR-ID-006, FR-LINK-010/011 | US-004, US-021 | Todo |
@@ -65,7 +65,7 @@ IDs match [requirements.md](../01-product/requirements.md).
 | T-07 | Audit and download event writers | M | M1 | Transactional, append-only, no secrets. |
 | T-08 | OpenAPI contract tests and DTO generation | S | M1 | Redocly lint, schema validation, TS types. |
 | T-09 | Rate limiting + abuse counters | M | M4 | ASP.NET limiter + Postgres tables. |
-| T-10 | Email sender (Graph) + template renderer | M | M6 | WireMock tests, retries, statuses. |
+| T-10 | Email sender (M365 SMTP AUTH; Graph fallback) + template renderer | M | M6 | Mailpit/SMTP tests, retries, statuses. |
 | T-11 | Worker scheduler + advisory locks + outbox dispatcher | M | M2 | Quartz in-memory, batch jobs, metrics. |
 | T-12 | Observability (OTel, dashboards, alerts) | M | M0/M7 | Collector, SigNoz, SLOs, alert routes. |
 | T-13 | Terraform EC2/S3/IAM and environments | L | M7 | Instance, EIP, SG, instance role, bucket policy, lifecycle, user_data. |
@@ -76,6 +76,7 @@ IDs match [requirements.md](../01-product/requirements.md).
 | T-18 | Docs upkeep + ADR log | S | ongoing | Update on every decision change. |
 | T-20 | Staging disk monitoring/cleanup and 507 path | M | M2 | Reserve check, pwrite failures, stale session cleanup, alerts. |
 | T-21 | PostgreSQL backup/restore script and drill | M | M7 | `pg_dump` to S3, `_latest` marker, restore test, retention. |
+| T-22 | ClamAV scan/commit job + clamd container | M | M6 | Scan before S3, quarantine, timeouts/retries, EICAR test, signature refresh. |
 | T-19 | Existing-file backfill tooling + reconciliation | L | M7 | Mapping table, exporter, checksum verification, dual-run/cutover; see [migration plan](../06-workflows/existing-product-migration.md). |
 
 ## Suggested first vertical slice (S1–S5)

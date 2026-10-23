@@ -223,14 +223,14 @@ indexes require an ADR or a comment in the migration.
 |---|---|---|
 | Create upload session | file + session + audit + outbox | None (no S3 call); staging file created after commit |
 | Upload chunk | chunk row + session received_bytes/status | Local `pwrite` to the staging file; fsync per chunk |
-| Complete upload | file state + session + chunks + audit + outbox | Verify staging; S3 multipart/PutObject + HeadObject **before** commit; re-runnable |
+| Complete upload | file/session state + audit + outbox; scan/commit job | Verify staging; ClamAV scan, then S3 multipart/PutObject + HeadObject; retryable; no long DB transaction around the scan |
 | Create link | link + audit + outbox + `files.access_mode` | — |
 | Issue grant | reservation + grant + event | — |
 | Complete download | grant + link + file + events + outbox | after streaming |
 | Delete file (manual) | file state + link revocations + audit + outbox | — |
 | Physical delete | file → deleted + audit + outbox | S3 delete before commit; missing = success |
 | Notification schedule | upsert events + outbox | — |
-| Send email | attempt row + event status | Graph call; status updated after |
+| Send email | attempt row + event status | SMTP call; status updated after |
 | Admin policy change | policy row + admin audit + outbox | — |
 
 No distributed transaction is attempted; every external call is idempotent and reconciled.

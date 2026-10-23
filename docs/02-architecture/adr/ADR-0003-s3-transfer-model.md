@@ -23,9 +23,10 @@ incompatible with strict S3 exclusivity.
 2. The client `PUT`s fixed-size chunks (16 MiB default) to
    `/upload-sessions/{id}/chunks/{n}`. The API writes each chunk at its offset, records a
    per-chunk hash, and rejects conflicts, out-of-range chunks, or oversized bodies.
-3. `POST .../complete` verifies every chunk and the total size (and optional whole-file SHA-256),
-   then the API itself uploads the staged file to S3 using multipart upload (64 MiB parts) or a
-   single `PutObject` below the threshold, and verifies the object with `HeadObject`.
+3. `POST .../complete` verifies every chunk and the total size (and optional whole-file SHA-256).
+   If malware scanning is enabled, the file enters `processing`; a worker scans the staged file
+   with ClamAV and only then uploads it to S3 (multipart 64 MiB parts or `PutObject` below the
+   threshold) and verifies it with `HeadObject`. Infected files are quarantined and never uploaded.
 4. The temp file is deleted after S3 verification. Retrying `complete` after an S3 failure reuses
    the staged file, so the client does not re-upload 5 GiB.
 5. `DELETE .../upload-sessions/{id}` aborts and removes the staging file. A worker job removes

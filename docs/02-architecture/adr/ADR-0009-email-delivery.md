@@ -1,55 +1,61 @@
-# ADR-0009 — Email delivery through Microsoft Graph (not POP3)
+# ADR-0009 — Email delivery via the Microsoft 365 mailbox over SMTP AUTH
 
-- **Status:** Provisional — blocked on OQ-01 (mailbox/app permission)
+- **Status:** Accepted (OQ-01 resolved; credentials pending)
 - **Date:** 2026-10-23
 - **Deciders:** Architecture, IT
 
 ## Context
 
-The source states "Email: MS365 Pop account". POP3 is a receive-only protocol and cannot send
-expiration notifications. The system needs authenticated, auditable sending from a company
-mailbox, with retries and acceptance tracking, and must distinguish provider acceptance from
-confirmed delivery.
+The approved sender is a Microsoft 365 mailbox configured with **POP**. POP3 is receive-only and
+cannot deliver expiration notifications. Microsoft 365 exposes SMTP AUTH on `smtp.office365.com`
+(port 587, STARTTLS) for the same mailbox; Graph `sendMail` is an alternative if tenant policy
+blocks SMTP AUTH. The product needs authenticated sending, retries, delivery status, and no
+credentials in logs.
 
 ## Decision
 
-- Primary provider: Microsoft Graph `POST /users/{sender}/sendMail` using an Entra app
-  registration with application permission `Mail.Send`, restricted by an **application access
-  policy** (Exchange PowerShell) to the single sending mailbox.
-- Credentials: client credentials with a certificate (preferred) or a secret stored in the ENV
-  file on the host; no SMTP password. TLS is implicit.
-- Sender: `Notifications__FromAddress` (e.g., `files-noreply@company.com`), display name "Files".
-- Templates: stored in `email_templates` (key, locale, subject, HTML, text, version) and seeded
-  with defaults. Rendering uses a strict allowlist of variables (`fileName`, `expiresAt`,
-  `ownerName`, `portalUrl`, `fileId`) and HTML-escapes values. No file content, keys, tokens, or
-  integration secrets are ever interpolated.
-- Delivery statuses: `queued → sending → accepted → delivered|bounced|failed`.
-  - `accepted`: Graph returned 202 (provider accepted).
-  - `delivered`/`bounced`: derived from NDR/Message Trace ingestion or Graph change
-    notifications (optional follow-up). Until implemented, the UI must display "accepted" and
-    must not claim confirmed delivery.
-- Retries: transient errors (429, 5xx, network) exponential backoff with jitter, max 5 attempts,
-  next attempt ≥1 min. Permanent errors (400 invalid recipient, 403 permission) stop retrying and
-  mark `failed`; metrics + alert.
-- Suppression: indefinite files, deleted files, and files whose expiry moved are not sent.
-  `notification_events` unique key prevents duplicates.
-- Rate: batches of 50 per minute; per-mailbox Graph throttling respected; 429 honors
-  `Retry-After`.
-- Fallback (only if Graph is not approved): SMTP AUTH with OAuth2 to `smtp.office365.com:587`
-  (never basic auth). POP settings are irrelevant and must not be used for sending.
+- **Sending:** `SmtpEmailSender` using MailKit over `smtp.office365.com:587` with STARTTLS, the
+  full mailbox address as username, and a password/app password stored in `/opt/files/.env`
+  (`Smtp__Password`, mode 0600). The mailbox must have **SMTP AUTH enabled**; POP remains enabled
+  only for inbound mail and is not used by Files.
+- **From:** `Notifications__FromAddress` (e.g., `files@<company-domain>`), display name "Files".
+- **TLS:** required (`Smtp__UseStartTls=true`, port 587). Certificate validation is never disabled.
+- **Graph fallback:** `Microsoft.Graph` `sendMail` with application `Mail.Send` restricted to the
+  same mailbox is implemented behind `IEmailSender`; it is the fallback if the tenant enforces
+  OAuth-only SMTP or MFA blocks the mailbox password.
+- **Templates:** `email_templates` keyed by key+locale; strict variable allowlist (`fileName`,
+  `expiresAt`, `ownerName`, `portalUrl`, `intervalDays`, `fileId`); HTML-escaped; no file content,
+  links/keys, or credentials.
+- **Delivery status:** `queued → sending → accepted → delivered|bounced|failed`.
+  SMTP acceptance means the server accepted the message, **not** inbox delivery. NDR/message-trace
+  ingestion can later update delivered/bounced; until then the UI must show "accepted".
+- **Retries:** transient errors (4xx, timeouts, 429) → exponential backoff with jitter, max 5
+  attempts; permanent 5xx auth/recipient errors → `failed` + alert. One send per
+  `notification_events` row; stuck `sending` >10 min is reclaimed.
+- **Rate:** batch 50/minute; respect `Retry-After`; one connection per batch, STARTTLS only.
+- **Suppression:** indefinite retention, deleted files, and files whose expiry moved.
+
+## Security notes
+
+- SMTP credentials are secrets: never logged, never in URLs, never in the repository. Rotate the
+  mailbox password/app password periodically and after any suspicion.
+- Prefer an app password scoped to SMTP or OAuth2/Graph if the tenant requires MFA or disables
+  basic SMTP AUTH; document the chosen path in `.env` (`Notifications__Provider=Smtp|Graph`).
+- SPF/DKIM/DMARC remain the company's mail-domain configuration; Files sends through Microsoft 365
+  so the existing domain alignment applies.
+- The SMTP connection uses TLS and validates the server certificate.
 
 ## Consequences
 
-- Requires an Entra app permission and Exchange application access policy; this is an
-  operational prerequisite for M6/production.
-- Graph outages delay notifications but never block expiration/deletion.
-- Delivery confirmation beyond "accepted" requires extra work (message trace); the product shows
-  the distinction honestly.
-- The email path is behind `IEmailSender`, so an SES/SendGrid adapter can be added without
-  domain changes.
+- No additional email provider is required; the approved mailbox is reused.
+- If Microsoft disables SMTP AUTH for the tenant, email sending fails until Graph is enabled.
+  This is a known operational dependency (runbook email failures).
+- Password rotation requires updating `.env` and restarting the worker; no code change.
+- POP settings do not affect outbound mail; enabling/disabling POP has no effect on notifications.
 
 ## Alternatives considered
 
-- SMTP with username/password: rejected (basic auth deprecated, secret handling, less auditable).
-- POP3: technically impossible for sending.
-- Third-party transactional email: not chosen for data-residency/vendor reasons (future option).
+- **POP3 for sending:** impossible (receive-only).
+- **Microsoft Graph `sendMail` only:** cleaner (no mailbox password) but requires an Entra app
+  permission and Exchange application access policy; kept as fallback.
+- **Third-party relay (SES/SendGrid):** rejected for vendor/data-residency reasons in this phase.

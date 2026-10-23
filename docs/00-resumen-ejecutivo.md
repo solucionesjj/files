@@ -25,7 +25,7 @@ Una plataforma centralizada para almacenar, administrar y distribuir archivos de
 | Requisitos funcionales y no funcionales con IDs, prioridades e invariantes | [requirements.md](01-product/requirements.md) |
 | 31 historias de usuario con criterios de aceptación (Gherkin) | [user-stories.md](01-product/user-stories.md) |
 | Roles, matriz de autorización y personas | [rbac-and-personas.md](01-product/rbac-and-personas.md) |
-| Decisiones (D-01…D-33) y preguntas abiertas (OQ-01…OQ-26) | [decisions.md](01-product/decisions.md) · [open-questions.md](01-product/open-questions.md) |
+| Decisiones (D-01…D-36) y preguntas abiertas (OQ-01…OQ-26) | [decisions.md](01-product/decisions.md) · [open-questions.md](01-product/open-questions.md) |
 | Arquitectura C4, flujos, despliegue, diseño backend/frontend | [architecture.md](02-architecture/architecture.md) · [backend-design.md](02-architecture/backend-design.md) · [frontend-design.md](02-architecture/frontend-design.md) |
 | 13 ADR (decisiones de arquitectura) | [adr/](02-architecture/adr/) |
 | Modelo de datos + migraciones ejecutables PostgreSQL 18 | [data-model.md](03-data/data-model.md) · [migrations/](../db/migrations/) |
@@ -64,11 +64,13 @@ de Terraform para AWS.
    PostgreSQL; jobs idempotentes para notificar, vencer, borrar y reconciliar.
 10. **Correo:** Microsoft Graph `sendMail` (no POP, que no envía); queda pendiente confirmar buzón y
    permiso (OQ-01).
-11. **Infraestructura:** una EC2 Ubuntu 24.04 + Elastic IP + un bucket S3, provistos con Terraform;
-    Caddy es la única entrada pública (80/443), PostgreSQL no expone puerto, la API/Worker usan el
-    rol de instancia y los secretos viven en `/opt/files/.env` (0600).
+11. **Infraestructura:** una EC2 Ubuntu 24.04 en `us-east-1`, VPC/subred por defecto, Elastic IP y
+    un bucket S3, provistos con Terraform; `files.sacservices.cloud` (Network Solutions) apunta a la
+    IP; Caddy es la única entrada pública (80/443), PostgreSQL no expone puerto, la API/Worker usan
+    el rol de instancia y los secretos viven en `/opt/files/.env` (0600).
 12. **Fase inicial sin HA:** disponibilidad objetivo 99.5%, RPO ≤24 h (backup nocturno `pg_dump`
-    a S3) y RTO ≤4 h; el camino de escalamiento a RDS/ECS/ALB queda documentado.
+    a S3) y RTO ≤4 h; ClamAV escanea antes de subir a S3; el camino de escalamiento a RDS/ECS/ALB
+    queda documentado.
 
 ## 4. Validaciones ya ejecutadas
 
@@ -85,12 +87,12 @@ de Terraform para AWS.
 
 | Tema | Pregunta | Impacto |
 |---|---|---|
-| Correo | Confirmar Graph `sendMail`, buzón remitente y permiso de aplicación (OQ-01). | Bloquea notificaciones en producción (M6). |
+| Correo | Dirección exacta del buzón, contraseña/app password y SMTP AUTH habilitado (OQ-01). | Bloquea notificaciones en producción (M6). |
 | Nube/región | Confirmar AWS/región y el uso de una sola EC2 + S3 (OQ-02). | Afecta IaC, latencia y costo. |
 | Retención | Validar 365 días por defecto / 3650 máximo / indefinido solo integraciones (OQ-07). | Política y legal. |
-| Dominio/TLS | Dominio apuntando a la IP elástica; Caddy/Let's Encrypt; sin ACM (OQ-15/OQ-26). Una IP desnuda solo permite certificado autofirmado. | Necesario para el corte a producción. |
-| Escaneo de malware | ¿Obligatorio al lanzamiento? (OQ-09). | Seguridad y latencia de disponibilidad. |
-| Presupuesto | Costo base estimado **US$80–90/mes** en producción (t3.medium, 100 GiB EBS, 500 GiB S3, 200 GiB egreso); ~US$26/mes un entorno dev sin segundo host (OQ-20). | Aprobación financiera. |
+| Dominio/TLS | `files.sacservices.cloud` en Network Solutions; A record a la IP elástica; Caddy/Let's Encrypt (OQ-15/OQ-26). | Necesario para el corte a producción. |
+| Escaneo de malware | ClamAV obligatorio, antes de subir a S3; instancia `t3.large` (OQ-09). | Seguridad, memoria y latencia (`processing`). |
+| Presupuesto | Costo base estimado **US$110–125/mes** en producción (t3.large, 100 GiB EBS, 500 GiB S3, 200 GiB egreso, ClamAV); ~US$26/mes un entorno dev sin escaneo (OQ-20). | Aprobación financiera. |
 | Alcance | Carpetas, vista previa y acceso de soporte al contenido quedan fuera de v1. | Evita desvíos. |
 
 ## 6. Próximos pasos

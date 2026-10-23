@@ -60,7 +60,7 @@ Scenario: Regular user is denied
 ### US-003 — Upload a file through the Files API
 **As** a portal user **I want** to upload a file in chunks with progress and validation **so that**
 it is securely staged, stored, and available for sharing without my browser touching S3.
-**Priority** M · **Milestone** M2/M3 · **Requirements** FR-UP-001..007, 009, 011, 012, 014..017, FR-RET-002
+**Priority** M · **Milestone** M2/M3 · **Requirements** FR-UP-001..007, 009, 011, 012, 014..018, FR-RET-002
 
 ```gherkin
 Scenario: Small file upload completes and becomes available
@@ -105,6 +105,14 @@ Scenario: Chunk retry is idempotent
   Then the API returns success without duplicating bytes
   When I retry chunk 3 with different content
   Then the response is 409 with code "chunk_conflict"
+
+Scenario: Infected file never reaches S3
+  Given ClamAV is enabled and detects malware in the staged file
+  When the scan/commit job runs
+  Then the file becomes "quarantined"
+  And no object is created in S3
+  And the staging file is deleted
+  And an alert and audit event are recorded
 ```
 
 ### US-004 — Browse and inspect my files
@@ -347,7 +355,7 @@ Scenario: Deleting someone else's file is denied
 ### US-015 — Upload through the integration API
 **As** an enterprise system **I want** to upload files through the Files API in chunks **so that**
 large files are stored in S3 without my application or the browser talking to the bucket.
-**Priority** M · **Milestone** M2/M5 · **Requirements** FR-UP-002..007, 014..017, FR-INT-004/007
+**Priority** M · **Milestone** M2/M5 · **Requirements** FR-UP-002..007, 014..018, FR-INT-004/007
 
 ```gherkin
 Scenario: Chunked upload of a 2 GiB file
