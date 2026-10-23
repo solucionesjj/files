@@ -136,7 +136,8 @@ First deployment steps (documented in `deploy/README.md`):
 | Images | Rebuild from Git tag | Git history | Rebuild/restart |
 
 - Initial **RPO ≤24 h** and **RTO ≤4 h** (D-31). PITR/WAL archiving is not available until the DB
-  moves to a managed service.
+  moves to a managed service. S3 has versioning/replication disabled, so object loss is a
+  documented residual risk; enable one of them before the data becomes critical.
 - The backup job records success/failure in the journal and a `backups/postgres/_latest` marker;
   a worker job verifies the marker exists and is <26 h old, otherwise alerts.
 - Quarterly restore drill into a fresh instance/VPC; record the result in

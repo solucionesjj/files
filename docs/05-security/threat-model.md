@@ -171,6 +171,7 @@ verify to reduce timing differences. Locked-out requests skip hashing (documente
 | Public link metadata visible to token holder | Token is the capability; name/size needed for UX. | If customers require blind links. |
 | 8-char key has limited entropy | Mandated by spec; mitigated by throttling/monitoring. | If spec changes to 12 chars. |
 | Backups retain metadata up to 35 days | Nightly logical dumps are operationally required; disclosed. | Legal review. |
+| S3 objects have no secondary copy (versioning/replication off) | Avoids hidden copies and cost in the construction phase; accidental deletion/misconfiguration would be unrecoverable. | Enable versioning/replication before critical data. |
 | Admins can delete but not read content | Least privilege; support may need break-glass later. | OQ-05. |
 | Malware scanning optional | Cost/complexity; gate available. | Make mandatory at launch if required. |
 | Single EC2, no HA, public IP | Cost/availability constraint of the construction phase; 99.5% best effort, RPO 24 h. | Scale-up path (ADR-0010, OQ-17). |
