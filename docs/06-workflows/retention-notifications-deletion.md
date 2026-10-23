@@ -161,8 +161,8 @@ retention purge job; the storage key is nulled only at purge.
 1. **DB → S3:** for a sample or all `available` files, `HeadObject`; missing → quarantine
    (`quarantine_reason='object_missing'`), revoke links, alert, audit.
 2. **S3 → DB:** use an S3 Inventory report (preferred) or a bounded `ListObjectsV2` scan:
-   - objects under `f/` with no file row → move to `orphan/` (copy+delete) after a 7-day grace
-     marker, then delete; alert with a key fingerprint (never the full key).
+   - objects under `f/` with no file row → move to `orphan/` (copy+delete); the 7-day
+     lifecycle rule removes them; alert with a key fingerprint (never the full key).
    - staging objects with no open session → delete.
 3. Report counts: `reconcile_missing_db_total`, `reconcile_orphan_s3_total`,
    `reconcile_quarantined_total`; store the run in logs (and optionally a table if reporting is

@@ -6,7 +6,7 @@ SHELL := /bin/bash
 help: ## List available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
-up: ## Start local dependencies (PostgreSQL, MinIO, Mailpit, OTel)
+up: ## Start local dependencies (PostgreSQL, LocalStack S3, Mailpit, OTel)
 	docker compose up -d
 
 down: ## Stop local dependencies (keep volumes)

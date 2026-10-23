@@ -16,6 +16,7 @@
 |---|---|---|
 | `f/{fileId}` | Final objects. No filename, owner, or extension in the key. | Deleted by the deletion job. |
 | `staging/{uploadSessionId}` | API-proxied uploads before promotion. | Expire after 1 day. |
+| `orphan/` | Objects found without a DB row during reconciliation (7-day grace). | Expire after 7 days. |
 | (multipart parts) | Incomplete uploads under the final key. | Abort after 7 days (bucket lifecycle) and 24 h (worker). |
 
 - Bucket per environment: `files-<env>-<account-id>-<region>-<suffix>`.

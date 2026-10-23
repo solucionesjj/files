@@ -17,7 +17,7 @@ web/                       # Angular workspace
 db/migrations/             # Flyway SQL (canonical DDL)
 ```
 
-`Files.slnx` references all .NET projects. `Directory.Build.props` centralizes
+`Files.slnx` (or `Files.sln`) references all .NET projects. `Directory.Build.props` centralizes
 `TargetFramework=net10.0`, `Nullable=enable`, `TreatWarningsAsErrors=true`, analyzers, and
 deterministic builds. `global.json` pins SDK `10.0.x` with `rollForward=latestPatch`.
 

@@ -114,7 +114,6 @@ export TF_VAR_db_password='replace-with-a-strong-16+-character-password'
 | `multi_az` | `false` | Recommended `true` for prod. |
 | `deletion_protection` | `false` | Recommended `true` for prod. |
 | `certificate_arn` | `""` | ACM cert ARN. **Required for prod**; empty means HTTP only. |
-| `bucket_versioning` | `false` | Leave false in prod unless ADR-0008 is revisited. |
 | `api_image`, `worker_image` | `""` | Empty resolves to the generated ECR repo at `:bootstrap`. |
 | `api_cpu` / `api_memory` | `512` / `1024` | Fargate API task size. |
 | `worker_cpu` / `worker_memory` | `512` / `1024` | Fargate worker task size. |
@@ -198,9 +197,9 @@ digest; production deployments must set an immutable tag or digest.
 - **IAM least privilege:** the ECS execution role can only authorize ECR pulls,
   pull from these two repositories, and write to the two log groups. The API task
   role is limited to `f/*` and `staging/*` object operations plus prefix-scoped
-  bucket listing. The worker role has only `GetObject`, `DeleteObject`,
-  `AbortMultipartUpload`, `ListMultipartUploadParts`, and prefix-scoped bucket
-  listing — no other AWS permissions.
+  bucket listing. The worker role has only `GetObject`, `PutObject`/`DeleteObject`
+  on `orphan/*`, `AbortMultipartUpload`, `ListMultipartUploadParts`, and
+  prefix-scoped bucket listing — no other AWS permissions.
 - **S3:** Block Public Access is enabled on all four flags, object ownership is
   `BucketOwnerEnforced`, default encryption is SSE-S3, and the bucket policy
   explicitly denies requests where `aws:SecureTransport` is false. The CORS rule

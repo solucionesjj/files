@@ -127,6 +127,8 @@ only when the consumer cannot reach S3 directly.
 3. `GET /v1/download-grants/{grantToken}` streams the file (no auth header; browser navigation).
 4. The grant is single-use and expires in 120 s. A second use returns `404 grant_not_found`.
 5. The successful download count increments only when the stream completes.
+6. The public endpoint rejects private links and the authenticated endpoint rejects public links,
+   both with the generic `404 link_not_found` (no link-type oracle).
 
 ### 8.2 Integration
 

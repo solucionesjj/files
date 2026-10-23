@@ -76,7 +76,7 @@ Prod applies require a reviewed plan artifact and a protected environment approv
 | Role | Permissions |
 |---|---|
 | `files-<env>-api-task` | S3: `PutObject`, `GetObject`, `DeleteObject`, `AbortMultipartUpload`, `ListMultipartUploadParts`, `ListBucketMultipartUploads` on `f/*`, `staging/*`; `ListBucket` with prefix condition. No bucket-policy, no BPA, no `s3:*`. |
-| `files-<env>-worker-task` | S3: `GetObject`, `DeleteObject`, `ListBucket`, `AbortMultipartUpload`, `ListMultipartUploads` on `f/*`, `staging/*`; `CopyObject` for staging promotion; scan read. |
+| `files-<env>-worker-task` | S3: `GetObject`, `DeleteObject` on `f/*`, `staging/*`; `PutObject`/`DeleteObject` on `orphan/*` (reconciliation); `ListBucket`, `AbortMultipartUpload`, `ListMultipartUploads`; scan read. |
 | `files-<env>-execution` | ECR pull, CloudWatch Logs write, (optionally) Secrets Manager read. |
 | CI deploy role | `ecr:PutImage`, `ecs:UpdateService/RegisterTaskDefinition`, `iam:PassRole` limited to task roles, `s3:PutObject` for artifacts, via GitHub OIDC. |
 | Operator role | Read-only by default; break-glass for console actions, MFA, audited. |
@@ -90,8 +90,8 @@ Flyway uses a separate migration role with DDL privileges.
 - Block Public Access: all four flags; bucket owner enforced; ACLs disabled.
 - Default encryption SSE-S3; every write sets encryption explicitly.
 - Bucket policy: deny `s3:*` when `aws:SecureTransport = false`; deny non-TLS; no public principal.
-- Lifecycle: abort incomplete multipart after 7 days; expire `staging/` after 1 day; (optional)
-  noncurrent versions after 1 day.
+- Lifecycle: abort incomplete multipart after 7 days; expire `staging/` after 1 day and
+  `orphan/` after 7 days; (optional) noncurrent versions after 1 day.
 - CORS: `PUT` from the configured portal origin, `Content-Type` header, 1 h max age.
 - Event notifications are **not** used in v1 (scanning is polling-based); add S3 events later if
   scanning latency requires it.

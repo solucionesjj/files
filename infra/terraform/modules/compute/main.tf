@@ -305,6 +305,7 @@ data "aws_iam_policy_document" "worker_task" {
     effect = "Allow"
     actions = [
       "s3:GetObject",
+      "s3:PutObject",
       "s3:DeleteObject",
       "s3:AbortMultipartUpload",
       "s3:ListMultipartUploadParts",
@@ -312,6 +313,7 @@ data "aws_iam_policy_document" "worker_task" {
     resources = [
       "${var.bucket_arn}/f/*",
       "${var.bucket_arn}/staging/*",
+      "${var.bucket_arn}/orphan/*",
     ]
   }
 
@@ -332,6 +334,8 @@ data "aws_iam_policy_document" "worker_task" {
         "f/*",
         "staging/",
         "staging/*",
+        "orphan/",
+        "orphan/*",
       ]
     }
   }

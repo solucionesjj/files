@@ -23,7 +23,7 @@ can run partly in parallel once their dependencies are met.
 
 | Session | Milestone | Goal | Primary outputs |
 |---|---|---|---|
-| S1 | M0 | Bootstrap the solution | `Files.slnx`, projects, `Directory.Build.props`, `global.json`, Angular workspace, compose, `/health`, config validation, CI, `make validate`. |
+| S1 | M0 | Bootstrap the solution | `Files.slnx`/`Files.sln`, projects, `Directory.Build.props`, `global.json`, Angular workspace, compose, `/health`, config validation, CI, `make validate`. |
 | S2 | M1 | Database and persistence base | Flyway runner, EF DbContext + naming, repository seams, user/integration entities, audit writer, outbox writer, DB tests. |
 | S3 | M1 | Entra auth and admin base | JWT validation, policies, JIT users, `/me`, integration CRUD, API key issue/revoke, admin audit. |
 | S4 | M2 | Storage adapter and upload sessions | `IObjectStore` (S3; LocalStack locally), create session, multipart initiate, presign, upload session state, quota checks. |

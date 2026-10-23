@@ -125,6 +125,19 @@ resource "aws_s3_bucket_lifecycle_configuration" "this" {
     }
   }
 
+  rule {
+    id     = "expire-orphan-objects"
+    status = "Enabled"
+
+    filter {
+      prefix = "orphan/"
+    }
+
+    expiration {
+      days = 7
+    }
+  }
+
   dynamic "rule" {
     for_each = var.bucket_versioning ? [1] : []
 

@@ -17,6 +17,8 @@ deletion, and audits are managed by the platform.
 
 > **Status (2026-10-23):** design and delivery package complete; application code not started.
 > See the [roadmap](docs/09-delivery/roadmap.md) and [AGENTS.md](AGENTS.md) for the next session.
+>
+> **Resumen en español:** [docs/00-resumen-ejecutivo.md](docs/00-resumen-ejecutivo.md).
 
 ## Documentation
 
@@ -55,7 +57,7 @@ docker-compose.yml         # local dependencies
 
 ## Local quickstart
 
-Prerequisites: Docker, .NET SDK 10, Node.js 20.19+ (or 22 LTS), Terraform 1.9+ (IaC only).
+Prerequisites: Docker, .NET SDK 10, Node.js 22 LTS (Angular 20 also supports 20.19+), Terraform 1.9+ (IaC only). LocalStack is pinned to 3.8 in Compose because newer images require an auth token.
 
 ```bash
 cp .env.example .env          # review; local values are non-secret
