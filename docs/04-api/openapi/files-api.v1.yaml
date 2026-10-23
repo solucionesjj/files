@@ -2615,12 +2615,13 @@ components:
       allOf:
         - $ref: '#/components/schemas/Credential'
         - type: object
-          required: [secret]
           properties:
             secret:
-              type: string
-              description: Full API key (`flk_...`). Shown exactly once.
-      description: Returned only on issuance; the secret cannot be retrieved again.
+              type: [string, 'null']
+              description: |
+                Full API key (`flk_...`) for `api_key` credentials, shown exactly once.
+                Null for `entra_client` credentials, which use the consumer's Entra secret.
+      description: Returned only on issuance; an API-key secret cannot be retrieved again.
 
     IssueCredentialRequest:
       type: object

@@ -24,6 +24,7 @@ Source specification: `FILES_Product_Requirements_Technical_Specifications.md` (
 
 | Path | Contents |
 |---|---|
+| `docs/00-resumen-ejecutivo.md` | Spanish executive summary (orientation for stakeholders). |
 | `docs/01-product/` | Requirements (FR/NFR IDs), user stories, RBAC, decisions, open questions, glossary. |
 | `docs/02-architecture/` | C4 architecture, backend/frontend design, 13 ADRs. |
 | `docs/03-data/` | Data model, invariants, retention schedule, EF notes. |

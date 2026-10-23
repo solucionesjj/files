@@ -24,6 +24,7 @@ deletion, and audits are managed by the platform.
 
 | Area | Document |
 |---|---|
+| Resumen ejecutivo (ES) | [00-resumen-ejecutivo.md](docs/00-resumen-ejecutivo.md) |
 | Requirements (FR/NFR, IDs, invariants) | [requirements.md](docs/01-product/requirements.md) |
 | User stories and acceptance criteria | [user-stories.md](docs/01-product/user-stories.md) |
 | Roles and authorization matrix | [rbac-and-personas.md](docs/01-product/rbac-and-personas.md) |

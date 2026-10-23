@@ -37,11 +37,12 @@ infra/terraform/
 ├── envs/dev.tfvars.example
 ├── envs/prod.tfvars.example
 └── modules/
-    ├── network/           # VPC, subnets, NAT, endpoints, SGs
+    ├── network/           # VPC, subnets, NAT, S3 gateway endpoint
+    ├── security/          # ALB/API/worker/RDS security groups and rules
     ├── storage/           # S3 bucket, BPA, SSE, lifecycle, CORS, policy
     ├── database/          # RDS PostgreSQL 18, subnet group, parameter group
-    ├── compute/           # ECR, ECS cluster/services/tasks, ALB, IAM roles
-    └── observability/     # CloudWatch alarms, dashboard, SNS
+    ├── compute/           # ECR, ECS cluster/services/tasks, ALB, IAM, Secrets Manager
+    └── observability/     # CloudWatch alarms and SNS
 ```
 
 Remote state: S3 bucket `files-tfstate-<account>-<region>` with versioning + SSE, and S3 native
@@ -81,8 +82,9 @@ Prod applies require a reviewed plan artifact and a protected environment approv
 | CI deploy role | `ecr:PutImage`, `ecs:UpdateService/RegisterTaskDefinition`, `iam:PassRole` limited to task roles, `s3:PutObject` for artifacts, via GitHub OIDC. |
 | Operator role | Read-only by default; break-glass for console actions, MFA, audited. |
 
-No IAM user access keys in the runtime. The DB user is a dedicated application role (DML only);
-Flyway uses a separate migration role with DDL privileges.
+No IAM user access keys in the runtime. The Terraform skeleton uses the RDS master user for the
+initial connection; production must provision a dedicated application role (DML only) and a
+separate migration role with DDL privileges before launch (M7 checklist).
 
 ## 5. S3 configuration
 
@@ -159,9 +161,9 @@ Flyway uses a separate migration role with DDL privileges.
 
 ## 10. Local development
 
-`docker-compose.yml` provides PostgreSQL 18, LocalStack (S3-compatible), Mailpit (SMTP UI), and an
+`docker-compose.yml` provides PostgreSQL 18, LocalStack S3, Mailpit (SMTP UI), and an
 OpenTelemetry Collector. Flyway applies migrations via the `tools` profile. The API/worker run on
 the host with `dotnet run` (or as compose services once images exist). See the root `README.md`.
 
-This stack is for development only: LocalStack credentials are non-secret, Mailpit accepts any mail,
-and the DB has a known password.
+This stack is for development only: LocalStack credentials are non-secret, Mailpit accepts any
+mail, and the DB has a known password.

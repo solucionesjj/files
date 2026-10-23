@@ -343,10 +343,10 @@ flowchart TB
 | Layer | Choice | Version policy |
 |---|---|---|
 | API / Worker | C# / .NET | .NET 10 LTS (pinned in `global.json`). |
-| Web | Angular, TypeScript, Bootstrap | Angular LTS at scaffold, Bootstrap 5.3.x, Node 20.19+/22 LTS. |
+| Web | Angular, TypeScript, Bootstrap | Angular LTS at scaffold, Bootstrap 5.3.x, Node 22 LTS (20.19+ compatible). |
 | Data access | EF Core + Npgsql; Dapper for atomic SQL | EF Core 10.x. |
 | DB | PostgreSQL | 18.x (RDS). |
-| Object storage | AWS S3 SDK v4 (or LocalStack/LocalStack S3 for local) | AWS SDK for .NET v4. |
+| Object storage | AWS S3 SDK v4 (LocalStack S3 locally) | AWS SDK for .NET v4. |
 | Auth | Microsoft.Identity.Web / JwtBearer; MSAL Angular | Latest stable compatible. |
 | Jobs | Quartz.NET, in-memory scheduler + PG advisory locks | 3.x. |
 | Email | Microsoft Graph SDK (`sendMail`) | Latest stable. |

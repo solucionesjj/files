@@ -206,7 +206,9 @@ digest; production deployments must set an immutable tag or digest.
   allows only `PUT` from `var.portal_origin` with `Content-Type`.
 - **Database:** RDS is private, encrypted, has no public endpoint, forces TLS,
   and accepts port 5432 only from the API and worker security groups. It has no
-  egress rules.
+  egress rules. The skeleton connects with the master user; provision a
+  least-privilege application role (and a separate migration role) before
+  production.
 - **ALB:** internet-facing security group exposes 80 and 443; egress is scoped to
   the API security group on 8080. With a certificate, port 80 redirects to 443
   using a TLS 1.2/1.3 policy. Without one (dev only), HTTP forwards to the API.
