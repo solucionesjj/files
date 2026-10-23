@@ -114,8 +114,9 @@ No S3 CORS is needed: the browser only talks to the API.
 
 ## Production deployment
 
-Terraform creates the EC2 instance, Elastic IP, security group, instance role, and bucket. Then
-follow [`deploy/README.md`](deploy/README.md):
+Terraform creates (or imports) the EC2 instance, Elastic IP, security group, instance role, and
+bucket. If the host/bucket already exist, import them or skip Terraform and apply the same policy
+manually. Then follow [`deploy/README.md`](deploy/README.md):
 
 1. Point DNS (e.g., `files.example.com`) at the Elastic IP.
 2. Copy `deploy/` to `/opt/files/app`, create `/opt/files/.env` (mode 0600).

@@ -27,7 +27,7 @@ infra/terraform/
 
 - Terraform ≥1.9 (tested with 1.13).
 - AWS credentials allowed to create EC2/EIP/SG/IAM/S3 resources.
-- A default VPC with at least one public subnet (or set `subnet_id`).
+- A default VPC with at least one public subnet, **or** set `vpc_id`/`subnet_id` to an existing public subnet.
 - A DNS name (recommended) that will point at the Elastic IP; Caddy needs it for trusted TLS.
 - An existing EC2 key pair for SSH (`ssh_key_name`), or console access if empty.
 - Your administrator CIDR for port 22. `admin_cidr` is required and must not be `0.0.0.0/0`.
@@ -63,6 +63,18 @@ Outputs: `public_ip`, `ssh_command`, `bucket_name`/`bucket_arn`, `instance_id`, 
 - `user_data` installs Docker/Compose, AWS CLI, UFW, fail2ban, unattended upgrades, chrony,
   creates `/opt/files` and `/var/lib/files/{staging,postgres,portal}`, 2 GiB swap, and enables
   the firewall. It does **not** clone the app or write secrets.
+
+## Existing resources
+
+If the EC2 instance or bucket already exists, import it into this stack (or use a separate stack
+and only manage the bucket policy), for example:
+
+```bash
+terraform import module.storage.aws_s3_bucket.this <bucket-name>
+terraform import module.instance.aws_instance.this <instance-id>
+```
+
+`bucket_name` only overrides the name of a **managed** bucket; it does not attach an unmanaged one.
 
 ## After apply (manual, documented in `deploy/README.md`)
 

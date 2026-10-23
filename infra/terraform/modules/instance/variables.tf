@@ -11,6 +11,10 @@ variable "ssh_key_name" {
   default = ""
 }
 variable "admin_cidr" { type = string }
+variable "vpc_id" {
+  type    = string
+  default = ""
+}
 variable "subnet_id" {
   type    = string
   default = ""

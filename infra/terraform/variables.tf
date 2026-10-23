@@ -48,8 +48,14 @@ variable "admin_cidr" {
   }
 }
 
+variable "vpc_id" {
+  description = "Optional VPC ID. Empty uses the account's default VPC."
+  type        = string
+  default     = ""
+}
+
 variable "subnet_id" {
-  description = "Optional public subnet ID. Empty uses the first subnet of the default VPC."
+  description = "Optional public subnet ID. Empty uses the first subnet of the selected VPC."
   type        = string
   default     = ""
 }

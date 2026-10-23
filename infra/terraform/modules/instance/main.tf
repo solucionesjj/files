@@ -19,25 +19,29 @@ data "aws_ami" "ubuntu" {
 }
 
 data "aws_vpc" "default" {
+  count   = var.vpc_id == "" ? 1 : 0
   default = true
 }
 
 data "aws_subnets" "default" {
+  count = var.subnet_id == "" ? 1 : 0
+
   filter {
     name   = "vpc-id"
-    values = [data.aws_vpc.default.id]
+    values = [local.vpc_id]
   }
 }
 
 locals {
   ami_id    = var.ami_id != "" ? var.ami_id : data.aws_ami.ubuntu.id
-  subnet_id = var.subnet_id != "" ? var.subnet_id : tolist(data.aws_subnets.default.ids)[0]
+  vpc_id    = var.vpc_id != "" ? var.vpc_id : data.aws_vpc.default[0].id
+  subnet_id = var.subnet_id != "" ? var.subnet_id : tolist(data.aws_subnets.default[0].ids)[0]
 }
 
 resource "aws_security_group" "this" {
   name_prefix = "${var.name_prefix}-"
   description = "Files single-node instance: 80/443 public, SSH from admin_cidr only"
-  vpc_id      = data.aws_vpc.default.id
+  vpc_id      = local.vpc_id
 
   ingress {
     description = "HTTP (redirected to HTTPS by Caddy)"

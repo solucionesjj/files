@@ -14,7 +14,7 @@ CloudWatch.
 | Instance | `t3.medium` (2 vCPU, 4 GiB) default, configurable |
 | Root volume | 100 GiB gp3, encrypted, `delete_on_termination = false` |
 | Address | Elastic IP (stable public IPv4) |
-| Network | Default VPC public subnet |
+| Network | Default VPC public subnet, or an existing `vpc_id`/public `subnet_id` |
 | Security group | 80/443 from `0.0.0.0/0`; 22 only from `admin_cidr`; all egress |
 | S3 | One private bucket, SSE-S3, BPA, versioning off |
 | IAM | One EC2 instance role, prefix-scoped S3; bucket policy denies all other principals |
