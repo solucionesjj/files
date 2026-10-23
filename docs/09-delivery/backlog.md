@@ -74,6 +74,7 @@ IDs match [requirements.md](../01-product/requirements.md).
 | T-16 | Load/soak test scripts | M | M7 | k6: metadata, upload, download, abuse. |
 | T-17 | DR drill and runbook rehearsal | M | M7 | Restore, RTO/RPO measurement. |
 | T-18 | Docs upkeep + ADR log | S | ongoing | Update on every decision change. |
+| T-19 | Existing-file backfill tooling + reconciliation | L | M7 | Mapping table, exporter, checksum verification, dual-run/cutover; see [migration plan](../06-workflows/existing-product-migration.md). |
 
 ## Suggested first vertical slice (S1–S5)
 

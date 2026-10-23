@@ -36,7 +36,7 @@ can run partly in parallel once their dependencies are met.
 | S11 | M6 | Expiration and deletion | Expiration/deletion jobs, tombstones, reconciliation, retention purge, metrics/alerts. |
 | S12 | M7 | Test hardening and security | IDOR/auth matrices, upload tampering, ZAP, dependency/IaC scans, pen-test fixes, load/soak. |
 | S13 | M7 | Operations readiness | Terraform production plan, dashboards, alerts, DR drill, runbooks rehearsal, cost review. |
-| S14 | M7 | Launch | Staging sign-off, migration rehearsal, production cutover, post-launch monitoring. |
+| S14 | M7 | Launch | Staging sign-off, migration/backfill rehearsal, production cutover, post-launch monitoring. |
 
 Dependency graph (critical path):
 
@@ -75,7 +75,8 @@ Legend: ✅ complete · 🟡 in progress · ⬜ not started.
 7. Cost estimate approved; budgets/alerts configured.
 8. Legal wording for deletion/backups approved; privacy review done.
 9. Staging has run the exact production migration sequence; rollback rehearsed.
-10. Support/operations training for link revocation, credential rotation, and deletion failures.
+10. Existing-file backfill plan (if applicable) has a dry run, mapping, and dual-run/cutover plan.
+11. Support/operations training for link revocation, credential rotation, and deletion failures.
 
 ## 5. Risks to the plan
 

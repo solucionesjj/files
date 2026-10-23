@@ -21,7 +21,8 @@ sessions can execute without re-deriving decisions.
   concurrency SQL, retention schedule.
 - OpenAPI 3.1 contract (47 paths, 58 operations), API conventions, error catalog.
 - Entra ID design, machine identity/API keys, STRIDE threat model with key-entropy analysis.
-- File lifecycle state machine, upload/download design, retention/notification/deletion workflows.
+- File lifecycle state machine, upload/download design, retention/notification/deletion workflows,
+  and the existing-product file backfill/cutover plan.
 - Testing strategy, SLOs/alerting, deployment/rollback, cost model, runbooks, infrastructure/IaC.
 - Roadmap (M0–M7, S1–S14), backlog, traceability matrix.
 - Local stack (PostgreSQL 18, LocalStack 3.8 S3, Mailpit, OTel), CI skeleton, validation scripts,

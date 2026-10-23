@@ -39,6 +39,7 @@ deletion, and audits are managed by the platform.
 | OpenAPI 3.1 contract | [files-api.v1.yaml](docs/04-api/openapi/files-api.v1.yaml) |
 | Entra ID / machine identity / threat model | [entra-id-authentication.md](docs/05-security/entra-id-authentication.md) · [machine-identity-and-authorization.md](docs/05-security/machine-identity-and-authorization.md) · [threat-model.md](docs/05-security/threat-model.md) |
 | Lifecycle, upload/download, retention | [file-lifecycle.md](docs/06-workflows/file-lifecycle.md) · [upload-and-download.md](docs/06-workflows/upload-and-download.md) · [retention-notifications-deletion.md](docs/06-workflows/retention-notifications-deletion.md) |
+| Existing product backfill | [existing-product-migration.md](docs/06-workflows/existing-product-migration.md) |
 | Testing strategy | [testing-strategy.md](docs/07-quality/testing-strategy.md) |
 | Infrastructure, deployment, SLOs, cost, runbooks | [infrastructure-and-iac.md](docs/08-operations/infrastructure-and-iac.md) · [deployment-and-rollback.md](docs/08-operations/deployment-and-rollback.md) · [observability-and-slos.md](docs/08-operations/observability-and-slos.md) · [cost-model.md](docs/08-operations/cost-model.md) · [runbooks.md](docs/08-operations/runbooks.md) |
 | Roadmap, backlog, traceability, session log | [roadmap.md](docs/09-delivery/roadmap.md) · [backlog.md](docs/09-delivery/backlog.md) · [traceability.md](docs/09-delivery/traceability.md) · [session-log.md](docs/09-delivery/session-log.md) |
