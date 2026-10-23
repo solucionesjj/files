@@ -35,7 +35,7 @@ flowchart LR
   worker --> staging
   worker --> s3
   entra["Entra ID"] -.-> api
-  graph["Microsoft Graph"] -.-> worker
+  smtp["Microsoft 365 SMTP"] -.-> worker
   signoz["SigNoz (optional)"] -.-> api
 ```
 

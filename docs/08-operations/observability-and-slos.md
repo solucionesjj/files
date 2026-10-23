@@ -17,7 +17,7 @@ container metrics come from Docker/systemd; there is no CloudWatch or ALB in thi
 | Expiration freshness | Time since last successful job | ≤30 min | — |
 | Deletion freshness | Oldest `pending_deletion` | ≤1 h normal | Retries may extend; alert. |
 | Outbox freshness | p95 lag | ≤60 s | — |
-| Notification acceptance | Accepted / due | ≥98% | Graph. |
+| Notification acceptance | Accepted / due | ≥98% | SMTP. |
 | Backup freshness | Latest valid dump age | ≤26 h | Nightly cron. |
 | Disk headroom | Free bytes above reserve | >10 GiB | Hard fail-closed at reserve. |
 
@@ -58,6 +58,7 @@ understood. All maintenance windows are announced and excluded only if declared 
 | `files_deleted_total` | counter | — |
 | `files_deletion_failures_total` | counter | reason |
 | `files_pending_deletion` | gauge | — |
+| `files_processing` | gauge | — |
 | `download_completion_lost_total` | counter | source |
 | `link_key_attempts_total` | counter | result |
 | `link_lockouts_total` | counter | scope |

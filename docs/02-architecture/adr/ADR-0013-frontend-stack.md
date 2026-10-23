@@ -26,7 +26,7 @@ straightforward Entra integration.
 
 - Minimal dependencies and a familiar look; Bootstrap's JS is kept to modals/dropdowns needed.
 - Signals reduce boilerplate but require discipline for async state; RxJS remains for HTTP.
-- MSAL's interceptor must be scoped to the API origin to avoid leaking tokens to S3/Graph.
+- MSAL's interceptor must be scoped to the API origin to avoid leaking tokens to third parties.
 - A future design system or SSR can be added without changing the API contract.
 
 ## Alternatives considered

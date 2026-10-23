@@ -18,14 +18,16 @@ docker run -d --name "$NAME" \
   -e POSTGRES_PASSWORD=verify-only \
   "$IMAGE" >/dev/null
 
+ready=0
 for _ in $(seq 1 60); do
-  if docker exec "$NAME" pg_isready -U postgres -d files >/dev/null 2>&1; then
+  if docker exec "$NAME" psql -U postgres -d files -c 'select 1' >/dev/null 2>&1; then
+    ready=1
     break
   fi
   sleep 1
 done
 
-if ! docker exec "$NAME" pg_isready -U postgres -d files >/dev/null 2>&1; then
+if [ "$ready" -ne 1 ]; then
   echo "PostgreSQL did not become ready" >&2
   docker logs "$NAME" >&2 || true
   exit 1

@@ -62,8 +62,8 @@ de Terraform para AWS.
    keys (`flk_...`) solo como compatibilidad, con rotación y hash HMAC.
 9. **Procesos en segundo plano:** outbox transaccional + Quartz en memoria + *advisory locks* de
    PostgreSQL; jobs idempotentes para notificar, vencer, borrar y reconciliar.
-10. **Correo:** Microsoft Graph `sendMail` (no POP, que no envía); queda pendiente confirmar buzón y
-   permiso (OQ-01).
+10. **Correo:** buzón Microsoft 365; POP solo para recibir, **SMTP AUTH 587** para enviar (Graph
+    opcional). Quedan pendientes la dirección exacta y la contraseña/app password (OQ-01).
 11. **Infraestructura:** una EC2 Ubuntu 24.04 en `us-east-1`, VPC/subred por defecto, Elastic IP y
     un bucket S3, provistos con Terraform; `files.sacservices.cloud` (Network Solutions) apunta a la
     IP; Caddy es la única entrada pública (80/443), PostgreSQL no expone puerto, la API/Worker usan

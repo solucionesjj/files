@@ -88,7 +88,7 @@ which condition failed. Specific reasons are recorded only in audit events and m
 | `credential_already_revoked` | 409 | Revocation repeated. | No | — |
 | `policy_not_found` | 404 | Unknown policy version. | No | Read current policy. |
 | `reason_required` | 422 | Admin action requires a reason (≥10 chars). | No | Supply a reason. |
-| `dependency_unavailable` | 502/503 | S3/Graph/DB unavailable. | Yes | Retry with backoff. |
+| `dependency_unavailable` | 502/503 | S3/SMTP/DB unavailable. | Yes | Retry with backoff. |
 | `service_unavailable` | 503 | Maintenance/circuit open. | Yes | Honor `Retry-After`. |
 | `internal_error` | 500 | Unexpected error. | Maybe | Contact support with `traceId`. |
 

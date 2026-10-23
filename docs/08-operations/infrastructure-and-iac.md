@@ -111,7 +111,7 @@ First deployment steps (documented in `deploy/README.md`):
   the repository, Terraform state, Docker images, or logs.
 - Local development uses `.env` with LocalStack credentials; those are non-secret.
 - Rotation: DB password (update `.env` + `ALTER ROLE`, restart API), peppers (versioned columns),
-  Graph/Entra secrets (Entra + `.env` + restart), SSH keys. See [runbooks.md](runbooks.md).
+  SMTP/Entra secrets (Microsoft 365/Entra + `.env` + restart), SSH keys. See [runbooks.md](runbooks.md).
 
 ## 7. TLS and DNS
 
