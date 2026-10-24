@@ -1,6 +1,6 @@
 # Roadmap and Delivery Plan
 
-**Status date:** 2026-10-23 · **Phase:** Design complete; implementation not started.
+**Status date:** 2026-10-24 · **Phase:** Implementation started — M0 (S1) foundations delivered.
 Progress is updated at the end of every work session (see [AGENTS.md](../../AGENTS.md)).
 
 ## 1. Milestones
@@ -52,7 +52,7 @@ S5 and S9. S11 depends on S10.
 
 | Milestone | Design | Implementation | Notes |
 |---|---|---|---|
-| M0 | ✅ | ⬜ | Design docs complete; infra skeleton present; app scaffold not started. |
+| M0 | ✅ | ✅ | S1 done: .NET 10 solution, Angular workspace, health/config endpoints, OTel, Dockerfiles, local compose. |
 | M1 | ✅ | ⬜ | Schema validated on PostgreSQL 18. |
 | M2 | ✅ | ⬜ | Upload/download design finalized. |
 | M3 | ✅ | ⬜ | Frontend design finalized. |
@@ -92,12 +92,9 @@ Legend: ✅ complete · 🟡 in progress · ⬜ not started.
 | Key brute force incident | Security | Throttling + monitoring designed; rehearse runbook. |
 | Backup erasure expectations | Legal | ADR-0008 wording; legal sign-off. |
 
-## 6. Next session (S1) checklist
+## 6. Next session (S2) checklist
 
-1. Read `AGENTS.md` and this roadmap.
-2. Create the .NET solution/projects and Angular workspace (`scripts/bootstrap-solution.sh`).
-3. Wire configuration + options validation, Serilog/OTel, `/health/live` and `/health/ready`.
-4. Bring up compose dependencies and apply Flyway migrations.
-5. Add CI (build, unit, integration skeleton, OpenAPI lint, Terraform fmt).
-6. Update the progress table and add a short entry to `docs/09-delivery/roadmap.md` (or a
-   `CHANGELOG`-style session log) with what actually happened.
+1. Read `AGENTS.md`, this roadmap, and the [session log](session-log.md).
+2. Add EF Core mapping (`FilesDbContext`, snake_case, no EF migrations) + repositories + audit/outbox writers.
+3. Add the Flyway runner seam and DB tests against the local PostgreSQL 18 (see S2/M1 in `AGENTS.md` §7).
+4. Keep `make validate` green and update the progress table + session log.

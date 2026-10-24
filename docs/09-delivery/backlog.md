@@ -56,9 +56,9 @@ IDs match [requirements.md](../01-product/requirements.md).
 
 | ID | Task | Size | Milestone | Notes |
 |---|---|---|---|---|
-| T-01 | Bootstrap .NET solution + Angular workspace | M | M0 | `scripts/bootstrap-solution.sh`, Directory.Build.props, global.json. |
-| T-02 | Local stack (PostgreSQL 18, LocalStack S3, Mailpit, OTel) | S | M0 | `docker-compose.yml`, healthchecks, Flyway profile. |
-| T-03 | CI pipeline | M | M0 | Build, tests, contract lint, migrations, terraform fmt/validate. |
+| T-01 | Bootstrap .NET solution + Angular workspace | M | M0 | `scripts/bootstrap-solution.sh`, Directory.Build.props, global.json. **Done (S1).** |
+| T-02 | Local stack (PostgreSQL 18, LocalStack S3, Mailpit, OTel) | S | M0 | `docker-compose.yml`, healthchecks, Flyway profile. **Done (S1):** now also starts API, worker, and web. |
+| T-03 | CI pipeline | M | M0 | Build, tests, contract lint, migrations, terraform fmt/validate. **Done (S1):** builds/tests the .NET solution and the Angular workspace. |
 | T-04 | EF Core persistence + repositories + outbox | L | M1 | DbContext, mapping, audit/outbox writers, DB tests. |
 | T-05 | Authentication handlers and policies | L | M1 | Entra user/integration tokens, tenant check; no API keys. |
 | T-06 | Storage adapter, local staging and S3 commit | L | M2 | Chunk store (pwrite), multipart/put, HeadObject, ranges, delete, copy, disk reserve. |

@@ -6,7 +6,59 @@ entry.
 
 ---
 
-## 2026-10-23 — Product answers: retention, links, access, audit, UI (current)
+## 2026-10-24 — S1/M0: executable solution skeleton (current)
+
+**Scope:** S1 (M0) — buildable solution, health/config endpoints, fail-fast configuration validation,
+RFC 9457 problem details + correlation ID, structured logging, OpenTelemetry to the local collector,
+API/worker Dockerfiles, and a complete local Docker Compose stack.
+
+**Delivered**
+
+- `.NET 10` solution `Files.slnx`: `Files.Domain`, `Files.Application`, `Files.Infrastructure`,
+  `Files.Api`, `Files.Worker`, `Files.UnitTests`, `Files.IntegrationTests`, `Files.ContractTests`;
+  `Directory.Build.props` (net10.0, nullable, warnings-as-errors, analyzers), `global.json`
+  (SDK 10.0.x), and `tests/Directory.Build.props` (relaxes CA1707 for readable test names).
+- `Files.Api`: `/health/live` (liveness) and `/health/ready` (real PostgreSQL probe), `/v1/config`
+  (public non-sensitive config), RFC 9457 `ProblemDetails` with stable `code` + `traceId`,
+  `X-Correlation-Id` middleware, Serilog structured JSON + OTLP logs, OpenTelemetry traces/metrics,
+  and a fail-fast `ConfigurationValidator` (reports key names only, never values).
+- `Files.Worker`: generic host with OpenTelemetry runtime metrics + Serilog/OTLP; placeholder
+  `BackgroundService` (Quartz scheduler arrives in S2+).
+- Angular 20 workspace in `web/` (standalone): Bootstrap 5.3, MSAL prepared (lazy-loaded
+  `PublicClientApplication` + `/assets/config.json`), Spanish/English i18n with `@angular/localize`
+  `$localize` + runtime `loadTranslations`, and a language selector.
+- Dockerfiles (`src/Files.Api/Dockerfile`, `src/Files.Worker/Dockerfile`, `web/Dockerfile`) —
+  multi-stage, non-root (`app` user), API liveness healthcheck — plus a root `.dockerignore`.
+- `docker-compose.yml` now starts API, worker, and web alongside PostgreSQL 18, LocalStack S3,
+  Mailpit, and the OTel collector (shared staging volume).
+
+**Validated**
+
+- `dotnet build -warnaserror` (0 warnings), `dotnet test` (11 tests), `dotnet format --verify-no-changes`.
+- `npm ci && npm run build` in `web/` (MSAL lazy-loaded; initial bundle ~495 kB raw / ~99 kB transfer).
+- `docker build` for the API, worker, and web images.
+- Local stack: Flyway V1/V2 applied; API healthy (`/health/live` + `/health/ready`), `/v1/config`
+  and 404 problem details with correlation ID; worker structured logs; web serving the SPA.
+
+**Decisions / notes**
+
+- Config keys are read with `:` separators (env `__` is translated to `:` by the config provider);
+  the validator reports the operator-facing `__` names.
+- MSAL is installed and prepared but inert without Entra app registrations (S3 wires the real IDs
+  plus `MsalGuard`/`MsalInterceptor`).
+- Bootstrap is imported as compiled CSS via `angular.json`; S6 moves to selective imports.
+- `WebApplicationFactory` applies config overrides only after `CreateBuilder`, so integration tests
+  satisfy the fail-fast validator via environment variables.
+- Local dev on this machine: host port 8080 is occupied by an unrelated `open-webui` container, so
+  the API was smoke-tested on 8081; the committed compose still maps 8080 (matches `AGENTS.md`).
+
+**Next**
+
+- S2/M1: EF Core mapping + repositories + audit/outbox; then S3/M1 Entra auth.
+
+---
+
+## 2026-10-23 — Product answers: retention, links, access, audit, UI
 
 **Answers applied**
 

@@ -3,8 +3,9 @@
 **Read this first.** This repository is the delivery package for **Files**, a secure file storage,
 transfer, and integration platform. The design is complete; implementation starts at milestone M0.
 
-**Status:** 2026-10-23 — documentation, data model, API contract, operations, and delivery plan
-complete. No application code yet. Terraform skeleton under `infra/terraform/`.
+**Status:** 2026-10-24 — documentation, data model, API contract, operations, and delivery plan
+complete. **S1/M0 foundations implemented** (.NET 10 solution, Angular workspace, health/config
+endpoints, OpenTelemetry, Dockerfiles, local compose). Terraform skeleton under `infra/terraform/`.
 
 ---
 
@@ -138,14 +139,13 @@ Local endpoints: API `http://localhost:8080`, Portal `http://localhost:4200`, Lo
 | IaC skeleton | Done: single EC2 + S3, `terraform validate` (review on change) |
 | Local stack, CI, scripts | Done |
 | Deployment assets | Done: Compose, Caddy, backup/restore/smoke |
-| Application code | **Not started** |
+| Application code | **S1/M0 done** — solution, Angular workspace, health/config, OTel, Dockerfiles, compose; S2+ pending |
 | Terraform applied to AWS | Not started |
 
 ## 7. Next steps (in order)
 
-1. **S1 / M0:** run `scripts/bootstrap-solution.sh` (review it first), create the .NET solution and
-   Angular workspace, health endpoints, config validation, OTel wiring; bring up compose; run CI.
-   Add the API/worker Dockerfiles required by `deploy/docker-compose.prod.yml`.
+1. ✅ **S1 / M0 (done):** .NET solution + Angular workspace, health endpoints, config validation,
+   OTel wiring, local compose, and the API/worker Dockerfiles are in place.
 2. **S2 / M1:** EF Core mapping + repositories + audit/outbox writers; user/integration persistence.
 3. **S3 / M1:** Entra JWT validation, JIT provisioning, role policies, integration admin (Entra app binding; no API keys).
 4. **S4–S5 / M2:** `IObjectStore`, `IChunkStore` staging, chunk endpoints, server-side S3 commit,
