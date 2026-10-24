@@ -24,6 +24,8 @@ public static class ConfigurationValidator
         RequireNonEmpty(configuration, "Storage__StagingPath", errors);
 
         ValidateGuidIfPresent(configuration, "Entra__TenantId", errors);
+        ValidateGuidIfPresent(configuration, "Entra__ApiClientId", errors);
+        ValidatePositiveIntIfPresent(configuration, "Entra__ClockSkewSeconds", errors);
         ValidateHttpEndpointIfPresent(configuration, "OTEL_EXPORTER_OTLP_ENDPOINT", errors);
         ValidatePositiveLongIfPresent(configuration, "Storage__MaxFileSizeBytes", errors);
         ValidatePositiveLongIfPresent(configuration, "Storage__ChunkSizeBytes", errors);
@@ -99,6 +101,21 @@ public static class ConfigurationValidator
         }
 
         if (!long.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed)
+            || parsed <= 0)
+        {
+            errors.Add($"{key} must be a positive integer");
+        }
+    }
+
+    private static void ValidatePositiveIntIfPresent(IConfiguration configuration, string key, List<string> errors)
+    {
+        var value = GetValue(configuration, key);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed)
             || parsed <= 0)
         {
             errors.Add($"{key} must be a positive integer");

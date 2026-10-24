@@ -9,4 +9,7 @@ public interface IUserRepository
 
     /// <summary>Returns the user for the Entra tenant/object pair, or <c>null</c> (JIT provisioning).</summary>
     Task<User?> GetByTenantIdentityAsync(Guid tenantId, Guid objectId, CancellationToken ct = default);
+
+    /// <summary>Tracked variant used by JIT provisioning to update profile fields/last login.</summary>
+    Task<User?> GetByTenantIdentityTrackedAsync(Guid tenantId, Guid objectId, CancellationToken ct = default);
 }

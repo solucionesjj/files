@@ -12,4 +12,8 @@ public sealed class UserRepository(FilesDbContext db) : IUserRepository
         db.Users
             .AsNoTracking()
             .SingleOrDefaultAsync(u => u.TenantId == tenantId && u.ObjectId == objectId, ct);
+
+    public Task<User?> GetByTenantIdentityTrackedAsync(Guid tenantId, Guid objectId, CancellationToken ct = default) =>
+        db.Users
+            .SingleOrDefaultAsync(u => u.TenantId == tenantId && u.ObjectId == objectId, ct);
 }
