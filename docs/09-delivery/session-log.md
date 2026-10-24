@@ -6,7 +6,63 @@ entry.
 
 ---
 
-## 2026-10-24 — S1/M0: executable solution skeleton (current)
+## 2026-10-24 — S2/M1: database and persistence base (current)
+
+**Scope:** S2 (M1) — EF Core mapping of the Flyway schema, domain entities/enums/value objects,
+repository seams + EF implementations, Dapper transactional audit/outbox writers, and DB tests
+against a real PostgreSQL 18 (Testcontainers + Flyway from an empty database).
+
+**Delivered**
+
+- `Files.Domain`: the 12 aggregate entities (`User`, `Integration`, `FileEntity`, `UploadSession`,
+  `DownloadLink`, `DownloadLinkAcl`, `DownloadGrant`, `Tag`, `RetentionPolicy`,
+  `NotificationPolicy`, `NotificationEvent`, `AuditEvent`) mapped 1:1 to the Flyway V1 tables, plus
+  22 stable enums and the `Retention` value object (finite ⇔ expiry, 1..365-day window).
+- `Files.Application`: ports `IUnitOfWork`, `ICurrentActor`, `IOutboxWriter`, `IAuditWriter`, and
+  authorization-aware repository interfaces (`IUserRepository.GetByTenantIdentityAsync`,
+  `IIntegrationRepository.GetByEntraClientIdAsync`/`GetBySlugAsync`,
+  `IFileRepository.GetOwnedFileAsync`/`GetOwnedIntegrationFileAsync` — no bare `GetById`).
+- `Files.Infrastructure`: `FilesDbContext` (Npgsql + snake_case naming; schema owned by Flyway, no
+  EF migrations), one `IEntityTypeConfiguration` per entity, `FilesUnitOfWork` (single `SaveChanges`
+  + transaction), `UserRepository`/`IntegrationRepository`/`FileRepository`, Dapper
+  `OutboxWriter`/`AuditWriter` (SQL in `Persistence/Sql/*.sql` embedded resources), and
+  `AddFilesPersistence` wired into the API (`ConnectionStrings__FilesDb`; no auto-migration on
+  startup).
+- Tests: domain-rule unit tests (`Retention`, `FileEntity` factories) and integration tests with
+  Testcontainers PostgreSQL 18 + a Flyway `migrate` container from an empty DB — schema drift
+  (every mapped table/column exists in `information_schema`), user/integration persistence, owner
+  predicates (foreign file ⇒ null/404), and outbox + audit + entity sharing one transaction
+  (commit and rollback paths).
+
+**Validated**
+
+- `dotnet build -warnaserror` (0 warnings), `dotnet test` (27 tests: 12 unit + 1 contract + 14
+  integration), `dotnet format --verify-no-changes`.
+- Integration tests provision PostgreSQL 18.6 and apply Flyway V1/V2 from an empty database. The
+  `cidr[]` column maps via `System.Net.IPNetwork`; `S3UploadId`/`S3PartSizeBytes` map explicitly to
+  `s3_upload_id`/`s3_part_size_bytes` (the naming convention merges the "S3" acronym).
+
+**Decisions / notes**
+
+- IDs are application-generated `Guid.CreateVersion7()` (`ValueGeneratedNever`); the Dapper writers
+  rely on the DB `uuidv7()`/`now()` defaults.
+- `version` is a concurrency token bumped in `FilesDbContext.SaveChangesAsync`; only
+  `users`/`integrations`/`files` carry it in V1 (the other aggregates have no `version` column).
+- The DbContext maps the 12 aggregate tables; operational tables (`outbox_messages`,
+  `admin_audit_events`, `idempotency_records`, usage, …) stay Dapper-only for now and get read
+  models in later sessions.
+- Root-owned NuGet caches on this machine (`~/.nuget/packages`, `~/.local/share/NuGet/http-cache`)
+  forced temporary caches: `NUGET_PACKAGES=/tmp/files-nuget/packages`,
+  `NUGET_HTTP_CACHE_PATH=/tmp/files-nuget/http` (also required when running `make validate`).
+
+**Next**
+
+- S3/M1: Entra JWT validation, JIT user provisioning, role policies, integration admin (Entra app
+  binding; no API keys), and the token-backed `ICurrentActor`.
+
+---
+
+## 2026-10-24 — S1/M0: executable solution skeleton
 
 **Scope:** S1 (M0) — buildable solution, health/config endpoints, fail-fast configuration validation,
 RFC 9457 problem details + correlation ID, structured logging, OpenTelemetry to the local collector,

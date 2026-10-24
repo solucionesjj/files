@@ -139,14 +139,14 @@ Local endpoints: API `http://localhost:8080`, Portal `http://localhost:4200`, Lo
 | IaC skeleton | Done: single EC2 + S3, `terraform validate` (review on change) |
 | Local stack, CI, scripts | Done |
 | Deployment assets | Done: Compose, Caddy, backup/restore/smoke |
-| Application code | **S1/M0 done** — solution, Angular workspace, health/config, OTel, Dockerfiles, compose; S2+ pending |
+| Application code | **S2/M1 done** — EF Core mapping, domain entities, repositories, audit/outbox writers, DB tests; S3+ pending |
 | Terraform applied to AWS | Not started |
 
 ## 7. Next steps (in order)
 
 1. ✅ **S1 / M0 (done):** .NET solution + Angular workspace, health endpoints, config validation,
    OTel wiring, local compose, and the API/worker Dockerfiles are in place.
-2. **S2 / M1:** EF Core mapping + repositories + audit/outbox writers; user/integration persistence.
+2. ✅ **S2 / M1 (done):** EF Core mapping + repositories + audit/outbox writers; user/integration persistence.
 3. **S3 / M1:** Entra JWT validation, JIT provisioning, role policies, integration admin (Entra app binding; no API keys).
 4. **S4–S5 / M2:** `IObjectStore`, `IChunkStore` staging, chunk endpoints, server-side S3 commit,
    completion verification, disk reserve, cleanup; integration tests with LocalStack S3.

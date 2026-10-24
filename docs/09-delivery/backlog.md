@@ -59,10 +59,10 @@ IDs match [requirements.md](../01-product/requirements.md).
 | T-01 | Bootstrap .NET solution + Angular workspace | M | M0 | `scripts/bootstrap-solution.sh`, Directory.Build.props, global.json. **Done (S1).** |
 | T-02 | Local stack (PostgreSQL 18, LocalStack S3, Mailpit, OTel) | S | M0 | `docker-compose.yml`, healthchecks, Flyway profile. **Done (S1):** now also starts API, worker, and web. |
 | T-03 | CI pipeline | M | M0 | Build, tests, contract lint, migrations, terraform fmt/validate. **Done (S1):** builds/tests the .NET solution and the Angular workspace. |
-| T-04 | EF Core persistence + repositories + outbox | L | M1 | DbContext, mapping, audit/outbox writers, DB tests. |
+| T-04 | EF Core persistence + repositories + outbox | L | M1 | DbContext, mapping, audit/outbox writers, DB tests. **Done (S2).** |
 | T-05 | Authentication handlers and policies | L | M1 | Entra user/integration tokens, tenant check; no API keys. |
 | T-06 | Storage adapter, local staging and S3 commit | L | M2 | Chunk store (pwrite), multipart/put, HeadObject, ranges, delete, copy, disk reserve. |
-| T-07 | Audit and download event writers | M | M1 | Transactional, append-only, no secrets. |
+| T-07 | Audit and download event writers | M | M1 | Transactional, append-only, no secrets. **Doing:** file-audit + outbox writers done (S2); download events deferred to S8. |
 | T-08 | OpenAPI contract tests and DTO generation | S | M1 | Redocly lint, schema validation, TS types. |
 | T-09 | Rate limiting + abuse counters | M | M4 | ASP.NET limiter + Postgres tables. |
 | T-10 | Email sender (M365 SMTP AUTH; Graph fallback) + template renderer | M | M6 | Mailpit/SMTP tests, retries, statuses. |

@@ -53,7 +53,7 @@ S5 and S9. S11 depends on S10.
 | Milestone | Design | Implementation | Notes |
 |---|---|---|---|
 | M0 | ✅ | ✅ | S1 done: .NET 10 solution, Angular workspace, health/config endpoints, OTel, Dockerfiles, local compose. |
-| M1 | ✅ | ⬜ | Schema validated on PostgreSQL 18. |
+| M1 | ✅ | 🟡 | S2 done: EF mapping, repositories, audit/outbox writers, DB tests. S3 Entra auth pending. |
 | M2 | ✅ | ⬜ | Upload/download design finalized. |
 | M3 | ✅ | ⬜ | Frontend design finalized. |
 | M4 | ✅ | ⬜ | Link/key/grant design finalized. |
@@ -92,9 +92,9 @@ Legend: ✅ complete · 🟡 in progress · ⬜ not started.
 | Key brute force incident | Security | Throttling + monitoring designed; rehearse runbook. |
 | Backup erasure expectations | Legal | ADR-0008 wording; legal sign-off. |
 
-## 6. Next session (S2) checklist
+## 6. Next session (S3) checklist
 
 1. Read `AGENTS.md`, this roadmap, and the [session log](session-log.md).
-2. Add EF Core mapping (`FilesDbContext`, snake_case, no EF migrations) + repositories + audit/outbox writers.
-3. Add the Flyway runner seam and DB tests against the local PostgreSQL 18 (see S2/M1 in `AGENTS.md` §7).
+2. Entra JWT validation (both audiences), JIT user provisioning, and role policies; no API keys.
+3. Token-backed `ICurrentActor`, `/v1/me`, and integration admin CRUD (Entra app binding).
 4. Keep `make validate` green and update the progress table + session log.
