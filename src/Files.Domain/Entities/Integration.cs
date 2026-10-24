@@ -23,6 +23,9 @@ public sealed class Integration : IVersionedEntity
 
     public IPNetwork[] AllowedIpCidrs { get; set; } = [];
 
+    /// <summary>Granted capabilities, read from <c>integration_permissions</c> (never from tokens).</summary>
+    public ICollection<IntegrationPermissionEntry> Permissions { get; set; } = [];
+
     public DateTimeOffset? DisabledAt { get; set; }
 
     public Guid? DisabledBy { get; set; }
