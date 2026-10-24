@@ -33,5 +33,10 @@ public sealed class IntegrationConfiguration : IEntityTypeConfiguration<Integrat
 
         builder.HasIndex(x => x.Slug).IsUnique();
         builder.HasIndex(x => x.EntraClientId).IsUnique();
+
+        builder.HasMany(x => x.Permissions)
+            .WithOne()
+            .HasForeignKey(x => x.IntegrationId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }
