@@ -12,7 +12,7 @@ storage into Files, without breaking customer records or business authorization.
    product stops storing file contents.
 3. Never delete source bytes until the mapping is reconciled and the dual-run window passes.
 4. Backfill is idempotent and resumable; re-running a batch must not duplicate files.
-5. Integration credentials stay in the existing product backend, never in a browser.
+5. The Entra client secret/certificate stays in the existing product backend, never in a browser; Files stores no machine secret.
 
 ## 2. Ownership decision (required before backfill)
 

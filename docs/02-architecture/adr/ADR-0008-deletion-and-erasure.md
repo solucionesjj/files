@@ -1,6 +1,6 @@
 # ADR-0008 — Deletion and erasure semantics
 
-- **Status:** Accepted
+- **Status:** Accepted (legal hold included per OQ-08)
 - **Date:** 2026-10-23
 - **Deciders:** Architecture, Security, Legal
 
@@ -23,6 +23,8 @@ row remains as a tombstone with `storage_key` retained for audit but never expos
 
 - The worker calls S3 `DeleteObject`; `NoSuchKey`/404 is treated as success (idempotent).
 - On success: `deleted_at = now()`, `storage_key` retained, `deletion_error = null`.
+- A file with `legal_hold = true` MUST NOT be expired or deleted. Releasing the hold requires an
+  admin reason; the file then follows normal expiry/deletion. Every hold/release is audited.
 - On retryable failure (5xx, timeout, throttling): increment `deletion_attempts`, set
   `next_deletion_at` with exponential backoff (1 min → 1 h, jitter), keep `pending_deletion`,
   emit `files_deletion_failures_total`, alert after 15 min.
@@ -49,7 +51,7 @@ row remains as a tombstone with `storage_key` retained for audit but never expos
 **Audit**
 
 - `file_audit_events` records the deletion request (actor, reason), each attempt/result, and the
-  final state. Tombstones are purged after 24 months (configurable) — after that, only audit
+  final state. Tombstones are purged after 60 months (configurable) — after that, only audit
   aggregates remain (if required) or nothing.
 
 ## Consequences

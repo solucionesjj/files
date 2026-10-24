@@ -13,7 +13,7 @@ IDs match [requirements.md](../01-product/requirements.md).
 | E3 Integrations | Machine identity, uploads, retrieval, deletion, quotas | M1/M5 |
 | E4 Links and downloads | Public/private links, keys, grants, abuse controls, stats | M4 |
 | E5 Lifecycle | Notifications, expiration, deletion, reconciliation | M6 |
-| E6 Administration and audit | Policies, integrations, credentials, audit, usage | M1/M6 |
+| E6 Administration and audit | Policies, integrations, Entra app binding, legal hold, audit, usage | M1/M6 |
 | E7 Operations | IaC, CI/CD, observability, DR, cost | M0/M7 |
 
 ## Stories
@@ -31,7 +31,7 @@ IDs match [requirements.md](../01-product/requirements.md).
 | US-009 | Accessible, responsive portal | E2 | M | M3 | FR-GEN-003/004, NFR-016 | US-004 | Todo |
 | US-010 | Register and manage an integration | E3 | M | M1 | FR-M2M-001/008/009/010 | US-002 | Todo |
 | US-011 | Entra client credentials + metadata | E3 | M | M5 | FR-M2M-002/003/007/008, FR-INT-003/005/006 | US-010, T-04 | Todo |
-| US-012 | Issue, rotate, revoke API keys | E3 | M | M1/M5 | FR-M2M-004/005/006/013 | US-010 | Todo |
+| US-012 | Bind an integration to its Entra application | E3 | M | M1/M5 | FR-M2M-004/005/006/013 | US-010 | Todo |
 | US-013 | Rate limits and quotas | E3 | M | M5 | FR-M2M-014, FR-INT-010 | US-010 | Todo |
 | US-014 | Delete an integration-owned file | E3 | S | M5 | FR-INT-002, FR-DEL-007/009 | US-011 | Todo |
 | US-015 | Upload via integration API | E3 | L | M2/M5 | FR-UP-002..017, FR-INT-004/007 | US-003, US-011 | Todo |
@@ -60,7 +60,7 @@ IDs match [requirements.md](../01-product/requirements.md).
 | T-02 | Local stack (PostgreSQL 18, LocalStack S3, Mailpit, OTel) | S | M0 | `docker-compose.yml`, healthchecks, Flyway profile. |
 | T-03 | CI pipeline | M | M0 | Build, tests, contract lint, migrations, terraform fmt/validate. |
 | T-04 | EF Core persistence + repositories + outbox | L | M1 | DbContext, mapping, audit/outbox writers, DB tests. |
-| T-05 | Authentication handlers and policies | L | M1 | Entra user/integration, API key, tenant check. |
+| T-05 | Authentication handlers and policies | L | M1 | Entra user/integration tokens, tenant check; no API keys. |
 | T-06 | Storage adapter, local staging and S3 commit | L | M2 | Chunk store (pwrite), multipart/put, HeadObject, ranges, delete, copy, disk reserve. |
 | T-07 | Audit and download event writers | M | M1 | Transactional, append-only, no secrets. |
 | T-08 | OpenAPI contract tests and DTO generation | S | M1 | Redocly lint, schema validation, TS types. |
@@ -77,6 +77,8 @@ IDs match [requirements.md](../01-product/requirements.md).
 | T-20 | Staging disk monitoring/cleanup and 507 path | M | M2 | Reserve check, pwrite failures, stale session cleanup, alerts. |
 | T-21 | PostgreSQL backup/restore script and drill | M | M7 | `pg_dump` to S3, `_latest` marker, restore test, retention. |
 | T-22 | ClamAV scan/commit job + clamd container | M | M6 | Scan before S3, quarantine, timeouts/retries, EICAR test, signature refresh. |
+| T-23 | Legal hold admin API/UI + job guards | M | M6 | Set/release with reason, review date, expiry/deletion skip, audit, tests. |
+| T-24 | Private-link ACL + Graph directory search | M | M4 | ACL table, directory endpoint, group membership/cache, ACL enforcement tests. |
 | T-19 | Existing-file backfill tooling + reconciliation | L | M7 | Mapping table, exporter, checksum verification, dual-run/cutover; see [migration plan](../06-workflows/existing-product-migration.md). |
 
 ## Suggested first vertical slice (S1–S5)

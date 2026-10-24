@@ -13,8 +13,6 @@ which condition failed. Specific reasons are recorded only in audit events and m
 | `invalid_token` | 401 | Missing, malformed, expired, wrong audience/issuer, or wrong tenant. | No | Acquire a new token. |
 | `token_expired` | 401 | Token `exp` passed. | No | Renew silently, retry once. |
 | `tenant_not_allowed` | 401 | Token `tid` differs from the configured tenant. | No | Use the correct account. |
-| `api_key_invalid` | 401 | Unknown key ID or verifier mismatch. | No | Check configuration; rotate. |
-| `api_key_expired` | 401 | Key past `expires_at` or revoked. | No | Use the rotated key. |
 | `integration_disabled` | 401 | Integration status is `disabled`. | No | Contact the administrator. |
 | `ip_not_allowed` | 403 | Source IP outside the integration allowlist. | No | Use the approved network. |
 | `forbidden` | 403 | Authenticated but lacking the role/permission. | No | Request access. |
@@ -36,7 +34,9 @@ which condition failed. Specific reasons are recorded only in audit events and m
 | `unsupported_content_type` | 422 | Content type outside the allowlist. | No | Use an allowed type. |
 | `invalid_filename` | 422 | Empty, too long, or contains forbidden characters. | No | Sanitize the name. |
 | `stale_version` | 412 | `If-Match` does not match the current version. | No | Re-read and retry. |
-| `retention_exceeds_maximum` | 422 | Requested retention > policy maximum. | No | Choose a shorter retention. |
+| `retention_exceeds_maximum` | 422 | Requested retention > 365 days (absolute maximum). | No | Choose ≤365 days. |
+| `retention_reason_required` | 422 | Extending beyond the current default without a note. | No | Provide a reason (≥10 chars). |
+| `legal_hold_active` | 409 | Expiry/deletion blocked by a legal hold. | No | Release the hold first (admin, reason). |
 | `retention_not_allowed` | 422 | Mode (indefinite) not permitted for this owner. | No | Choose finite retention. |
 | `insufficient_storage` | 507 | Deployment storage quota exhausted. | Yes (admin) | Free space / raise quota. |
 | `upload_session_not_found` | 404 | Unknown session or not owned by caller. | No | Create a new session. |
@@ -61,6 +61,8 @@ which condition failed. Specific reasons are recorded only in audit events and m
 |---|---|---|---|---|
 | `link_not_found` | 404 | Invalid token, revoked, expired, file unavailable, wrong key, or limit reached. | No | Check link/key; request a new link. |
 | `link_key_required` | 400 | Public link redeemed without `key`. | No | Supply the key. |
+| `link_acl_required` | 422 | Private link created without an ACL or all-tenant flag. | No | Select users/groups or allow all tenant. |
+| `link_acl_invalid` | 422 | ACL principal is not a valid tenant user/group. | No | Re-select the principal. |
 | `grant_not_found` | 404 | Unknown, expired, consumed, or invalidated grant. | No | Request a new grant. |
 | `grant_expired` | 410 | Grant TTL passed. | No | Request a new grant. |
 | `grant_consumed` | 409 | Grant already used. | No | Request a new grant. |
@@ -84,12 +86,11 @@ which condition failed. Specific reasons are recorded only in audit events and m
 | `idempotency_in_progress` | 409 | Original request still running. | Yes | Retry after `Retry-After`. |
 | `integration_slug_taken` | 409 | Slug already exists. | No | Choose another. |
 | `integration_not_found` | 404 | Unknown integration. | No | Check the ID. |
-| `credential_not_found` | 404 | Unknown credential. | No | List credentials. |
-| `credential_already_revoked` | 409 | Revocation repeated. | No | — |
 | `policy_not_found` | 404 | Unknown policy version. | No | Read current policy. |
 | `reason_required` | 422 | Admin action requires a reason (≥10 chars). | No | Supply a reason. |
 | `dependency_unavailable` | 502/503 | S3/SMTP/DB unavailable. | Yes | Retry with backoff. |
 | `service_unavailable` | 503 | Maintenance/circuit open. | Yes | Honor `Retry-After`. |
+| `directory_unavailable` | 503 | Graph directory lookup failed. | Yes | Retry later; existing user ACLs still work. |
 | `internal_error` | 500 | Unexpected error. | Maybe | Contact support with `traceId`. |
 
 ## Implementation notes

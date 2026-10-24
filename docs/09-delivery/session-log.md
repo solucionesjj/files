@@ -6,7 +6,42 @@ entry.
 
 ---
 
-## 2026-10-23 — Domain, network, email, and malware answers (current)
+## 2026-10-23 — Product answers: retention, links, access, audit, UI (current)
+
+**Answers applied**
+
+- Retention: **30 days default**, admin-configurable for new files; **365-day absolute maximum**;
+  user may extend up to 365 with a **mandatory note**; no admin exceptions; indefinite only for
+  integrations.
+- Legal hold: **in v1**, reason required, blocks expiry/deletion, audited.
+- Links: **public 15 d / private 30 d** server-defined TTLs (admin-configurable); owner cannot
+  change. Private links use an ACL of Entra users/groups or `allow_all_tenant`.
+- Access: admins **never** read content; one tenant per deployment; no folders, no preview, no
+  download notifications.
+- Machines: **Entra client credentials only**; API keys removed from schema/API/config/tests.
+- Audit: **60 months** audit, **24 months** downloads; audit retention job updated.
+- UI: **Spanish + English**, Spanish default; emails per recipient locale.
+- DR: restore-based (RPO 24 h/RTO 4 h); single-node exit triggers: CPU/disk >80%, HA, RPO <24 h.
+- Mailbox: `notificationsagent@ecs-la.com` via SMTP AUTH; password/app password pending in `.env`.
+
+**Implementation changes**
+
+- Migration `V1`: removed `integration_credentials`; added `download_link_acl`, link
+  `allow_all_tenant`, file legal-hold metadata/retention note, 365-day checks, and ACL constraint.
+- `V2`: retention policy 30/365; public/private link TTL settings 15/30.
+- OpenAPI: removed credential paths/schemas; added directory search and legal-hold endpoints;
+  link ACL/TTL fields; retention note; 47 paths / 59 operations.
+- Requirements/stories/RBAC/ADRs/data model/security/testing/operations updated, including
+  FR-LINK-016/017, FR-DEL-010, FR-GEN-007 and FR-M2M-004 rewrite.
+- Email config uses `notificationsagent@ecs-la.com`; SMTP AUTH is the send path.
+
+**Next**
+
+- Implement S1–S5, then links/ACL and legal hold. Validate the new schema/contract as part of CI.
+
+---
+
+## 2026-10-23 — Domain, network, email, and malware answers (superseded by product answers)
 
 **Answers received**
 

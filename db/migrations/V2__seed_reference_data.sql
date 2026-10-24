@@ -6,8 +6,8 @@ INSERT INTO retention_policies (
     id, default_days, max_days, allow_user_override, allow_indefinite,
     public_links_enabled, notes
 ) VALUES (
-    uuidv7(), 365, 3650, true, false, true,
-    'Seeded baseline policy. Review with Legal (OQ-07).'
+    uuidv7(), 30, 365, true, false, true,
+    'Seeded baseline policy. 30 days default, 365-day absolute maximum (OQ-07).'
 );
 
 -- Active notification policy
@@ -78,4 +78,6 @@ INSERT INTO platform_settings (key, value, description) VALUES
     ('max_upload_sessions_per_integration', '5', 'Concurrent open upload sessions per integration.'),
     ('max_proxy_upload_bytes', '104857600', 'Maximum size for API-staged uploads (100 MiB).'),
     ('global_storage_quota_bytes', '536870912000', 'Soft storage quota for the deployment (500 GiB).'),
-    ('notifications_enabled', 'true', 'Master switch for expiration notifications.');
+    ('notifications_enabled', 'true', 'Master switch for expiration notifications.'),
+    ('public_link_ttl_days', '15', 'Lifetime of newly created public links (admin-defined).'),
+    ('private_link_ttl_days', '30', 'Lifetime of newly created private links (admin-defined).');

@@ -81,6 +81,13 @@ FROM files WHERE status = 'pending_deletion' ORDER BY next_deletion_at LIMIT 50;
    note with two-person approval.
 4. Verify the object is gone and the row is `deleted` with an audit event.
 
+## Legal hold
+
+1. A file blocked by `legal_hold_active` must not be deleted or expired; confirm the hold reason
+   and `legal_hold_review_at` in the admin UI/audit.
+2. Release only with the required reason and approval; releasing queues deletion/expiry again.
+3. Never bypass by deleting the row or object directly; that breaks audit and legal preservation.
+
 ## Outbox lag
 
 ```sql
@@ -105,6 +112,14 @@ SELECT * FROM outbox_messages WHERE state='dead' ORDER BY created_at DESC LIMIT 
 4. Reset permanent `failed` events with attempts<5 to `scheduled` after fixing the cause.
 5. Expiration/deletion continue regardless. SMTP acceptance is not inbox delivery (no automatic
    delayed-bounce handling in v1).
+
+## Directory (Graph) failures
+
+1. Symptoms: private-link directory search returns `503 directory_unavailable`; new ACL edits fail.
+2. Check Graph app permissions/consent (`User.ReadBasic.All`, `Group.ReadBasic.All`,
+   `GroupMember.Read.All`), client secret expiry, and outbound 443.
+3. Existing user-ID ACLs still work; group checks fail closed. Do not widen access to compensate.
+4. Restore Graph access, clear the directory cache if needed, and verify with a user/group search.
 
 ## Download abuse
 
@@ -166,8 +181,10 @@ aws s3 ls "s3://$S3__Bucket/backups/postgres/" | tail
 ## Credential issues
 
 - Entra 401s: audience/tenant/issuer, app registration, secret/cert expiry, clock skew.
-- API key 401s: key revoked/expired, wrong `kid`, integration disabled; issue a replacement.
-- Leaked key: revoke immediately, issue new, review audit/download events, notify security.
+- Integration 401s: unregistered/disabled app, wrong `azp`, expired token; verify the Entra app and integration status.
+- Leaked Entra secret/certificate: disable the integration, revoke the app secret in Entra,
+  review audit/download events, then re-enable. For a leaked link key, revoke the link and create
+  a new one.
 - Verify: `/v1/me` (user) or a metadata call (integration) succeeds.
 
 ## Reconciliation
@@ -188,10 +205,10 @@ aws s3 ls "s3://$S3__Bucket/backups/postgres/" | tail
 ## Pepper rotation
 
 1. Generate a new 32-byte pepper; keep both versions in `.env`
-   (`Auth__ApiKeyPepperVersion`/`Auth__LinkKeyPepperVersion` and versioned values).
-2. New credentials/links use the new version; old hashes verify with their stored
-   `hash_key_version`/`download_key_version`.
-3. API keys: re-issue, migrate, revoke old ones.
+   (`Auth__LinkKeyPepperVersion` and versioned values; API keys are not used).
+2. New links use the new version; old hashes verify with their stored
+   `download_key_version`.
+3. Machine consumers: rotate the Entra client secret/certificate in Entra; no Files change.
 4. Link keys cannot be rehashed; old links keep the old pepper until revoked/expired. Do not
    remove an old pepper while old links exist.
 5. Restart the API and verify authentication.
@@ -202,7 +219,7 @@ aws s3 ls "s3://$S3__Bucket/backups/postgres/" | tail
 |---|---|---|
 | Disable public links | `platform_settings.public_links_enabled=false` | Yes |
 | Disable an integration | PATCH status=disabled with reason | Yes |
-| Revoke credentials | Admin API revoke | No (re-issue) |
+| Disable integration | Admin API | No (re-enable after rotation) |
 | Stop uploads | Scale API to 0 or block chunk routes at Caddy | Yes (service impact) |
 | Pause deletion | Stop worker (queue grows) | Yes |
 | Pause notifications | `notifications_enabled=false` | Yes |

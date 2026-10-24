@@ -9,18 +9,18 @@ targets for the implementation; when a suite is created, link its path.
 | Requirement range | Stories | Test suites (planned) | Test layer |
 |---|---|---|---|
 | FR-ID-001..011 | US-001, US-002, US-021 | `AuthMatrixTests`, `EntraTokenValidationTests`, `JitProvisioningTests`, `TenantIsolationTests` | Integration, security |
-| FR-M2M-001..014 | US-010..US-016 | `IntegrationAuthTests`, `ApiKeyLifecycleTests`, `IntegrationPermissionsTests`, `IdorTests`, `IpAllowlistTests` | Integration, security |
+| FR-M2M-001..014 | US-010..US-016 | `IntegrationAuthTests`, `IntegrationRegistrationTests`, `IntegrationPermissionsTests`, `IdorTests`, `IpAllowlistTests` | Integration, security |
 | FR-UP-001..018 | US-003, US-015, US-028 | `UploadSessionTests`, `ChunkUploadTests`, `StagingCapacityTests`, `ClamAvScanCommitTests`, `UploadVerificationTests`, `UploadCleanupJobTests`, `S3PolicyTests` | Integration, load |
 | FR-FILE-001..005 | US-003, US-004, US-005, US-016 | `FileMetadataTests`, `FileUpdateTests`, `AuditWriteTests`, `SearchScopeTests` | Unit, integration |
 | FR-SRCH-001..006 | US-007, US-008 | `TagTests`, `SearchTests`, `FilterSortTests`, `CursorPaginationTests` | Integration |
-| FR-LINK-001..015 | US-020..US-024 | `LinkCreationTests`, `LinkRevocationTests`, `KeyVerificationTests`, `KeyThrottleTests`, `GrantConcurrencyTests`, `LinkStatsTests` | Unit, integration, security |
+| FR-LINK-001..017 | US-020..US-024 | `LinkCreationTests`, `LinkTtlTests`, `PrivateLinkAclTests`, `LinkRevocationTests`, `KeyVerificationTests`, `KeyThrottleTests`, `GrantConcurrencyTests`, `LinkStatsTests` | Unit, integration, security |
 | FR-RET-001..008 | US-005, US-016, US-030 | `RetentionPolicyTests`, `RetentionOverrideTests`, `BulkMigrationTests`, `ExpirationPredicateTests` | Unit, integration |
 | FR-NOT-001..010 | US-025 | `NotificationSchedulerTests`, `NotificationTemplateTests`, `EmailSenderTests`, `NotificationRetryTests`, `DeliveryStatusTests` | Integration |
-| FR-DEL-001..009 | US-026, US-027, US-028 | `ExpirationJobTests`, `DeletionJobTests`, `DeletionRetryTests`, `ReconciliationTests`, `TombstoneTests` | Integration, chaos |
+| FR-DEL-001..010 | US-026, US-027, US-028, US-030 | `ExpirationJobTests`, `LegalHoldTests`, `DeletionJobTests`, `DeletionRetryTests`, `ReconciliationTests`, `TombstoneTests` | Integration, chaos |
 | FR-INT-001..011 | US-011, US-015, US-017, US-018, US-019 | `OpenApiContractTests`, `IdempotencyTests`, `IntegrationContentTests`, `EnterpriseFlowE2ETests` | Contract, integration, E2E |
-| FR-ADM-001..008 | US-010, US-012, US-029, US-030 | `AdminAuthorizationTests`, `CredentialLifecycleTests`, `PolicyAdminTests`, `AdminAuditTests` | Integration, security |
+| FR-ADM-001..008 | US-010, US-012, US-029, US-030 | `AdminAuthorizationTests`, `IntegrationRegistrationTests`, `LegalHoldAdminTests`, `PolicyAdminTests`, `AdminAuditTests` | Integration, security |
 | FR-AUD-001..003 | US-029 | `AuditAppendOnlyTests`, `DownloadEventTests`, `AuditRetentionTests` | Integration |
-| FR-GEN-001..006 | US-021, US-031 | `HealthEndpointTests`, `ProblemDetailsTests`, `CorrelationIdTests`, `ErrorLeakageTests` | Unit, integration, contract |
+| FR-GEN-001..007 | US-021, US-031, US-009 | `HealthEndpointTests`, `ProblemDetailsTests`, `CorrelationIdTests`, `ErrorLeakageTests`, `I18nTests` | Unit, integration, contract |
 
 ## Non-functional requirements
 
@@ -35,7 +35,7 @@ targets for the implementation; when a suite is created, link its path.
 | NFR-007 recovery | quarterly restore drill; RPO 24 h/RTO 4 h recorded in runbooks |
 | NFR-008 durability | nightly `pg_dump` marker test; S3 durability; optional EBS snapshot verification |
 | NFR-009 security | threat-model checklist; ZAP; tfsec; secret scanning; pen test |
-| NFR-010 audit | audit within 60 s; `AuditWriteTests`; dashboard |
+| NFR-010 audit | audit within 60 s; `AuditWriteTests`; 60-month audit/24-month download retention; dashboard |
 | NFR-011 observability | OTel traces/metrics; dashboards; alert tests |
 | NFR-012 testability | CI thresholds; coverage gates |
 | NFR-013 reproducibility | `docker compose up`; Terraform EC2/S3 apply; Compose deploy with Git SHA |

@@ -1,6 +1,6 @@
 # ADR-0009 — Email delivery via the Microsoft 365 mailbox over SMTP AUTH
 
-- **Status:** Accepted (OQ-01 resolved; credentials pending)
+- **Status:** Accepted (OQ-01 resolved; mailbox `notificationsagent@ecs-la.com`; password pending in `.env`)
 - **Date:** 2026-10-23
 - **Deciders:** Architecture, IT
 

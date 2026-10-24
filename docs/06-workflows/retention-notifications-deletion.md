@@ -8,12 +8,15 @@ The active `retention_policies` row drives new files:
 
 | Field | Meaning | Default |
 |---|---|---|
-| `default_days` | Applied to new human files. | 365 |
-| `max_days` | Upper bound for user/admin finite retention. | 3650 |
+| `default_days` | Applied to new human files. | 30 |
+| `max_days` | Absolute upper bound for finite retention. | 365 |
 | `allow_user_override` | Can owners change retention? | true |
 | `allow_indefinite` | Can human files have indefinite retention? | false |
 | `public_links_enabled` | Global public-link switch. | true |
 | `effective_from` | When this version became active. | now() |
+
+A user may extend retention above the current default up to 365 days only with a mandatory note
+stored on the file and audit event. There are no administrative exceptions above 365 days.
 
 Policies are immutable versions: publishing a new one deactivates the previous row (partial
 unique index enforces one active). Files snapshot `retention_policy_id` and `retention_days` when
@@ -31,7 +34,7 @@ Active `notification_policies.intervals_days` (default `{7,3,1}`) are applied to
 ### Scheduling algorithm (hourly)
 
 For each interval `i` in the active policy and each file that is `available`, human-owned, finite,
-not legal-hold, with an email:
+not legal-hold, with an email (held files have notifications suspended):
 
 ```
 due_at = expires_at - (i * interval '1 day')
@@ -114,7 +117,8 @@ SELECT id FROM files
 
 For each file (one transaction per batch):
 
-1. `UPDATE files SET status='pending_deletion', expires_at` unchanged, `next_deletion_at=now()`,
+1. `UPDATE files SET status='pending_deletion', expires_at` unchanged, `next_deletion_at=now()`
+   (only rows with `legal_hold=false`),
    `deletion_requested_by_type='system'`, `deletion_reason='retention_expired'`,
    `version=version+1` where `status='available'` and `expires_at <= now()`.
 2. Revoke active links (`status='revoked'`, `revoked_at=now()`, reason `file_expired`).
@@ -130,7 +134,7 @@ while `expired`/`pending_deletion`.
 
 Runs every 5 minutes, lock `files:delete`, batch 100.
 
-For each `pending_deletion` file with `next_deletion_at <= now()`:
+For each `pending_deletion` file with `next_deletion_at <= now()` and `legal_hold=false`:
 
 1. Call S3 `DeleteObject` (idempotent; `NoSuchKey`/404 = success).
 2. On success: `status='deleted'`, `deleted_at=now()`, `last_deletion_error=NULL`,
@@ -143,7 +147,7 @@ For each `pending_deletion` file with `next_deletion_at <= now()`:
 Backoff: `min(1h, 1m * 2^(attempts-1))` with ±20% jitter. After 10 attempts, alert severity high
 and keep retrying hourly until manual intervention.
 
-Tombstones (`status='deleted'`) retain metadata for 24 months (audit) and are then purged by the
+Tombstones (`status='deleted'`) retain metadata for 60 months (audit) and are then purged by the
 retention purge job; the storage key is nulled only at purge.
 
 ## 6. Upload cleanup and reconciliation
@@ -236,8 +240,8 @@ records duration/result metrics. Misfires run once on recovery (state is in the 
 - **Clock skew:** all comparisons use database `now()`; app clocks only drive the scheduler.
 - **DST:** schedules are UTC; user-facing dates are localized.
 - **Integration files:** no notifications, indefinite retention, deletion only by owner/admin.
-- **Legal hold (future):** `legal_hold=true` blocks expiry and deletion; the column exists but is
-  not exposed in v1.
+- **Legal hold:** `legal_hold=true` blocks expiry and deletion. Scheduled expiration emails are
+  superseded on hold and rebuilt on release; every hold/release is audited.
 - **Backups:** deletion removes the object from the primary bucket; nightly logical database
   backups in `backups/postgres/` may retain metadata copies for up to 35 days (ADR-0008). S3
   objects themselves are not replicated, so file erasure is immediate (subject to EBS snapshots,

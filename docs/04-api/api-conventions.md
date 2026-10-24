@@ -18,12 +18,11 @@
 | Caller | Scheme | Header | Token |
 |---|---|---|---|
 | Portal user | Entra delegated JWT | `Authorization: Bearer <jwt>` | Audience `api://<api-client-id>`, scope `Files.Access`, `tid` = configured tenant. |
-| Integration (preferred) | Entra client credentials | `Authorization: Bearer <jwt>` | App token whose `azp`/`appid` matches the integration and `roles` include the required permission. |
-| Integration (fallback) | API key | `Authorization: Bearer flk_<kid>_<secret>` | Scoped to one integration; 256-bit secret. |
+| Integration | Entra client credentials | `Authorization: Bearer <jwt>` | App token whose `azp`/`appid` matches the integration and `roles` include `Files.Integration`; permissions come from Files. |
 | Public link visitor | — | — | Link token in path + download key in body. |
 | Grant redemption | — | — | 256-bit grant token in path (capability, 120 s, single use). |
 
-- No cookies, no query-string credentials. Credentials in URLs are rejected.
+- No cookies and no query-string credentials. API keys are not issued; credentials in URLs are rejected.
 - `GET /v1/me` returns the caller identity, roles, and effective permissions.
 - 401 means unauthenticated/invalid credential; 403 means authenticated but not permitted.
   Resource existence is hidden with 404 where revealing it would help an attacker.
@@ -95,6 +94,8 @@ never receive a bucket credential, presigned URL, or S3 endpoint.
    content type, optional whole-file SHA-256, and (portal only) retention/tags.
 2. Response: `fileId`, `uploadSessionId`, `chunkSizeBytes`, `chunkCount`, `expiresAt`,
    `receivedBytes` (0). The server creates a staging file on the EC2 volume; no S3 call yet.
+   If `retention.days` exceeds the current default, the request MUST include
+   `retention.reason` (mandatory note) and may not exceed 365 days.
 3. Upload chunks with
    `PUT /portal/upload-sessions/{id}/chunks/{chunkNumber}` (or `/integrations/...`), body =
    `application/octet-stream`, `Content-Length` ≤ `chunkSizeBytes`, optional
@@ -131,6 +132,7 @@ Notes:
 2. Response `201`: `{ "grantToken": "...", "expiresAt": "...", "downloadUrl": "/v1/download-grants/..." }`.
 3. `GET /v1/download-grants/{grantToken}` streams the file (no auth header; browser navigation).
 4. The grant is single-use and expires in 120 s. A second use returns `404 grant_not_found`.
+   Private links enforce their ACL (specific users/groups or all-tenant) at issuance.
 5. The successful download count increments only when the stream completes.
 6. The public endpoint rejects private links and the authenticated endpoint rejects public links,
    both with the generic `404 link_not_found` (no link-type oracle).
@@ -146,6 +148,17 @@ Notes:
 - Reservations count against `maxDownloads` while pending and are released on failure/expiry.
 - Range requests on the integration content endpoint count once per completed response.
 - Grant downloads are one stream per grant, so one count per grant.
+
+### 8.4 Link lifetime and private ACL
+
+- New public links expire after the admin-configured public TTL (default 15 days); new private
+  links after the private TTL (default 30 days). The client cannot set or change `expiresAt`.
+- Public links require the key and have no ACL.
+- Private links either set `allowAllTenant=true` or provide `allowedPrincipals` (Entra users/
+  groups). The API enforces the ACL on redemption; users can search principals via
+  `/v1/portal/directory/principals`.
+- Directory search and group membership use a read-only Graph application permission; if Graph is
+  unavailable, new ACL edits fail closed while existing user-ID ACLs continue to work.
 
 ## 9. Rate limits
 
@@ -167,7 +180,7 @@ too_many_attempts` once locked (documented compromise: the lockout itself is not
 | Code | Used for |
 |---|---|
 | 200 | Read/update/complete success, stream. |
-| 201 | Upload session, link, grant, integration, credential created. |
+| 201 | Upload session, link, grant, or integration created (no credential issuance). |
 | 202 | Asynchronous admin action (retention migration, deletion request). |
 | 204 | Abort/revoke/delete with no body. |
 | 206 | Partial content (Range). |
@@ -214,11 +227,12 @@ too_many_attempts` once locked (documented compromise: the lockout itself is not
 | DELETE | `/v1/portal/files/{fileId}` | user | Delete file. |
 | POST | `/v1/portal/files/{fileId}/downloads` | user | Issue owner download grant. |
 | GET | `/v1/portal/files/{fileId}/links` | user | List links for a file. |
-| POST | `/v1/portal/files/{fileId}/links` | user | Create link (+key). |
+| POST | `/v1/portal/files/{fileId}/links` | user | Create link (+key for public; ACL/TTL server-defined). |
 | GET | `/v1/portal/links` | user | List my links. |
 | DELETE | `/v1/portal/links/{linkId}` | user | Revoke link. |
 | GET | `/v1/portal/links/{linkId}/stats` | user | Link statistics. |
 | GET | `/v1/portal/tags` | user | Tag suggestions. |
+| GET | `/v1/portal/directory/principals` | user | Search tenant users/groups for a private-link ACL. |
 | GET | `/v1/public/download-links/{token}` | public | Link landing metadata (private links expose only that auth is required). |
 | GET | `/v1/download-links/{token}` | user | Full metadata for a private link after sign-in. |
 | POST | `/v1/public/download-links/{token}/downloads` | public | Verify key, issue grant. |
@@ -239,11 +253,9 @@ too_many_attempts` once locked (documented compromise: the lockout itself is not
 | GET | `/v1/admin/integrations/{id}` | admin | Integration detail. |
 | PATCH | `/v1/admin/integrations/{id}` | admin | Update/disable. |
 | PUT | `/v1/admin/integrations/{id}/permissions` | admin | Replace permissions. |
-| GET | `/v1/admin/integrations/{id}/credentials` | admin | List credentials. |
-| POST | `/v1/admin/integrations/{id}/credentials` | admin | Issue credential/key. |
-| DELETE | `/v1/admin/credentials/{credentialId}` | admin | Revoke credential. |
 | GET | `/v1/admin/files` | admin | All file metadata. |
-| POST | `/v1/admin/files/{fileId}/retention` | admin | Override retention. |
+| POST | `/v1/admin/files/{fileId}/retention` | admin | Override retention (≤365; reason required). |
+| POST | `/v1/admin/files/{fileId}/legal-hold` | admin | Place/release legal hold. |
 | POST | `/v1/admin/files/{fileId}/deletion` | admin | Request deletion. |
 | GET | `/v1/admin/files/{fileId}/grants` | admin | List integration grants for a file. |
 | POST | `/v1/admin/files/{fileId}/grants` | admin | Grant integration read access. |

@@ -44,7 +44,7 @@ duplicated when a job runs twice.
 
 - Unique constraints: `download_links.token_hash`, `download_grants.token_hash`,
   `notification_events(file_id, interval_days, expiration_at)`,
-  `files.storage_key`, `integration_credentials.key_id`.
+  `files.storage_key`.
 - State checks (`status = 'available'`, `expires_at > now()`) before every side effect.
 - All timestamp comparisons use database `now()` in transactional SQL.
 

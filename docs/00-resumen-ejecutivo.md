@@ -25,7 +25,7 @@ Una plataforma centralizada para almacenar, administrar y distribuir archivos de
 | Requisitos funcionales y no funcionales con IDs, prioridades e invariantes | [requirements.md](01-product/requirements.md) |
 | 31 historias de usuario con criterios de aceptación (Gherkin) | [user-stories.md](01-product/user-stories.md) |
 | Roles, matriz de autorización y personas | [rbac-and-personas.md](01-product/rbac-and-personas.md) |
-| Decisiones (D-01…D-36) y preguntas abiertas (OQ-01…OQ-26) | [decisions.md](01-product/decisions.md) · [open-questions.md](01-product/open-questions.md) |
+| Decisiones (D-01…D-40) y preguntas abiertas (OQ-01…OQ-26) | [decisions.md](01-product/decisions.md) · [open-questions.md](01-product/open-questions.md) |
 | Arquitectura C4, flujos, despliegue, diseño backend/frontend | [architecture.md](02-architecture/architecture.md) · [backend-design.md](02-architecture/backend-design.md) · [frontend-design.md](02-architecture/frontend-design.md) |
 | 13 ADR (decisiones de arquitectura) | [adr/](02-architecture/adr/) |
 | Modelo de datos + migraciones ejecutables PostgreSQL 18 | [data-model.md](03-data/data-model.md) · [migrations/](../db/migrations/) |
@@ -59,7 +59,7 @@ de Terraform para AWS.
    integraciones requiere una concesión explícita de solo lectura. Los administradores gestionan
    metadatos y políticas, pero **no** acceden al contenido por defecto.
 8. **Identidad:** Entra ID (OIDC + PKCE) para personas; *client credentials* para máquinas; API
-   keys (`flk_...`) solo como compatibilidad, con rotación y hash HMAC.
+   sin API keys: solo Entra client credentials.
 9. **Procesos en segundo plano:** outbox transaccional + Quartz en memoria + *advisory locks* de
    PostgreSQL; jobs idempotentes para notificar, vencer, borrar y reconciliar.
 10. **Correo:** buzón Microsoft 365; POP solo para recibir, **SMTP AUTH 587** para enviar (Graph
@@ -77,30 +77,33 @@ de Terraform para AWS.
 - Migraciones `V1` y `V2` aplicadas sobre **PostgreSQL 18.6** real; 27 tablas; restricciones de
   propietario, retención, enlaces y notificaciones verificadas.
 - Reserva atómica de descargas probada (máximo 2 → la tercera falla).
-- Contrato OpenAPI válido y sin advertencias con Redocly (47 rutas, 60 operaciones).
+- Contrato OpenAPI válido y sin advertencias con Redocly (47 rutas, 59 operaciones).
 - Pila local levantada: PostgreSQL 18.6, LocalStack 3.8.1 (bucket privado, sin CORS porque el
   navegador no accede a S3), Mailpit, colector OTel; Flyway aplicó las migraciones.
 - Terraform `fmt`/`validate` correctos sobre EC2 + S3 (AWS provider 6.70.x); grafo sin ciclos.
 - Enlaces internos y consistencia de IDs de requisitos/historias verificados por script.
 
-## 5. Pendientes que requieren decisión
+## 5. Decisiones cerradas y datos operativos pendientes
 
-| Tema | Pregunta | Impacto |
+Las decisiones de producto (OQ-01…OQ-26) están cerradas. Para desplegar solo faltan datos operativos:
+
+| Tema | Estado | Qué falta |
 |---|---|---|
-| Correo | Dirección exacta del buzón, contraseña/app password y SMTP AUTH habilitado (OQ-01). | Bloquea notificaciones en producción (M6). |
-| Nube/región | Confirmar AWS/región y el uso de una sola EC2 + S3 (OQ-02). | Afecta IaC, latencia y costo. |
-| Retención | Validar 365 días por defecto / 3650 máximo / indefinido solo integraciones (OQ-07). | Política y legal. |
-| Dominio/TLS | `files.sacservices.cloud` en Network Solutions; A record a la IP elástica; Caddy/Let's Encrypt (OQ-15/OQ-26). | Necesario para el corte a producción. |
-| Escaneo de malware | ClamAV obligatorio, antes de subir a S3; instancia `t3.large` (OQ-09). | Seguridad, memoria y latencia (`processing`). |
-| Presupuesto | Costo base estimado **US$110–125/mes** en producción (t3.large, 100 GiB EBS, 500 GiB S3, 200 GiB egreso, ClamAV); ~US$26/mes un entorno dev sin escaneo (OQ-20). | Aprobación financiera. |
-| Alcance | Carpetas, vista previa y acceso de soporte al contenido quedan fuera de v1. | Evita desvíos. |
+| Correo | Buzón `notificationsagent@ecs-la.com`; POP solo recepción, SMTP AUTH 587 para envío. | Contraseña/app password en `/opt/files/.env` y confirmar SMTP AUTH en Microsoft 365. |
+| Nube/región | AWS `us-east-1`, VPC/subred por defecto, una EC2 + un bucket S3. | Nombre/cuenta del bucket y, si la EC2 ya existe, importarla. |
+| Dominio/TLS | `files.sacservices.cloud` en Network Solutions; Caddy/Let's Encrypt. | Crear el registro `A` hacia la IP elástica al desplegar. |
+| Retención | 30 días por defecto, 365 máximo, nota obligatoria para ampliar; legal hold en v1. | Nada; implementar. |
+| Enlaces | Públicos 15 días, privados 30 días (admin); ACL por usuarios/grupos o todo el tenant. | Nada; implementar. |
+| Escaneo | ClamAV antes de S3; `t3.large`. | Nada; el host debe ser x86_64. |
+| Presupuesto | ~US$110–125/mes producción; ~US$26/mes dev sin escaneo. | Aprobación financiera. |
+| Alcance | Sin carpetas, sin vista previa, sin acceso admin al contenido, sin API keys, UI español/inglés; **legal hold incluido**. | Nada; está en el alcance. |
 
 ## 6. Próximos pasos
 
 1. **S1 (M0):** ejecutar `scripts/bootstrap-solution.sh`, crear la solución .NET y el workspace
    Angular, endpoints de salud, validación de configuración, OpenTelemetry y CI.
 2. **S2–S3 (M1):** persistencia EF Core, auditoría/outbox, autenticación Entra, administración de
-   integraciones y API keys.
+   integraciones y vinculación de apps Entra (sin API keys).
 3. **S4–S5 (M2):** adaptador S3, almacenamiento temporal en EBS, endpoints de chunks, subida
    multipart desde la API, verificación, reserva de disco y limpieza.
 4. **S6–S8:** portal, enlaces y descargas públicas.

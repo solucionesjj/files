@@ -10,7 +10,7 @@ depending on whether the existence of the resource itself is sensitive (see
 | Role | Claim value | Granted to | Purpose |
 |---|---|---|---|
 | User | `Files.User` | All tenant employees (default assignment) | Manage and share own files. |
-| Administrator | `Files.Admin` | Platform administrators | Global policy, integrations, credentials, retention overrides, deletion. |
+| Administrator | `Files.Admin` | Platform administrators | Global policy, integrations (Entra app binding), legal hold, retention changes, deletion. |
 | Auditor | `Files.Auditor` | Security/compliance | Read-only audit events, download events, aggregate usage. No content. |
 
 Rules:
@@ -59,7 +59,8 @@ Legend: ✅ allowed · 🔸 allowed with conditions · ❌ denied.
 | Override retention / bulk migration | ❌ | ✅ (reason required) | ❌ |
 | Delete any file | ❌ | ✅ (reason required) | ❌ |
 | Manage integrations/permissions | ❌ | ✅ | ❌ |
-| Issue/revoke integration credentials | ❌ | ✅ | ❌ |
+| Bind/change an integration's Entra app ID | ❌ | ✅ | ❌ |
+| Place/release legal hold | ❌ | ✅ | ❌ |
 | Manage retention/notification policy | ❌ | ✅ | ❌ |
 | View audit events | ❌ (own file events only, limited) | ✅ | ✅ |
 | View aggregate usage/cost | ❌ | ✅ | ✅ |
@@ -100,7 +101,8 @@ No Entra token is involved. The visitor needs the link **and** the key; neither 
 6. A grant is issued, attributed to the user for audit; download completion is audited with the
    user ID.
 
-Tenant membership alone is never sufficient: the link must be active and the file available.
+Tenant membership alone is never sufficient: the link must be active, the file available, and
+(for a restricted private link) the user must be in the ACL or a member of an allowed group.
 
 ### Grant redemption
 
@@ -134,8 +136,9 @@ Search and listing apply the same predicate in SQL, never post-filtering in memo
 ## 6. Administrative boundaries
 
 - Admins manage integrations across the deployment but cannot read their file content.
-- Admin actions require a `reason` (≥10 chars) for: retention override, bulk migration, file
-  deletion, credential revocation, integration disable.
+- Admins define the public/private link TTLs; owners cannot override them.
+- Admin actions require a `reason` (≥10 chars) for: retention change, bulk migration, legal hold,
+  file deletion, and integration disable.
 - Admin actions are audited with actor, reason, before/after, and trace ID.
 - There is no "superuser" bypass of S3 encryption or database encryption.
 

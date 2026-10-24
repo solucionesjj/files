@@ -11,7 +11,6 @@ erDiagram
   USERS ||--o{ FILES : "owns (human)"
   INTEGRATIONS ||--o{ FILES : "owns (integration)"
   INTEGRATIONS ||--o{ INTEGRATION_PERMISSIONS : has
-  INTEGRATIONS ||--o{ INTEGRATION_CREDENTIALS : has
   INTEGRATIONS ||--o{ INTEGRATION_FILE_GRANTS : receives
   FILES ||--o{ INTEGRATION_FILE_GRANTS : "shared as"
   FILES ||--o{ FILE_TAGS : tagged
@@ -19,6 +18,7 @@ erDiagram
   FILES ||--o{ UPLOAD_SESSIONS : "uploaded via"
   UPLOAD_SESSIONS ||--o{ UPLOAD_CHUNKS : contains
   FILES ||--o{ DOWNLOAD_LINKS : exposes
+  DOWNLOAD_LINKS ||--o{ DOWNLOAD_LINK_ACL : authorizes
   DOWNLOAD_LINKS ||--o{ DOWNLOAD_GRANTS : authorizes
   FILES ||--o{ DOWNLOAD_GRANTS : "streams"
   DOWNLOAD_LINKS ||--o{ DOWNLOAD_KEY_ATTEMPTS : "failed attempts"
@@ -46,19 +46,18 @@ tables without aggregate relationships.
 | `users` | Entra human identities (`tenant_id`, `object_id`). | `UNIQUE (tenant_id, object_id)`; `status` active/disabled. |
 | `integrations` | Registered machine consumers. | `UNIQUE slug`, `UNIQUE entra_client_id`; status consistency with `disabled_at`; CIDR allowlist. |
 | `integration_permissions` | Explicit permissions per integration. | PK (`integration_id`, `permission`); values `file.write`, `file.read`, `file.delete`. |
-| `integration_credentials` | API keys and Entra client identities. | Shape check per credential type; `key_id` unique; only verifier stored; `hash_key_version` for pepper rotation; rotation link. |
 | `integration_file_grants` | Explicit read-only cross-integration access. | Partial unique active (`file_id`, `integration_id`); only integration-owned files may be granted. |
 
 ### Files and organization
 
 | Table | Purpose | Key constraints |
 |---|---|---|
-| `files` | File metadata, ownership, storage reference, lifecycle, retention, stats. | Owner XOR; retention mode/expiry consistency; deleted iff `deleted_at`; integration ⇒ `integration_only`; unique `storage_key`. |
+| `files` | File metadata, ownership, storage reference, lifecycle, retention, legal hold, stats. | Owner XOR; retention mode/expiry consistency; `retention_days ≤365`; legal-hold state consistency; deleted iff `deleted_at`; integration ⇒ `integration_only`; unique `storage_key`. |
 | `tags` | Reusable tags, global or per-user. | `UNIQUE NULLS NOT DISTINCT (scope, owner_user_id, name)` (case-insensitive via `citext`). |
 | `file_tags` | File ↔ tag. | PK (`file_id`, `tag_id`), cascade. |
 | `upload_sessions` | Upload intent, expected size/type/checksum, chunk geometry, local staging path, S3 upload ID, state. | One per file (`UNIQUE file_id`); unique `staging_path`; `received_bytes <= expected_size_bytes`; status/expiry. |
 | `upload_chunks` | Chunks received by the API into the staging file. | PK (`upload_session_id`, `chunk_number`); offset/size/hash. |
-| `retention_policies` | Versioned global retention configuration. | One active (partial unique); `max_days >= default_days`. |
+| `retention_policies` | Versioned global retention configuration. | One active (partial unique); `default_days ≤ max_days ≤ 365`. |
 | `notification_policies` | Versioned intervals and template key. | One active; intervals 1–10 positive values. |
 | `email_templates` | Versioned subject/HTML/text per key+locale. | One active per key+locale; version unique. |
 | `retention_migrations` | Progress of admin bulk retention changes. | Target policy FK, reason required, counters. |
@@ -67,7 +66,8 @@ tables without aggregate relationships.
 
 | Table | Purpose | Key constraints |
 |---|---|---|
-| `download_links` | Token hash, type, expiry, limits, counters, revocation. | Token hash unique; public ⇒ key hash + key pepper version present; private ⇒ both absent; `successful + reserved ≤ max`. |
+| `download_links` | Token hash, type, expiry, limits, counters, revocation, tenant-wide flag. New links get `expires_at` from `platform_settings.public_link_ttl_days` (15) or `private_link_ttl_days` (30); the owner cannot override. | Token hash unique; public ⇒ key hash + version; private ⇒ both absent; public cannot be `allow_all_tenant`; `successful + reserved ≤ max`. |
+| `download_link_acl` | Users/groups allowed on a private link. | PK/unique (`link_id`, `principal_type`, `principal_id`); `principal_type` user/group; index by principal. Private links use either ACL rows or `allow_all_tenant=true`. |
 | `download_grants` | Short-lived capability to stream one file. | Token hash unique; source/link consistency; state machine. |
 | `download_key_attempts` | Failed key attempts for throttling/forensics. | Indexes on (`link_id`, `ip_hash`, time) and (`link_id`, time). |
 | `abuse_lockouts` | Active link/IP lockouts. | `UNIQUE (scope_type, scope_key)`. |
@@ -102,9 +102,11 @@ tables without aggregate relationships.
 | `files.retention_mode` | `finite`, `indefinite` |
 | `files.scan_status` | `not_scanned`, `pending`, `clean`, `infected`, `failed` |
 | `download_links.access_mode` | `public`, `private` |
+| `download_link_acl.principal_type` | `user`, `group` |
 | `download_links.status` | `active`, `revoked`, `expired` |
 | `download_grants.state` | `issued`, `redeemed`, `completed`, `expired`, `failed` |
 | `notification_events.status` | `scheduled`, `sending`, `accepted`, `delivered`, `bounced`, `failed`, `suppressed`, `superseded` |
+| `integrations.status` | `active`, `disabled` |
 | `integrations.status` | `active`, `disabled` |
 | `integration_permissions.permission` | `file.write`, `file.read`, `file.delete` |
 | `upload_sessions.status` | `initiated`, `uploading`, `received`, `committing`, `completed`, `failed`, `expired`, `aborted` |
@@ -120,7 +122,10 @@ Clients must tolerate unknown values in read models that may evolve (additive po
 | Finite ⇔ expiry; indefinite ⇔ no expiry | `ck_files_retention` |
 | Integration files are `integration_only` | `ck_files_access_mode_owner` |
 | Deleted iff tombstoned | `ck_files_deleted` |
+| Legal hold has a set timestamp iff enabled | `ck_files_legal_hold` |
+| Retention never exceeds 365 days | `ck_files_retention` / column check |
 | Public links have a key verifier; private do not | `ck_links_key_shape` |
+| Public links cannot use tenant-wide ACL | `ck_links_acl_public` |
 | Max downloads never exceeded | `ck_links_limit` + atomic reservation SQL |
 | One notification per file/interval/expiry | `uq_notification_schedule` |
 | One active policy version | partial unique `WHERE is_active` |
@@ -212,7 +217,6 @@ streams the staging file to S3. A retry after a failed S3 commit reuses the same
 | `ix_grants_open (expires_at)` | Expire reservations. |
 | `ix_key_attempts_link_ip` | Throttling window count. |
 | `ix_download_events_file/time` | File stats and audit views. |
-| `ix_credentials_active` | Auth lookup and expiry alerts. |
 
 Partial indexes keep hot tables small. Every index is justified by a query in the design; new
 indexes require an ADR or a comment in the migration.
@@ -239,9 +243,9 @@ No distributed transaction is attempted; every external call is idempotent and r
 
 | Data | Retention | Mechanism |
 |---|---|---|
-| `files` tombstones (deleted) | 24 months | Worker purge job (after audit window) |
-| `file_audit_events` / `admin_audit_events` | 24 months | Purge job, configurable |
-| `download_events` | 12 months | Purge job |
+| `files` tombstones (deleted) | 60 months | Worker purge job (after audit window) |
+| `file_audit_events` / `admin_audit_events` | **60 months** | Purge job, configurable |
+| `download_events` | **24 months** | Purge job |
 | `notification_events` / attempts | 12 months | Purge job |
 | `download_key_attempts` | 90 days (or 30) | Purge job |
 | `abuse_lockouts` | until expiry + 30 days | Purge job |

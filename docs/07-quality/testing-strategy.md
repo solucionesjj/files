@@ -32,10 +32,10 @@ no drop >2% in a PR without justification.
 |---|---|
 | File lifecycle | Every allowed/forbidden transition, version bump, terminal states. |
 | Download eligibility | Expired now/soon, indefinite, scan states, deleted, legal hold, quota. |
-| Retention | finite/indefinite consistency, max/default, user override, integration defaults, bulk calculation. |
+| Legal hold | Set/release with reason, blocks expiry/deletion, download behavior unchanged, audit, pending-deletion stop/revert. |
+| Retention | finite/indefinite consistency, 30/365 bounds, mandatory note above default, admin change affects new files, integration defaults, bulk calculation. |
 | Link keys | Alphabet/length, case sensitivity, CSPRNG usage (interface), Argon2 verify, constant-time wrapper. |
 | Filename sanitizer | Control chars, CRLF, path separators, Unicode, RTL override, 512-char limit, 8.3 names, no extension. |
-| API key format | Parse `flk_<kid>_<secret>`, reject malformed, prefix/length. |
 | Grants | TTL, single-use, reservation release, source invariants. |
 | Notifications | Due-time calculation, interval skipping, dedupe, supersede, template variable allowlist. |
 | Pagination | Cursor encode/decode, sort key stability, invalid cursor. |
@@ -65,13 +65,13 @@ invalid input, rate limit (where applicable), and OpenAPI shape.
 | `/me`, `/config` | Provisioning, role claims, tenant mismatch, no roles. |
 | Portal upload | Session create, chunk upload/resume, duplicate/conflict chunks, complete, abort, size/type/checksum failures, disk reserve, scanning path. |
 | Portal files | List filters/sort/pagination, detail, rename/tag/retention, If-Match conflict, delete. |
-| Links | Create public/private, key shown once, list, revoke, stats, limits, policy disabled. |
+| Links | Create public/private, admin TTL (15/30), no owner override, specific/all-tenant ACL, key shown once, list, revoke, stats, limits, policy disabled. |
 | Public links | Metadata, wrong/right key, lockout, revoked/expired, concurrency with max=1, grant reuse. |
 | Private links | Auth required, tenant mismatch, inactive user, valid flow. |
 | Grants | Stream, expiry, single-use, file expires between grant and stream, disconnect. |
-| Integration auth | Entra token mapping, disabled integration, missing permission, IP allowlist, API key rotation/expiry/revoke. |
+| Integration auth | Entra token mapping, disabled integration, missing permission, IP allowlist, app registration. |
 | Integration files | Create (idempotent), complete, metadata, availability, content (range), delete, grants, cross-integration denial. |
-| Admin | Integration CRUD/permissions/credentials, retention policy version, migration, notifications, templates, settings, audit filters, auditor read-only. |
+| Admin | Integration CRUD/Entra app binding/permissions, legal hold, retention policy version, migration, notifications, templates, settings, audit filters, auditor read-only. |
 | Jobs | Scheduler/sender/expiry/deletion/cleanup/reconcile, duplicate runs, advisory locks, retries. |
 | Outbox | At-least-once, dead-letter, lag, replay. |
 
@@ -113,7 +113,7 @@ Scenarios (against API + LocalStack S3 + mocked Entra or test tenant):
 6. Private link: unauthenticated redirect, then successful download; other tenant rejected.
 7. Revoke link → old key fails.
 8. Delete file → disappears, links fail.
-9. Admin: create integration, issue key (shown once), change policy, view audit/usage.
+9. Admin: create integration, bind Entra app ID, change policy, set legal hold, view audit/usage.
 10. Accessibility (axe) on `/files`, `/files/:id`, `/d/:token`, `/admin/*`.
 
 Run on Chromium in PR CI; full browser matrix (Edge/Firefox/Safari) nightly.
@@ -145,6 +145,8 @@ Run on Chromium in PR CI; full browser matrix (Edge/Firefox/Safari) nightly.
 | 5 GiB chunked upload | staging disk <6 GiB per session, commit retry without re-upload |
 | Disk reserve | uploads fail closed with 507 before the reserve |
 | Link key attempts | 429/lockout adds <5 ms when locked |
+| Link ACL | User/group/all-tenant matrix, outsider gets generic 404, Graph failure fails closed |
+| Bilingual UI | All routes render es/en, language persists, dates/emails localized |
 | Job batch 500 | <60 s; no long locks |
 | Outbox lag | <5 s at 100 events/s |
 

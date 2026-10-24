@@ -29,6 +29,8 @@ stable ID used by stories, tests, and the backlog.
 
 - File content preview/editing (PDF, Office, images) — metadata and download only.
 - Folder hierarchies — flat file list with tags (see `OQ-12`).
+- API keys for machines — Entra client credentials only (see `OQ-11`).
+- Administrator access to file content — metadata/policy/legal hold only (see `OQ-05`).
 - Desktop sync clients, mobile apps.
 - Multi-tenant SaaS operation — one Entra tenant per deployment.
 - Cross-region active-active; disaster recovery is restore-based.
@@ -44,7 +46,7 @@ stable ID used by stories, tests, and the backlog.
 | Portal Admin | Human (Entra) | `Files.Admin` app role. Global policy, integrations, overrides, deletion. |
 | Auditor | Human (Entra) | `Files.Auditor` app role. Read-only access to audit and statistics. No file content. |
 | Public Link Visitor | Anonymous | Possesses a public link token and its download key. |
-| Integration | Machine (Entra or API key) | Registered enterprise application with explicit permissions and ownership boundary. |
+| Integration | Machine (Entra client credentials only) | Registered enterprise application with explicit permissions and ownership boundary. |
 | Scheduler | System | Background jobs for notifications, expiration, deletion, reconciliation. |
 
 Detailed authorization rules: [rbac-and-personas.md](rbac-and-personas.md).
@@ -79,16 +81,16 @@ Priority: **M** = must (v1 release blocker), **S** = should (v1 unless schedule 
 | FR-M2M-001 | Each consuming application MUST be registered as an integration with a unique ID, slug, name, status, permissions, and credential metadata. | M | §4.2 | US-010 |
 | FR-M2M-002 | Machine authentication MUST NOT depend on an interactive user session. | M | §3.2, §4.3 | US-011 |
 | FR-M2M-003 | The preferred machine authentication MUST be Entra ID OAuth 2.0 client credentials, validated against the integration's registered Entra application identity. | M | §4.3 | US-011 |
-| FR-M2M-004 | API keys MAY be issued for compatibility; keys MUST be random (≥256 bits), shown only once, stored only as a non-reversible verifier, and associated with exactly one integration. | M | §4.3 | US-012 |
-| FR-M2M-005 | API keys MUST support expiration, revocation, rotation, and an overlap window in which two credentials are valid. | M | §4.3 | US-012 |
-| FR-M2M-006 | Credentials MUST never appear in URLs, logs, error messages, traces, or analytics. | M | §4.3 | US-012 |
+| FR-M2M-004 | Files MUST NOT issue API keys in v1. Machine identities MUST authenticate exclusively with Microsoft Entra ID client credentials (application identity); no shared symmetric secret is stored by Files. | M | §4.3 | US-011 |
+| FR-M2M-005 | Each integration MUST be bound to an Entra application (client) ID; tokens whose `azp`/`appid` is not an active registered integration MUST be rejected. | M | §4.3 | US-010, US-011 |
+| FR-M2M-006 | Tokens, client secrets/certificates, and authorization headers MUST never appear in URLs, logs, error messages, traces, or analytics. | M | §4.3 | US-011 |
 | FR-M2M-007 | An integration MUST only access files it owns or for which an explicit file-level grant exists. | M | §4.2 | US-011, US-016 |
 | FR-M2M-008 | Integration permissions MUST be explicit (`file.write`, `file.read`, `file.delete`) and checked on every request. | M | §4.2 | US-011 |
 | FR-M2M-009 | A disabled integration MUST be rejected immediately, including for otherwise valid credentials. | M | §4.2 | US-010 |
 | FR-M2M-010 | Integrations MAY be restricted by IP allowlist (CIDR); requests outside it MUST be rejected. | S | §4.2 | US-010 |
 | FR-M2M-011 | Integration-owned files MUST default to integration-only access, indefinite retention, no public link, and no human visibility. | M | §5.4 | US-016 |
 | FR-M2M-012 | Every authorized retrieval and every rejected access attempt by an integration MUST be audited. | M | §5.4 | US-016 |
-| FR-M2M-013 | API keys MUST be scoped to the integration's granted permissions; they MUST NOT act as a universal credential. | M | §4.3 | US-012 |
+| FR-M2M-013 | An integration's authority MUST be limited to its registered permissions and ownership/grants, independent of any token scope; a leaked token MUST NOT grant another integration's data. | M | §4.3 | US-011, US-016 |
 | FR-M2M-014 | General and credential-specific rate limits MUST apply to integration traffic. | M | §4.3 | US-013 |
 
 ### 2.3 File upload and storage (FR-UP)
@@ -134,13 +136,13 @@ Priority: **M** = must (v1 release blocker), **S** = should (v1 unless schedule 
 
 | ID | Requirement | Pri | Source | Stories |
 |---|---|---|---|---|
-| FR-LINK-001 | A link MUST have: ID, 256-bit unguessable token, file reference, type (public/private), creation time, optional expiry, status (active/revoked/expired), optional max successful downloads, successful counter, creator, and authorization policy. | M | §12 | US-020 |
+| FR-LINK-001 | A link MUST have: ID, 256-bit unguessable token, file reference, type (public/private), creation time, server-assigned expiry (admin TTL), status (active/revoked/expired), optional max successful downloads, successful counter, creator, and authorization policy/ACL. | M | §12 | US-020 |
 | FR-LINK-002 | Public links MUST require an 8-character download key in addition to the link token. | M | §6 | US-020 |
 | FR-LINK-003 | The key MUST use `[A-Za-z0-9]`, exactly 8 characters, generated with a CSPRNG, case-sensitive, and verified server-side. | M | §6 | US-020 |
 | FR-LINK-004 | The key MUST NOT be embedded in the URL, MUST NOT be logged, and MUST be stored as a secure verifier (Argon2id). | M | §6 | US-020 |
 | FR-LINK-005 | The link token MUST NOT appear in logs in full; log only a hashed/truncated fingerprint. | M | §6 | US-020 |
 | FR-LINK-006 | The key MUST be replaceable by revoking the link and creating a new one; the old key MUST stop working immediately. | M | §6 | US-022 |
-| FR-LINK-007 | Link redemption MUST validate: link exists and is active, file is available, expiry, download limits, key, rate limits, and authorization — before any bytes are served. | M | §6 | US-021 |
+| FR-LINK-007 | Link redemption MUST validate: link exists and is active, file is available, expiry, download limits, key (public), private-link ACL (user/group/all-tenant), rate limits, and authorization — before any bytes are served. | M | §6 | US-021 |
 | FR-LINK-008 | Error responses MUST NOT reveal whether the token, key, file, or limit was the failing factor. | M | §6 | US-021 |
 | FR-LINK-009 | Failed key attempts MUST be throttled with progressive delays and temporary lockouts, and monitored. | M | §6 | US-023 |
 | FR-LINK-010 | A link MUST never permit downloading an expired, deleted, quarantined, or unavailable file, regardless of link validity. | M | §12 | US-021 |
@@ -149,17 +151,19 @@ Priority: **M** = must (v1 release blocker), **S** = should (v1 unless schedule 
 | FR-LINK-013 | Users MUST be able to view and revoke links for files they own; revoked links fail immediately. | M | §5.1 | US-022 |
 | FR-LINK-014 | Users MUST be able to see per-link and per-file download statistics (count, last download, recent attempts). | S | §3.1 | US-024 |
 | FR-LINK-015 | Admin-configurable policy MUST govern whether public links are allowed for user files. | S | §5.2 | US-030 |
+| FR-LINK-016 | Private links MUST support an ACL: the owner selects specific tenant users and/or groups, or enables “all authenticated tenant users”; the server MUST enforce the ACL on redemption. | M | §5.3 | US-020, US-021 |
+| FR-LINK-017 | New links MUST expire at the admin-configured lifetime (public default 15 days; private default 30 days). The owner MUST NOT override the lifetime; existing links keep their expiry. | M | §12 | US-020, US-030 |
 
 ### 2.6 Retention and expiration (FR-RET)
 
 | ID | Requirement | Pri | Source | Stories |
 |---|---|---|---|---|
-| FR-RET-001 | Administrators MUST configure: human default retention, whether users may override, maximum retention, whether indefinite retention is allowed for humans, notification intervals, and admin override authority. | M | §9 | US-030 |
+| FR-RET-001 | Administrators MUST configure: human default retention (default 30 days), whether users may extend it, absolute maximum (365 days, no exceptions), whether indefinite retention is allowed for humans (no), notification intervals, and audit of every change. | M | §9 | US-030 |
 | FR-RET-002 | New human files MUST receive the current global default retention at creation and persist their own effective expiry. | M | §9 | US-003 |
-| FR-RET-003 | Changing the global default MUST affect only newly created files unless an admin runs an explicit bulk migration. | M | §9 | US-030 |
+| FR-RET-003 | Changing the global default MUST affect only newly created files unless an admin runs an explicit bulk migration; existing files keep their expiry. | M | §9 | US-030 |
 | FR-RET-004 | Integration-owned files MUST default to indefinite retention, represented as `retention_mode = indefinite` with a null expiry — never a far-future timestamp. | M | §9 | US-016 |
 | FR-RET-005 | Indefinite retention MUST NOT override legal requirements, admin restrictions, or explicitly authorized deletion. | M | §5.4, §9 | US-016, US-030 |
-| FR-RET-006 | Retention changes MUST be validated against the active policy limits and audited. | M | §9 | US-005 |
+| FR-RET-006 | Retention changes MUST be validated against the active policy; extending beyond the current default up to 365 days MUST require a mandatory owner note, stored with the file and audit event. | M | §9 | US-005 |
 | FR-RET-007 | Retention policy configuration MUST be versioned so existing files can be interpreted against the policy in force when their expiry was set. | S | §9 | US-030 |
 | FR-RET-008 | Expired files MUST be non-downloadable immediately at logical expiry, before physical deletion. | M | §11 | US-026 |
 
@@ -191,6 +195,7 @@ Priority: **M** = must (v1 release blocker), **S** = should (v1 unless schedule 
 | FR-DEL-007 | Owner-deleted (manual) files MUST follow the same physical deletion pipeline, with immediate download blocking. | M | §5.1 | US-027 |
 | FR-DEL-008 | The product MUST document that backups may retain copies after logical deletion and MUST NOT claim immediate complete erasure. | M | §11 | US-031 |
 | FR-DEL-009 | Audit records of deletion MUST include actor, reason, prior state, and result. | M | §17 | US-026 |
+| FR-DEL-010 | An administrator MUST be able to place and release a legal hold (reason required) that blocks expiration and physical deletion; held files MUST remain non-downloadable only if their normal status/expiry says so, and every hold/release MUST be audited. | M | §9, §11 | US-030 |
 
 ### 2.9 Integration API (FR-INT)
 
@@ -213,16 +218,16 @@ Priority: **M** = must (v1 release blocker), **S** = should (v1 unless schedule 
 | ID | Requirement | Pri | Source | Stories |
 |---|---|---|---|---|
 | FR-ADM-001 | Admins MUST manage integrations: create, update, enable/disable, set permissions, configure IP allowlists. | M | §3.3 | US-010 |
-| FR-ADM-002 | Admins MUST issue, list, rotate, and revoke integration credentials; secrets are shown once. | M | §4.3 | US-012 |
+| FR-ADM-002 | Admins MUST register/update an integration's Entra application ID and permissions; Files MUST NOT store integration client secrets or issue API keys. | M | §4.3 | US-010 |
 | FR-ADM-003 | Admins MUST manage retention policy versions and apply explicit bulk retention migrations. | M | §9 | US-030 |
 | FR-ADM-004 | Admins MUST manage notification policies and email templates. | M | §10 | US-030 |
 | FR-ADM-005 | Admins MUST view and filter audit events (file, download, admin, credential). | M | §3.3 | US-029 |
 | FR-ADM-006 | Admins MUST view storage/download usage and limits. | S | §3.3 | US-031 |
-| FR-ADM-007 | Admins MUST be able to override retention or delete a file with a recorded reason. | S | §9, §11 | US-030 |
+| FR-ADM-007 | Admins MUST be able to apply/release legal hold, delete files with a recorded reason, and change the default retention for new files. | M | §9, §11 | US-030 |
 | FR-ADM-008 | Auditors MUST have read-only audit access without permission to download content. | S | §3.3 | US-029 |
 | FR-AUD-001 | Every upload, metadata/retention/link change, download attempt/result, deletion, credential event, and admin action MUST be audited with actor, timestamp, result, and correlation ID. | M | §17, §18 | US-029 |
 | FR-AUD-002 | Audit records MUST be append-only through the application; no update/delete API is exposed. | M | §17 | US-029 |
-| FR-AUD-003 | Audit retention MUST be configurable (default 24 months) and documented. | S | §18 | US-029 |
+| FR-AUD-003 | Audit retention MUST be configurable (default 60 months for file/admin audit; 24 months for download events) and documented. | M | §18 | US-029 |
 
 ### 2.11 Health, errors, and UX (FR-GEN)
 
@@ -234,6 +239,7 @@ Priority: **M** = must (v1 release blocker), **S** = should (v1 unless schedule 
 | FR-GEN-004 | The Portal MUST be responsive (Bootstrap 5.3) and meet WCAG 2.1 AA for core flows. | S | §16 | US-009 |
 | FR-GEN-005 | All timestamps in APIs MUST be ISO 8601 UTC; UI localizes to the user's timezone. | M | §8 | US-004 |
 | FR-GEN-006 | The API MUST return a correlation/trace ID on every response and honor `X-Request-Id` when valid. | S | §18 | US-031 |
+| FR-GEN-007 | The portal MUST support Spanish and English with a user-selectable language (Spanish default); emails use the recipient locale. | S | §16 | US-009 |
 
 ---
 
@@ -252,7 +258,7 @@ Targets are measurable and become SLOs in [observability-and-slos.md](../08-oper
 | NFR-007 | Recovery | Initial single node: RPO ≤24 h (nightly logical backup to S3), RTO ≤4 h. Target RPO ≤15 min when moving to PITR/managed PostgreSQL. | M |
 | NFR-008 | Durability | S3 durability (11 nines); nightly `pg_dump` to S3 retained 35 days; EBS volume encrypted. Versioning/replication decision documented (disabled initially). | M |
 | NFR-009 | Security | Least-privilege IAM, private buckets, TLS 1.2+, Argon2id/HMAC verifiers, no secrets in code/logs/URLs. | M |
-| NFR-010 | Audit | All security-relevant events auditable within 60 s of occurrence; retention configurable (default 24 months). | M |
+| NFR-010 | Audit | All security-relevant events auditable within 60 s of occurrence; retention configurable (default 60 months audit / 24 months downloads). | M |
 | NFR-011 | Observability | 100% of requests traced; RED metrics per endpoint; job success/lag metrics; alerting to on-call. | M |
 | NFR-012 | Testability | Automated unit/integration/E2E/contract tests in CI; coverage ≥80% line on Domain/Application. | M |
 | NFR-013 | Reproducibility | One-command local stack; Git-SHA container images; Terraform-managed EC2/S3/IAM; deploy via Compose with only documented `.env` provisioning. | M |
@@ -278,19 +284,22 @@ These are enforced in the database where possible and in domain services otherwi
    `access_mode = integration_only`; only an admin override may change retention.
 4. A file is downloadable **iff** `status = available` AND malware status is `clean` or
    `not_scanned` (when scanning disabled) AND (`expires_at IS NULL` OR `expires_at > now()`)
-   AND its owner/integration/link authorization passes.
+   AND its owner/integration/link authorization passes. A legal hold blocks deletion/expiry, not
+   a normally available, unexpired file.
 5. A public link requires a non-null `download_key_hash`; a private link must not have one.
 6. `download_links.status` transitions `active → revoked` or `active → expired`; terminal
    states never return to `active`. Expiry is evaluated lazily even if the status column lags.
 7. `successful_downloads ≤ max_downloads` when a maximum is set; reserved grants count toward
    the maximum until released.
-8. File lifecycle transitions follow [file-lifecycle.md](../06-workflows/file-lifecycle.md);
+8. New links always have `expires_at` set from the admin TTL; private links have either
+   `allow_all_tenant = true` or at least one ACL entry.
+9. File lifecycle transitions follow [file-lifecycle.md](../06-workflows/file-lifecycle.md);
    `deleted` is terminal (metadata tombstone retained per audit policy).
-9. `storage_key` is unique and immutable for the lifetime of the object.
-10. An integration cannot be granted access to a file it does not own when either party is
+10. `storage_key` is unique and immutable for the lifetime of the object.
+11. An integration cannot be granted access to a file it does not own when either party is
     disabled, and grants are always read-only (`file.read`).
-11. A user's tenant (`tid`) must match the configured tenant for portal and private-link access.
-12. Deletion is logical first, physical second; a deleted file never re-enters `available`.
+12. A user's tenant (`tid`) must match the configured tenant for portal and private-link access.
+13. Deletion is logical first, physical second; a deleted file never re-enters `available`.
 
 ---
 

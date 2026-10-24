@@ -59,6 +59,7 @@ understood. All maintenance windows are announced and excluded only if declared 
 | `files_deletion_failures_total` | counter | reason |
 | `files_pending_deletion` | gauge | — |
 | `files_processing` | gauge | — |
+| `files_legal_hold` | gauge | — |
 | `download_completion_lost_total` | counter | source |
 | `link_key_attempts_total` | counter | result |
 | `link_lockouts_total` | counter | scope |

@@ -19,6 +19,18 @@ merely because a URL was generated, and concurrent requests must have defined se
   `/d/{token}`. Only `SHA-256(token)` is stored for lookup (`download_links.token_hash`, unique).
 - Token alone is not sufficient for public links.
 
+**Lifetime and private-link ACL**
+
+- New links always receive `expires_at = now() + admin TTL`: **public 15 days**, **private 30
+  days** by default, configurable in `platform_settings`. The owner cannot change the lifetime;
+  existing links keep their expiry.
+- Public links have no ACL and always require the key.
+- Private links store either `allow_all_tenant = true` **or** ACL rows
+  (`download_link_acl`: Entra user/group object IDs). Redemption requires an active tenant user
+  who is in the ACL, or any active tenant user when `allow_all_tenant` is true. Group membership
+  is checked from the `groups` claim when present, with Graph fallback (cached).
+- Private links never have a download key; the key is a public-link second factor.
+
 **Download key**
 
 - Exactly 8 chars from `[A-Za-z0-9]` (62^8 ≈ 2.18×10^14 ≈ 47.6 bits), CSPRNG, case-sensitive.
@@ -50,6 +62,10 @@ merely because a URL was generated, and concurrent requests must have defined se
   integration content endpoint supports `Range`; each completed response counts once.
 
 ## Consequences
+
+- Link lifetimes are predictable and bounded; owners who need another period create a new link.
+- ACL checks add a directory dependency (Graph) for group membership; failures fail closed for
+  new edits while existing user-ID ACLs keep working.
 
 - 47.6 bits is only safe with throttling; the key is a second factor, not the primary secret.
 - Argon2id verification costs ~19 MiB and a few ms per attempt; the attempt throttle bounds

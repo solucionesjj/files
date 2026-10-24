@@ -29,8 +29,8 @@ Domain references no NuGet package except a primitives-free base. Application ma
 
 ### Files.Domain
 
-- Entities: `FileEntity`, `DownloadLink`, `DownloadGrant`, `UploadSession`, `User`,
-  `Integration`, `IntegrationCredential`, `Tag`, `RetentionPolicy`, `NotificationPolicy`,
+- Entities: `FileEntity`, `DownloadLink`, `DownloadLinkAcl`, `DownloadGrant`, `UploadSession`, `User`,
+  `Integration`, `Tag`, `RetentionPolicy`, `NotificationPolicy`,
   `NotificationEvent`, `AuditEvent`.
 - Value objects: `StorageKey`, `SanitizedFileName`, `DownloadKeyHash`, `TenantIdentity`,
   `Retention` (finite/indefinite).
@@ -45,7 +45,8 @@ Domain references no NuGet package except a primitives-free base. Application ma
 ### Files.Application
 
 - One class per use case (`CreateUploadSessionHandler`, `CompleteUploadHandler`,
-  `RedeemPublicLinkHandler`, `StreamFileHandler`, …), each returning `Result<T>`.
+  `RedeemPublicLinkHandler`, `StreamFileHandler`, `SearchDirectoryHandler`, …), each returning
+  `Result<T>`. `CreateLinkHandler` reads the admin TTLs and writes the ACL/all-tenant flag.
 - Ports: `IObjectStore`, `IChunkStore`, `IEmailSender`, `IKeyGenerator`, `IVerifierHasher`,
   `IAuditWriter`, `IOutboxWriter`, `ICurrentActor`, `IUnitOfWork`, repositories, `TimeProvider`.
 - Authorization: resource-based handlers (`FileOwnerRequirement`,
@@ -70,9 +71,11 @@ Domain references no NuGet package except a primitives-free base. Application ma
   server-side multipart (64 MiB parts) or `PutObject`, verifies `HeadObject`, and is idempotent
   per session (a retry reuses staged bytes).
 - Cryptography: Argon2id (`Konscious.Security.Cryptography.Argon2` or libsodium bindings) for
-  link keys; HMAC-SHA256 for API keys; SHA-256 for link/grant tokens.
+  link keys; SHA-256 for link/grant tokens; no API keys (Entra app tokens only).
 - `SmtpEmailSender` (MailKit, STARTTLS 587) behind `IEmailSender`; `GraphEmailSender` is an
   optional adapter selected by `Notifications__Provider`.
+- `DirectoryClient` (Graph) implementing `IDirectorySearch`: tenant-scoped user/group search and
+  group membership checks with a 5-minute cache; only object ID, display name, and email returned.
 - `ClamAvScanner` implementing `IClamAvScanner`: streams the staging file to `clamd` (INSTREAM),
   enforces timeouts, and returns clean/infected/failed; no file content is logged.
 - OpenTelemetry instrumentation and redaction.
@@ -81,10 +84,9 @@ Domain references no NuGet package except a primitives-free base. Application ma
 
 - Minimal API with endpoint groups: `/v1/me`, `/v1/portal/*`, `/v1/integrations/*`,
   `/v1/public/*`, `/v1/admin/*`, `/health/*`, `/v1/config`.
-- Authentication schemes: `BearerUser` (Entra user tokens), `BearerIntegration` (client
-  credentials tokens), `ApiKey`; a policy scheme routes `flk_` tokens to `ApiKey`, everything
-  else to JWT validation with both audiences accepted, then the authorization layer enforces
-  actor type per endpoint.
+- Authentication schemes: `BearerUser` (Entra user tokens) and `BearerIntegration` (client
+  credentials tokens); JWT validation accepts both audiences, then the authorization layer
+  enforces actor type per endpoint. There is no API-key scheme.
 - Rate limiting: built-in limiter with named policies (`portal`, `integration`, `public-link`,
   `public-key-attempt`) partitioned by user/integration/IP.
 - Middleware order: forwarded headers → request ID → exception/problem details → HSTS →
@@ -136,7 +138,6 @@ Environment variables use `__` separators. Full template in `.env.example`.
 | `Entra__ApiAudience` | `api://<api-client-id>` | Accepted audience. |
 | `Entra__PortalClientId` | GUID | SPA app registration (used for CORS/known clients). |
 | `Entra__RequiredScope` | `Files.Access` | Delegated scope for user tokens. |
-| `Auth__ApiKeyPepper` | 32+ random bytes base64 | Rotatable; see runbook. |
 | `Auth__LinkKeyPepper` | 32+ random bytes base64 | Rotatable; see runbook. |
 | `S3__Region` | `us-east-1` | |
 | `S3__Bucket` | `files-prod-...` | Required. |
@@ -165,7 +166,8 @@ Environment variables use `__` separators. Full template in `.env.example`.
 | `Smtp__UseStartTls` | `true` | Certificate validation required. |
 | `Smtp__Username` | mailbox address | |
 | `Smtp__Password` | secret | App password/password; never logged. |
-| `Notifications__GraphTenantId` | GUID | Only for the optional Graph adapter. |
+| `Graph__TenantId` / `Graph__ClientId` / `Graph__ClientSecret` | GUID/secret | Directory search + optional Graph mail fallback. |
+| `Graph__DirectoryEnabled` | `true` | Enables private-link directory search/membership. |
 | `ClamAV__Host` / `ClamAV__Port` | `clamav` / `3310` | Internal Docker network. |
 | `ClamAV__ScanTimeoutSeconds` | `900` | 5 GiB may take minutes. |
 | `Features__MalwareScanning` | `true` | Scan before S3 commit. |
@@ -200,12 +202,11 @@ logged; `Program.cs` logs only key names and non-sensitive values.
 - JWT validation: signature, `iss`, `aud`, `exp`, `nbf`, `tid` (must equal configured tenant),
   token type; clock skew ≤2 min. `oid`/`sub` mapped to `users.object_id`; `roles` mapped to
   policies. Reject tokens without a role that maps to the endpoint.
-- API key auth: parse `flk_<kid>_<secret>`; look up `kid`; reject disabled integrations before
-  verification; verify HMAC with constant-time compare; update `last_used_at` at most once per
-  minute; never log the secret.
-- Integration token auth: `azp`/`appid` must match `integrations.entra_client_id`; role claim
-  must include the required integration permission; `oid` is the service principal object ID
-  and is stored for audit.
+- Entra app auth: validate the JWT and map `azp`/`appid` to an active integration; reject disabled
+  integrations; update `last_used_at` at most once per minute; never log the token or secret.
+- Integration token auth: `azp`/`appid` must match `integrations.entra_client_id`; the role claim
+  must include `Files.Integration`; the actual permission is read from Files; the service
+  principal `oid` is stored for audit.
 - Link key verification: load verifier by link token; Argon2id verify; on failure record attempt
   and apply throttling; on success issue grant. Verification happens even for invalid keys
   (unless locked out) to avoid timing oracles; generic 404 on any failure.

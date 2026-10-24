@@ -7,8 +7,8 @@
 | **API** | Versioned REST API for integrations and for the Portal, served by the .NET backend. |
 | **Worker** | Background process that runs scheduled jobs (notifications, expiration, deletion, reconciliation, outbox). |
 | **Integration** | Registered machine consumer with an identity, permissions, status, credentials, and ownership boundary. |
-| **Integration credential** | Entra application identity or API key used by an integration to authenticate. |
-| **API key** | Optional high-entropy secret (`flk_<kid>_<secret>`) associated with one integration; stored only as a verifier. |
+| **Integration credential** | Entra application identity (client ID + consumer-owned secret/certificate) used by an integration to authenticate. |
+| **API key** | Not used in v1; retained only as a historical term. Machine authentication is Entra client credentials. |
 | **File** | A stored object plus its metadata record. Identified by a UUIDv7 file ID. |
 | **Storage key** | Internal, system-generated S3 object key. Never exposed to clients; never derived from the filename. |
 | **Owner** | The human user or integration that created and owns a file. |

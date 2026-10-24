@@ -33,8 +33,8 @@ route with caching disabled for sensitive data (`Cache-Control: no-store`).
 | `/files` | MsalGuard | File list, search, filters, pagination. |
 | `/files/:id` | MsalGuard | File detail, metadata, links, stats. |
 | `/links` | MsalGuard | Links created by me (active/revoked/expired). |
-| `/admin/integrations` | MsalGuard + role `Files.Admin` | Integration and credential management. |
-| `/admin/policies` | role `Files.Admin` | Retention, notifications, quotas, templates. |
+| `/admin/integrations` | MsalGuard + role `Files.Admin` | Integrations and Entra app binding (no API keys). |
+| `/admin/policies` | role `Files.Admin` | Retention, link TTLs, legal hold, notifications, quotas, templates. |
 | `/admin/audit` | role `Files.Admin` or `Files.Auditor` | Audit and download events. |
 | `/admin/usage` | role `Files.Admin` or `Files.Auditor` | Storage, downloads, quota usage. |
 | `/d/:token` | none | Public link landing: file summary + key entry. |
@@ -88,6 +88,8 @@ Lazy-load every feature route. Preload the shell only.
 - Status badges: Available, Processing, Quarantined, Expired, Pending deletion, Deleted.
 - Expiry: relative ("in 12 days") + absolute tooltip; "Indefinite" for null expiry.
 - Empty state explains drag-and-drop upload.
+- Retention editor: shows the 30-day default and 365-day maximum; extending above the
+  default requires a note; the server rejects violations.
 - Row actions: download, copy private link, manage links, edit, delete (confirm + type-to-confirm
   for files with downloads).
 
@@ -101,12 +103,14 @@ Lazy-load every feature route. Preload the shell only.
   explains that the upload must restart.
 
 ### Links
-- Create link dialog: type (private/public), optional expiry, optional max downloads; public
-  requires the policy to be enabled.
+- Create link dialog: type (private/public), optional max downloads; for private links choose
+  **specific users/groups** (directory search) or **any authenticated tenant user**. The expiry is
+  shown read-only from the admin TTL; the owner cannot change it. Public links require policy.
+- The dialog shows the effective lifetime (“expires in 15 days” / “30 days”).
 - After creation, show **once**: link URL and the 8-character key, with copy buttons and a
   warning that the key cannot be recovered. Never place the key in the URL or clipboard
   automatically.
-- Link list shows status, expiry, downloads used/limit, creator, created; revoke with confirm.
+- Link list shows status, expiry, ACL summary, downloads used/limit, creator, created; revoke with confirm.
 - Public landing page: filename, size, owner display name (configurable), expiry, key field
   (autocomplete off, `inputmode="text"`, maxlength 8, paste allowed), generic error text.
 - Private landing: the anonymous metadata call returns only `requiresAuthentication`; the SPA
@@ -114,10 +118,12 @@ Lazy-load every feature route. Preload the shell only.
 - Set `Referrer-Policy: no-referrer` for `/d/*` and avoid third-party resources on that route.
 
 ### Admin
-- Integrations: list with status/permissions/last use; create/edit; disable with confirmation;
-  credentials with prefix, creator, expiry, last used; "Issue key" shows once.
-- Policies: retention form (default, max, user override, indefinite), notification intervals
-  (chips, ordered), templates with preview, public links toggle, quotas.
+- Integrations: list with status/permissions/last use; create/edit; **bind the Entra application
+  ID**; disable with confirmation. There is no API-key issuance screen.
+- Legal hold: on the file detail (admin), set/release with a mandatory reason and optional review
+  date; show a badge and block deletion/expiry.
+- Policies: retention form (default 30, max 365, user override with note), public/private link
+  TTLs, notification intervals (chips, ordered), templates with preview, public links toggle, quotas.
 - Audit: filter by actor, file, action, date range; detail drawer with metadata; no content.
 - Usage: storage by owner type, downloads by day, top files, quota consumption.
 
@@ -126,6 +132,7 @@ Lazy-load every feature route. Preload the shell only.
 - WCAG 2.1 AA: labels for every input, visible focus, 4.5:1 contrast, no color-only status,
   aria-live for upload progress and toasts, modal focus trap, skip link.
 - Keyboard: full flow for list, upload, link creation, key entry.
+- Shell: language selector (Español/English), persisted; all labels/dates use the selected locale.
 - Responsive breakpoints: ≥1200 full table; 768–1199 condensed columns; <768 card list with
   actions in an overflow menu.
 - Respect `prefers-reduced-motion`.
@@ -160,6 +167,7 @@ Lazy-load every feature route. Preload the shell only.
 
 ## 10. i18n
 
-Spanish (`es-CO`) is the initial UI language. Use Angular i18n (`@angular/localize`) with
-`$localize` for user-facing strings; dates/numbers via `Intl` with `es-CO`; keep identifiers
-and code comments in English. Add `en-US` only if requested (OQ-14).
+Spanish (`es-CO`) and English (`en-US`) are supported; Spanish is the default. Use Angular i18n
+(`@angular/localize`) with `$localize` for user-facing strings and a language selector in the
+shell; persist the choice in `localStorage` and pass it to `Intl` for dates/numbers. Keep
+identifiers and code comments in English. Emails use the recipient's stored locale.

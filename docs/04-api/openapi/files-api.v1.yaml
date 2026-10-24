@@ -7,7 +7,7 @@ info:
 
     Authentication:
     - Portal users: Microsoft Entra ID delegated bearer token (`userAuth`).
-    - Integrations: Entra ID client-credentials bearer token or API key (`integrationAuth`).
+    - Integrations: Microsoft Entra ID client-credentials bearer token (`integrationAuth`); no API keys.
     - Public link visitors: link token + separate 8-character download key.
 
     All errors use RFC 9457 `application/problem+json` with a stable `code`.
@@ -41,7 +41,7 @@ tags:
   - name: Integrations
     description: Machine-to-machine upload, retrieval, and deletion.
   - name: Admin
-    description: Integrations, credentials, policies, and settings.
+    description: Integrations, policies, legal hold, and settings.
   - name: Audit
     description: Audit events and usage reporting.
 
@@ -121,7 +121,7 @@ paths:
           schema:
             type: integer
             minimum: 1
-            maximum: 3650
+            maximum: 365
         - name: expiresBefore
           in: query
           schema:
@@ -553,6 +553,52 @@ paths:
                 $ref: '#/components/schemas/TagList'
         '401':
           $ref: '#/components/responses/Unauthorized'
+
+  /portal/directory/principals:
+    get:
+      tags: [Portal links]
+      operationId: searchDirectoryPrincipals
+      summary: Search tenant users/groups for a private-link ACL
+      parameters:
+        - name: type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [user, group]
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        '200':
+          description: Matching tenant principals (object ID, display name, email for users).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DirectoryPrincipalList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          description: Directory (Graph) unavailable.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
 
   /public/download-links/{token}:
     get:
@@ -1092,84 +1138,6 @@ paths:
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
 
-  /admin/integrations/{integrationId}/credentials:
-    get:
-      tags: [Admin]
-      operationId: listIntegrationCredentials
-      summary: List credentials (no secrets)
-      parameters:
-        - $ref: '#/components/parameters/IntegrationId'
-      responses:
-        '200':
-          description: Credentials.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CredentialList'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-    post:
-      tags: [Admin]
-      operationId: issueIntegrationCredential
-      summary: Issue an API key or register an Entra client
-      parameters:
-        - $ref: '#/components/parameters/IntegrationId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/IssueCredentialRequest'
-      responses:
-        '201':
-          description: Credential issued. `secret` is shown only here.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/IssuedCredential'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/UnprocessableEntity'
-
-  /admin/credentials/{credentialId}:
-    delete:
-      tags: [Admin]
-      operationId: revokeIntegrationCredential
-      summary: Revoke a credential
-      parameters:
-        - $ref: '#/components/parameters/CredentialId'
-        - name: reason
-          in: query
-          required: true
-          schema:
-            type: string
-            minLength: 10
-            maxLength: 500
-      responses:
-        '204':
-          description: Revoked immediately.
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/UnprocessableEntity'
-
   /admin/files:
     get:
       tags: [Admin]
@@ -1238,6 +1206,37 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
+  /admin/files/{fileId}/legal-hold:
+    post:
+      tags: [Admin]
+      operationId: setLegalHold
+      summary: Place or release a legal hold
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LegalHoldRequest'
+      responses:
+        '200':
+          description: Updated file metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileMetadata'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
 
@@ -1677,9 +1676,10 @@ components:
     integrationAuth:
       type: http
       scheme: bearer
+      bearerFormat: JWT
       description: |
-        Entra ID application token (preferred) or API key with the form
-        `flk_<kid>_<secret>`. The credential is bound to one integration.
+        Microsoft Entra ID application token (client credentials). The token's
+        azp/appid must match an active integration; no API keys are issued.
 
   parameters:
     Cursor:
@@ -1752,13 +1752,6 @@ components:
       description: Base64url-encoded 256-bit download grant token.
     IntegrationId:
       name: integrationId
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-    CredentialId:
-      name: credentialId
       in: path
       required: true
       schema:
@@ -2045,12 +2038,17 @@ components:
         days:
           type: [integer, 'null']
           minimum: 1
+          maximum: 365
         expiresAt:
           type: [string, 'null']
           format: date-time
+        reason:
+          type: [string, 'null']
+          maxLength: 1000
+          description: Mandatory owner note when extending beyond the current default (max 365 days).
       description: |
         `indefinite` has `expiresAt = null`; never a far-future date.
-        `days` is the applied policy duration when known.
+        `days` is the applied policy duration when known (never above 365).
 
     FileDownloadStats:
       type: object
@@ -2075,7 +2073,7 @@ components:
 
     FileMetadata:
       type: object
-      required: [id, fileName, sizeBytes, contentType, status, accessMode, retention, tags, downloads, scanStatus, createdAt, updatedAt, version]
+      required: [id, fileName, sizeBytes, contentType, status, accessMode, retention, tags, downloads, scanStatus, legalHold, createdAt, updatedAt, version]
       properties:
         id:
           type: string
@@ -2105,6 +2103,13 @@ components:
         scanStatus:
           type: string
           enum: [not_scanned, pending, clean, infected, failed]
+        legalHold:
+          type: boolean
+        legalHoldReason:
+          type: [string, 'null']
+        legalHoldReviewAt:
+          type: [string, 'null']
+          format: date-time
         owner:
           $ref: '#/components/schemas/FileOwner'
         quarantineReason:
@@ -2134,8 +2139,11 @@ components:
         accessMode: private_link
         retention:
           mode: finite
-          days: 365
-          expiresAt: '2027-10-23T21:00:00Z'
+          days: 90
+          expiresAt: '2027-01-21T21:00:00Z'
+          reason: contract review until Q1
+        legalHold: false
+        legalHoldReason: null
         tags: [finance, q3]
         downloads:
           count: 4
@@ -2275,6 +2283,10 @@ components:
             days:
               type: [integer, 'null']
               minimum: 1
+              maximum: 365
+            reason:
+              type: [string, 'null']
+              maxLength: 1000
         tags:
           type: array
           maxItems: 20
@@ -2327,6 +2339,10 @@ components:
             days:
               type: [integer, 'null']
               minimum: 1
+              maximum: 365
+            reason:
+              type: [string, 'null']
+              maxLength: 1000
         tags:
           type: array
           maxItems: 20
@@ -2341,13 +2357,60 @@ components:
         accessMode:
           type: string
           enum: [public, private]
-        expiresAt:
-          type: [string, 'null']
-          format: date-time
         maxDownloads:
           type: [integer, 'null']
           minimum: 1
           maximum: 1000000
+        allowAllTenant:
+          type: boolean
+          default: false
+          description: Private links only; if true, any active tenant user may redeem.
+        allowedPrincipals:
+          type: array
+          maxItems: 100
+          description: Private links only; specific Entra users/groups (mutually compatible with allowAllTenant=false).
+          items:
+            $ref: '#/components/schemas/LinkPrincipalRef'
+
+    LinkPrincipalRef:
+      type: object
+      required: [type, id]
+      properties:
+        type:
+          type: string
+          enum: [user, group]
+        id:
+          type: string
+          format: uuid
+          description: Entra object ID.
+        displayName:
+          type: [string, 'null']
+          readOnly: true
+
+    DirectoryPrincipal:
+      type: object
+      required: [type, id, displayName]
+      properties:
+        type:
+          type: string
+          enum: [user, group]
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        email:
+          type: [string, 'null']
+          format: email
+
+    DirectoryPrincipalList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DirectoryPrincipal'
 
     Link:
       type: object
@@ -2371,6 +2434,13 @@ components:
         expiresAt:
           type: [string, 'null']
           format: date-time
+          description: Set by the server from the admin-configured public/private TTL.
+        allowAllTenant:
+          type: boolean
+        allowedPrincipals:
+          type: array
+          items:
+            $ref: '#/components/schemas/LinkPrincipalRef'
         maxDownloads:
           type: [integer, 'null']
         successfulDownloads:
@@ -2634,81 +2704,6 @@ components:
             type: string
             enum: [file.write, file.read, file.delete]
 
-    Credential:
-      type: object
-      required: [id, integrationId, credentialType, name, createdAt]
-      properties:
-        id:
-          type: string
-          format: uuid
-        integrationId:
-          type: string
-          format: uuid
-        credentialType:
-          type: string
-          enum: [api_key, entra_client]
-        name:
-          type: string
-        keyId:
-          type: [string, 'null']
-        keyPrefix:
-          type: [string, 'null']
-        expiresAt:
-          type: [string, 'null']
-          format: date-time
-        lastUsedAt:
-          type: [string, 'null']
-          format: date-time
-        revokedAt:
-          type: [string, 'null']
-          format: date-time
-        createdAt:
-          type: string
-          format: date-time
-
-    CredentialList:
-      type: object
-      required: [items]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: '#/components/schemas/Credential'
-
-    IssuedCredential:
-      allOf:
-        - $ref: '#/components/schemas/Credential'
-        - type: object
-          properties:
-            secret:
-              type: [string, 'null']
-              description: |
-                Full API key (`flk_...`) for `api_key` credentials, shown exactly once.
-                Null for `entra_client` credentials, which use the consumer's Entra secret.
-      description: Returned only on issuance; an API-key secret cannot be retrieved again.
-
-    IssueCredentialRequest:
-      type: object
-      required: [credentialType, name]
-      properties:
-        credentialType:
-          type: string
-          enum: [api_key, entra_client]
-        name:
-          type: string
-          minLength: 1
-          maxLength: 120
-        expiresAt:
-          type: [string, 'null']
-          format: date-time
-        entraClientId:
-          type: [string, 'null']
-          format: uuid
-          description: Required for `entra_client`.
-        rotateFromId:
-          type: [string, 'null']
-          format: uuid
-
     FileGrant:
       type: object
       required: [id, fileId, integrationId, createdAt]
@@ -2790,6 +2785,7 @@ components:
           type: boolean
         allowIndefinite:
           type: boolean
+          description: Must be false for human files (indefinite is only for integrations).
         publicLinksEnabled:
           type: boolean
         isActive:
@@ -2821,15 +2817,16 @@ components:
         defaultDays:
           type: integer
           minimum: 1
-          maximum: 36500
+          maximum: 365
         maxDays:
           type: integer
           minimum: 1
-          maximum: 36500
+          maximum: 365
         allowUserOverride:
           type: boolean
         allowIndefinite:
           type: boolean
+          description: Must be false for human files (indefinite is only for integrations).
         publicLinksEnabled:
           type: boolean
         notes:
@@ -2846,11 +2843,11 @@ components:
       properties:
         mode:
           type: string
-          enum: [finite, indefinite]
+          enum: [finite]
         days:
           type: [integer, 'null']
           minimum: 1
-          maximum: 36500
+          maximum: 365
         reason:
           type: string
           minLength: 10
@@ -3200,6 +3197,21 @@ components:
           type: string
           minLength: 10
           maxLength: 500
+
+    LegalHoldRequest:
+      type: object
+      required: [enabled, reason]
+      properties:
+        enabled:
+          type: boolean
+        reason:
+          type: string
+          minLength: 10
+          maxLength: 1000
+        reviewAt:
+          type: [string, 'null']
+          format: date-time
+          description: Optional review date (reminder only).
 
     DeletionAccepted:
       type: object

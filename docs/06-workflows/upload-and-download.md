@@ -48,14 +48,15 @@ Server steps:
 
 1. Authenticate/authorize; for integrations verify `file.write`, active status, IP, quota.
 2. Validate `fileName`, `sizeBytes` ≤ max, content type allowlist, and `sizeBytes ≥ 0`.
-3. Determine retention: portal → requested/default; integration → `indefinite`, `expires_at = NULL`.
+3. Determine retention: portal → requested/default (30 days; >default up to 365 requires a
+   `retention.reason` note); integration → `indefinite`, `expires_at = NULL`.
 4. Check quotas: open sessions per integration/user, daily bytes, S3 storage, and **staging
    capacity** (`free_bytes - reserve >= expected_size + 64 MiB`).
 5. Compute chunk geometry: `chunkSize = 16 MiB`, `chunkCount = max(1, ceil(size/chunkSize))`,
    `chunkCount ≤ 10,000`.
 6. Insert `files` (`pending_upload`) and `upload_sessions` with a unique staging path
    `/var/lib/files/staging/{sessionId}.part`; create the file with `O_EXCL` and `0600`.
-7. Commit and return `{fileId, uploadSessionId, chunkSizeBytes, chunkCount, expiresAt,
+7. Commit the transaction and return `{fileId, uploadSessionId, chunkSizeBytes, chunkCount, expiresAt,
    receivedBytes: 0}`. **No S3 call is made at this point.**
 
 If the DB commit fails after file creation, the temp file is removed; the cleanup job also catches
@@ -134,7 +135,7 @@ until `complete` verifies and commits to S3.
 | Owner | Entra user token | `owner_user_id = user`, file downloadable. |
 | Private link | Entra user token | Link active/not expired/limits, tenant match, file downloadable. |
 | Public link | None | Token + key, abuse limits, link limits, file downloadable. |
-| Integration | Entra app/API key | `file.read` + owner or active grant, file downloadable. |
+| Integration | Entra app token only | `file.read` + owner or active grant, file downloadable. |
 
 ### Grant flow (owner/private/public)
 
@@ -149,6 +150,10 @@ until `complete` verifies and commits to S3.
 
 A grant is a bearer capability (browser navigation needs no Authorization header), 256-bit,
 single-use, 120 s, `no-store`, `no-referrer`, never logged.
+
+New links get a server-assigned expiry: public **15 days**, private **30 days** (admin-configurable;
+owner cannot change). Private links also enforce their ACL: specific Entra users/groups or
+`allow_all_tenant`; a user outside the ACL receives the generic `404 link_not_found`.
 
 ### Integration download
 

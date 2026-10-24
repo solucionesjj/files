@@ -138,18 +138,24 @@ Scenario: File detail shows retention correctly
 ### US-005 — Edit metadata and retention
 **As** a file owner **I want** to rename a file, change tags, and adjust retention within limits
 **so that** my file stays accurate and compliant.
-**Priority** M · **Milestone** M3 · **Requirements** FR-FILE-003/004, FR-RET-003, 006
+**Priority** M · **Milestone** M3 · **Requirements** FR-FILE-003/004, FR-RET-003/006
 
 ```gherkin
-Scenario: Owner extends retention within policy
-  Given the maximum retention is 3650 days
-  When I set my file's expiry to 400 days from now
-  Then the file is updated and a file audit event "retention_changed" is recorded
+Scenario: Owner extends retention within policy with a mandatory note
+  Given the current default is 30 days and the maximum is 365 days
+  When I extend my file to 90 days and write "contract review until Q3"
+  Then the file is updated and a file audit event "retention_changed" is recorded with the note
   And pending expiration notifications are rescheduled
 
-Scenario: Retention beyond the maximum is rejected
-  Given the maximum retention is 3650 days
-  When I request an expiry 4000 days from now
+Scenario: Extending without a note is rejected
+  Given the current default is 30 days
+  When I request 60 days without a reason
+  Then the response is 422 with code "retention_reason_required"
+  And the file's expiry is unchanged
+
+Scenario: Retention beyond 365 days is rejected
+  Given the absolute maximum is 365 days
+  When I request an expiry 400 days from now
   Then the response is 422 with code "retention_exceeds_maximum"
   And the file's expiry is unchanged
 
@@ -228,7 +234,7 @@ Scenario: Sorting by download count
 ### US-009 — Accessible, responsive portal
 **As** a portal user **I want** the portal usable on my laptop and tablet with a keyboard **so that**
 I can work from anywhere.
-**Priority** S · **Milestone** M3 · **Requirements** FR-GEN-003/004, NFR-016/017
+**Priority** S · **Milestone** M3 · **Requirements** FR-GEN-003/004/007, NFR-016/017
 
 ```gherkin
 Scenario: Keyboard-only upload
@@ -241,6 +247,12 @@ Scenario: Tablet layout
   Given a 768 px wide viewport
   Then navigation collapses to a menu
   And the file table remains usable without horizontal scrolling of actions
+
+Scenario: Language selector
+  Given the portal is open in Spanish
+  When I switch the language to English
+  Then navigation, labels, dates, and validation messages are in English
+  And my preference is remembered for the next visit
 ```
 
 ---
@@ -257,7 +269,7 @@ Scenario: Create an integration
   Given I am an administrator
   When I create integration "crm-prod" with permissions "file.write,file.read"
   Then the integration exists with status "active"
-  And its credentials can be issued
+  And its Entra application ID can be bound
 
 Scenario: Disabled integration is rejected immediately
   Given integration "crm-prod" is disabled
@@ -290,29 +302,27 @@ Scenario: Unauthorized file is indistinguishable from missing
   And no metadata is returned
 ```
 
-### US-012 — Issue, rotate, and revoke API keys
-**As** an administrator **I want** to manage API key lifecycle **so that** legacy consumers can
-authenticate securely and rotate without downtime.
+### US-012 — Bind an integration to its Entra application
+**As** an administrator **I want** to bind an integration to its Entra app identity **so that**
+Files trusts only that application and never stores a shared secret.
 **Priority** M · **Milestone** M1/M5 · **Requirements** FR-M2M-004/005/006/013, FR-ADM-002
 
 ```gherkin
-Scenario: Secret is shown only at issuance
-  Given I issue a key for integration "legacy-erp"
-  Then the plaintext key is displayed exactly once
-  When I refresh the credentials list
-  Then only the key ID, prefix, creator, and expiry are shown
+Scenario: Bind the Entra application ID
+  Given the consumer has an Entra app registration with the Files.Integration role
+  When I set its client ID on integration "crm-prod"
+  Then app tokens whose azp matches that client ID are accepted
+  And no client secret is stored by Files
 
-Scenario: Overlapping rotation
-  Given key A is active
-  When I issue key B and both are valid
-  Then both keys authenticate successfully
-  When I revoke key A
-  Then key A returns 401 and key B still works
+Scenario: No API keys are issued
+  When I inspect the integration administration API
+  Then there is no endpoint to issue or rotate API keys
+  And the documentation states that only Entra client credentials are supported
 
-Scenario: Key is not logged
-  Given a request authenticated with an API key
-  When I inspect application and access logs
-  Then the secret and the full Authorization header do not appear
+Scenario: Unregistered application is rejected
+  Given a valid Entra token from an application not registered in Files
+  When it calls the integration API
+  Then the response is 401 with code "invalid_token"
 ```
 
 ### US-013 — Rate limits and quotas
@@ -486,19 +496,28 @@ Scenario: Browser cannot bypass business authorization
 
 ## Epic E4 — Download links
 
-### US-020 — Create a public link with a download key
-**As** a file owner **I want** to create a public link protected by an 8-character key
-**so that** I can share a file with people outside the company.
-**Priority** M · **Milestone** M4 · **Requirements** FR-LINK-001..004, FR-LINK-015
+### US-020 — Create a link with the admin-defined lifetime
+**As** a file owner **I want** to create a public or private link **so that** I can share a file
+without choosing an unsafe lifetime.
+**Priority** M · **Milestone** M4 · **Requirements** FR-LINK-001..004, 015..017
 
 ```gherkin
-Scenario: Link and key are generated once
-  Given public links are enabled and I own an available file
-  When I create a public link with expiry and max downloads
+Scenario: Public link uses the administrator's lifetime
+  Given public links are enabled and the public TTL is 15 days
+  When I create a public link with a maximum download count
   Then I receive a URL token and an 8-character key exactly once
-  And the key is not present in the URL
-  And only an Argon2id verifier is stored
-  And the key is absent from logs
+  And the link expires in 15 days
+  And there is no field for me to change the expiry
+  And the key is not present in the URL and is stored only as an Argon2id verifier
+
+Scenario: Private link for specific people
+  Given I create a private link and select user Ana and group Legal
+  Then the link stores those principals as its ACL
+  And only Ana or members of Legal can redeem it
+
+Scenario: Private link for the whole tenant
+  Given I create a private link and enable "any authenticated tenant user"
+  Then any active user in the tenant with the link can redeem it
 
 Scenario: Public link disabled by policy
   Given the administrator disabled public links
@@ -509,7 +528,7 @@ Scenario: Public link disabled by policy
 ### US-021 — Redeem a public or private link
 **As** a link visitor **I want** to enter the key and download the file **so that** I can retrieve
 what was shared with me.
-**Priority** M · **Milestone** M4 · **Requirements** FR-LINK-002/007..012, FR-ID-007, FR-GEN-002
+**Priority** M · **Milestone** M4 · **Requirements** FR-LINK-002/007..012/016, FR-ID-007, FR-GEN-002
 
 ```gherkin
 Scenario: Correct key issues a short-lived grant and download succeeds
@@ -532,12 +551,20 @@ Scenario: Grant is single-use and short-lived
   When I reuse it after completion or after 120 seconds
   Then the response is 404 with code "grant_not_found"
 
-Scenario: Private link requires tenant authentication
-  Given a private link to an available file
+Scenario: Private link ACL is enforced
+  Given a private link restricted to user Ana and group Legal
   When an unauthenticated visitor requests the download
   Then the response is 401
-  When an authenticated user from the configured tenant requests it
+  When Ana (or a member of Legal) authenticates and requests it
   Then the download is authorized and audited
+  When another tenant user outside the ACL requests it
+  Then the response is 404 with code "link_not_found"
+  And the denied attempt is audited
+
+Scenario: Private link open to the tenant
+  Given a private link with "any authenticated tenant user"
+  When an active tenant user authenticates and requests it
+  Then the download is authorized
   And a user from another tenant is rejected
 
 Scenario: Download limit is enforced under concurrency
@@ -732,18 +759,30 @@ Scenario: Audit entries cannot be modified
 ### US-030 — Configure global policies
 **As** an administrator **I want** to configure retention, notifications, quotas, and public-link
 policy **so that** the platform matches company rules.
-**Priority** M · **Milestone** M1/M6 · **Requirements** FR-RET-001..003/007, FR-NOT-001/003, FR-ADM-003/004/007
+**Priority** M · **Milestone** M1/M6 · **Requirements** FR-RET-001..003/007, FR-NOT-001/003, FR-ADM-003/004/007, FR-DEL-010, FR-LINK-017
 
 ```gherkin
 Scenario: New default applies only to new files
-  Given the default retention changes from 365 to 180 days
-  Then files created after the change expire in 180 days
+  Given the default retention changes from 30 to 60 days
+  Then files created after the change expire in 60 days
   And existing files keep their current expiry
 
-Scenario: Explicit bulk migration
-  Given the admin runs "apply retention 180 days" with a reason
-  Then only files in the specified scope are updated
-  And each change is audited with the reason
+Scenario: Default retention cannot exceed 365 days
+  Given the absolute maximum is 365 days
+  When I set the default to 400 days
+  Then the response is 422 with code "retention_exceeds_maximum"
+
+Scenario: Legal hold blocks expiration and deletion
+  Given an administrator places a legal hold on a file with a reason
+  When the expiration job runs or an administrator requests deletion
+  Then the file is not expired or deleted
+  And every hold/release action is audited
+
+Scenario: Link lifetimes are admin-defined
+  Given the public TTL is 15 days and the private TTL is 30 days
+  When a user creates links
+  Then each link expires at its corresponding configured lifetime
+  And the user cannot override it
 
 Scenario: Template customization
   Given I edit the "expiring soon" template

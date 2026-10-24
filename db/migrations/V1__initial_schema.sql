@@ -76,39 +76,6 @@ CREATE TABLE integration_permissions (
     PRIMARY KEY (integration_id, permission)
 );
 
-CREATE TABLE integration_credentials (
-    id                  uuid PRIMARY KEY DEFAULT uuidv7(),
-    integration_id      uuid NOT NULL REFERENCES integrations(id) ON DELETE CASCADE,
-    credential_type     text NOT NULL CHECK (credential_type IN ('api_key', 'entra_client')),
-    name                text NOT NULL CHECK (length(btrim(name)) BETWEEN 1 AND 120),
-    key_id              text UNIQUE CHECK (key_id IS NULL OR key_id ~ '^[a-z0-9]{12}$'),
-    key_prefix          text,
-    secret_hash         bytea CHECK (secret_hash IS NULL OR octet_length(secret_hash) = 32),
-    hash_algorithm      text NOT NULL DEFAULT 'hmac-sha256'
-                        CHECK (hash_algorithm IN ('hmac-sha256', 'none')),
-    hash_key_version    smallint NOT NULL DEFAULT 1 CHECK (hash_key_version > 0),
-    entra_client_id     uuid,
-    expires_at          timestamptz,
-    last_used_at        timestamptz,
-    rotated_from_id     uuid REFERENCES integration_credentials(id),
-    revoked_at          timestamptz,
-    revoked_by          uuid REFERENCES users(id),
-    revoked_reason      text,
-    created_by          uuid REFERENCES users(id),
-    created_at          timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT ck_credentials_shape CHECK (
-        (credential_type = 'api_key' AND key_id IS NOT NULL AND secret_hash IS NOT NULL
-            AND hash_algorithm = 'hmac-sha256' AND entra_client_id IS NULL) OR
-        (credential_type = 'entra_client' AND entra_client_id IS NOT NULL
-            AND key_id IS NULL AND secret_hash IS NULL AND hash_algorithm = 'none')
-    )
-);
-
-CREATE INDEX ix_credentials_integration ON integration_credentials (integration_id);
-CREATE INDEX ix_credentials_active
-    ON integration_credentials (integration_id, expires_at)
-    WHERE revoked_at IS NULL;
-
 -- Explicit read-only access to a file owned by another integration.
 CREATE TABLE integration_file_grants (
     id              uuid PRIMARY KEY DEFAULT uuidv7(),
@@ -133,8 +100,8 @@ CREATE INDEX ix_integration_file_grants_integration
 -- ---------------------------------------------------------------------------
 CREATE TABLE retention_policies (
     id                      uuid PRIMARY KEY DEFAULT uuidv7(),
-    default_days            integer NOT NULL CHECK (default_days BETWEEN 1 AND 36500),
-    max_days                integer NOT NULL CHECK (max_days BETWEEN 1 AND 36500),
+    default_days            integer NOT NULL CHECK (default_days BETWEEN 1 AND 365),
+    max_days                integer NOT NULL CHECK (max_days BETWEEN 1 AND 365),
     allow_user_override     boolean NOT NULL DEFAULT true,
     allow_indefinite        boolean NOT NULL DEFAULT false,
     public_links_enabled    boolean NOT NULL DEFAULT true,
@@ -143,7 +110,8 @@ CREATE TABLE retention_policies (
     notes                   text,
     created_by              uuid REFERENCES users(id),
     created_at              timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT ck_retention_max_ge_default CHECK (max_days >= default_days)
+    CONSTRAINT ck_retention_max_ge_default CHECK (max_days >= default_days),
+    CONSTRAINT ck_retention_absolute_max CHECK (max_days <= 365)
 );
 
 CREATE UNIQUE INDEX uq_retention_policies_active
@@ -220,7 +188,7 @@ CREATE TABLE files (
                                                    'public_link', 'integration_only')),
     retention_mode          text NOT NULL CHECK (retention_mode IN ('finite', 'indefinite')),
     expires_at              timestamptz,
-    retention_days          integer CHECK (retention_days IS NULL OR retention_days > 0),
+    retention_days          integer CHECK (retention_days IS NULL OR retention_days BETWEEN 1 AND 365),
     retention_policy_id     uuid REFERENCES retention_policies(id),
     scan_status             text NOT NULL DEFAULT 'not_scanned'
                             CHECK (scan_status IN ('not_scanned', 'pending', 'clean',
@@ -228,6 +196,11 @@ CREATE TABLE files (
     scan_completed_at       timestamptz,
     quarantine_reason       text,
     legal_hold              boolean NOT NULL DEFAULT false,
+    legal_hold_reason       text,
+    legal_hold_set_at       timestamptz,
+    legal_hold_set_by       uuid REFERENCES users(id),
+    legal_hold_review_at    timestamptz,
+    retention_reason        text,
     successful_downloads    bigint NOT NULL DEFAULT 0 CHECK (successful_downloads >= 0),
     last_download_at        timestamptz,
     metadata                jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -253,6 +226,10 @@ CREATE TABLE files (
         (retention_mode = 'indefinite' AND expires_at IS NULL)
     ),
     CONSTRAINT ck_files_deleted CHECK ((status = 'deleted') = (deleted_at IS NOT NULL)),
+    CONSTRAINT ck_files_legal_hold CHECK (
+        (legal_hold = false AND legal_hold_set_at IS NULL) OR
+        (legal_hold = true AND legal_hold_set_at IS NOT NULL)
+    ),
     CONSTRAINT ck_files_access_mode_owner CHECK (
         (owner_type = 'human' AND access_mode <> 'integration_only') OR
         (owner_type = 'integration' AND access_mode = 'integration_only')
@@ -357,6 +334,7 @@ CREATE TABLE download_links (
     file_id                 uuid NOT NULL REFERENCES files(id) ON DELETE CASCADE,
     token_hash              bytea NOT NULL UNIQUE CHECK (octet_length(token_hash) = 32),
     access_mode             text NOT NULL CHECK (access_mode IN ('public', 'private')),
+    allow_all_tenant        boolean NOT NULL DEFAULT false,
     download_key_hash       text CHECK (download_key_hash IS NULL
                                         OR length(download_key_hash) BETWEEN 20 AND 512),
     download_key_version    smallint CHECK (download_key_version IS NULL
@@ -380,6 +358,7 @@ CREATE TABLE download_links (
         (access_mode = 'private' AND download_key_hash IS NULL
             AND download_key_version IS NULL)
     ),
+    CONSTRAINT ck_links_acl_public CHECK (access_mode = 'private' OR allow_all_tenant = false),
     CONSTRAINT ck_links_status CHECK (
         (status = 'revoked' AND revoked_at IS NOT NULL) OR
         (status <> 'revoked')
@@ -393,6 +372,18 @@ CREATE TABLE download_links (
 CREATE INDEX ix_links_file ON download_links (file_id, created_at DESC);
 CREATE INDEX ix_links_active_expiry ON download_links (expires_at)
     WHERE status = 'active';
+
+CREATE TABLE download_link_acl (
+    id              uuid PRIMARY KEY DEFAULT uuidv7(),
+    link_id         uuid NOT NULL REFERENCES download_links(id) ON DELETE CASCADE,
+    principal_type  text NOT NULL CHECK (principal_type IN ('user', 'group')),
+    principal_id    uuid NOT NULL,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT uq_download_link_acl UNIQUE (link_id, principal_type, principal_id)
+);
+
+CREATE INDEX ix_download_link_acl_principal
+    ON download_link_acl (principal_type, principal_id);
 
 CREATE TABLE download_grants (
     id                  uuid PRIMARY KEY DEFAULT uuidv7(),

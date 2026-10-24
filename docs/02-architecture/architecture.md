@@ -25,6 +25,7 @@ flowchart LR
   consumer["Existing enterprise product<br/>(backend integration)"]
   entra["Microsoft Entra ID"]
   mail["Microsoft 365 mailbox<br/>(SMTP AUTH 587)"]
+  graph["Microsoft Graph<br/>(directory)"]
   signoz["SigNoz (self-hosted or external)<br/>OTLP"]
 
   subgraph aws["AWS account (construction phase)"]
@@ -53,12 +54,14 @@ flowchart LR
   human -->|OIDC PKCE| entra
   consumer -->|client credentials| entra
   worker -->|SMTP AUTH / TLS| mail
+  api -->|Graph directory| graph
   api -.->|OTLP| signoz
   worker -.->|OTLP| signoz
 ```
 
 External dependencies: Microsoft Entra ID (human/machine identity), the Microsoft 365 mailbox
-(SMTP AUTH for email; POP is inbound only), Amazon S3 (blobs), and SigNoz (telemetry).
+(SMTP AUTH for email; POP is inbound only), Microsoft Graph (directory search/group membership
+for private-link ACLs), Amazon S3 (blobs), and SigNoz (telemetry).
 
 ## 3. Container view (C4 level 2)
 
@@ -119,7 +122,7 @@ The host also runs a `pg_dump` backup job (cron/systemd timer) that writes to
 ```mermaid
 flowchart TB
   subgraph api["Files.Api"]
-    auth["Auth & policy<br/>JWT · API key · tenant check"]
+    auth["Auth & policy<br/>JWT · tenant check"]
     portalEp["Portal endpoints<br/>files · tags · links · stats"]
     intEp["Integration endpoints<br/>sessions · chunks · metadata · content"]
     pubEp["Public link endpoints<br/>metadata · key verify · grants"]
@@ -330,6 +333,7 @@ flowchart TB
 | API/Worker ↔ PostgreSQL | Docker network | Strong password, no host port, least-privilege DB role. |
 | API/Worker ↔ S3 | IAM instance role | Prefix-scoped identity policy + bucket policy deny-all-except-role; TLS. |
 | Worker ↔ Microsoft 365 SMTP | Outbound TLS 587 | Mailbox credentials in `.env`; STARTTLS; no POP for sending. |
+| API ↔ Microsoft Graph | Outbound HTTPS 443 | App-only `User.ReadBasic.All`, `Group.ReadBasic.All`, `GroupMember.Read.All`; no directory data persisted beyond ACL IDs. |
 | Host ↔ operator | SSH | Restricted CIDR, key auth, fail2ban, no password login. |
 | Public visitor ↔ API | Untrusted | Token + key + throttling; generic errors. |
 
@@ -367,7 +371,7 @@ flowchart TB
   optional but recommended externally if host resources are tight.
 - **Resilience:** retries with exponential backoff for S3/SMTP; circuit breaker for SMTP;
   timeouts; upload sessions survive client disconnects; S3 commit retries reuse staging.
-- **Data protection:** Argon2id for link keys, HMAC-SHA256 for API keys, SHA-256 for link/grant
+- **Data protection:** Argon2id for link keys, SHA-256 for link/grant
   tokens; SSE-S3 at rest; TLS in transit.
 
 ## 12. Scale-up path (not part of the initial phase)

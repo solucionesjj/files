@@ -30,7 +30,8 @@ Fill at least: `FILES_DOMAIN=files.sacservices.cloud`, `POSTGRES_PASSWORD`,
 `ConnectionStrings__FilesDb` (same password), Entra IDs/audience, peppers, the Microsoft 365 SMTP
 mailbox credentials (`Smtp__*`), and the S3 bucket name. Do not add S3 access keys; the instance
 role is used. Keep `S3__Region=us-east-1`. The mailbox must have SMTP AUTH enabled (POP is only for
-receiving).
+receiving). For private-link ACLs, grant the Graph app `User.ReadBasic.All`,
+`Group.ReadBasic.All`, and `GroupMember.Read.All` (admin consent) and set `Graph__*`.
 
 ## 3. Start PostgreSQL and migrate
 

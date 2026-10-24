@@ -143,14 +143,16 @@ cd infra/terraform && terraform init -backend=false && terraform validate
   Dapper, Quartz in-memory scheduler with PG advisory locks.
 - **API-only S3**: chunked uploads to local staging then server-side multipart; downloads streamed
   with 120-second single-use grants; no presigned URLs anywhere.
-- **Public links**: 256-bit token plus an 8-character key (Argon2id verifier), throttling,
-  lockouts, monitoring.
-- **Retention** is explicitly finite or indefinite (null expiry, never a sentinel date), versioned
-  by policy; notifications and deletion are idempotent background jobs.
+- **Links**: public 256-bit token + 8-character key (Argon2id), 15-day TTL; private links
+  30 days with an ACL of Entra users/groups or all-tenant; TTLs are admin-defined, not owner-set.
+- **Retention** is explicit finite/indefinite: human default 30 days, absolute max 365 days, a
+  mandatory note to extend above the default, and no indefinite human files; legal hold blocks
+  expiry/deletion. Audit is retained 60 months and downloads 24 months.
 - **Integration files** are private, indefinitely retained; cross-integration access requires an
   explicit read-only grant.
-- **Entra ID** for humans (OIDC + PKCE, app roles) and client credentials for machines, with
-  optional API keys as a compatibility path.
+- **Entra ID** for humans (OIDC + PKCE, app roles) and **client credentials only** for machines;
+  Files does not issue API keys.
+- **Bilingual UI** (Spanish default, English selector); emails use the recipient locale.
 - **Single-node deployment** (D-31): 99.5% best-effort, nightly logical backups, documented
   scale-up path to RDS/ECS/ALB when construction ends.
 

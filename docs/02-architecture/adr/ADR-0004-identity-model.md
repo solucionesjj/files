@@ -1,15 +1,15 @@
-# ADR-0004 — Identity: Entra ID for humans, client credentials + API keys for machines
+# ADR-0004 — Identity: Entra ID for humans and machines (no API keys)
 
-- **Status:** Accepted (API keys provisional per OQ-11)
+- **Status:** Accepted (OQ-03 and OQ-11 resolved)
 - **Date:** 2026-10-23
 - **Deciders:** Security, Architecture
 
 ## Context
 
-The source requires Microsoft Entra ID for human users, OAuth2 client credentials as the preferred
-machine mechanism, and API keys only for compatibility. Human and machine identities must be
-isolated, and a key must not become a universal credential. One Entra tenant per deployment is
-assumed (OQ-03), with identification by (`tid`, `oid`).
+The source requires Microsoft Entra ID for humans and OAuth 2.0 client credentials as the preferred
+machine mechanism. It allowed API keys only for compatibility. The owner confirmed **one Entra
+tenant per deployment** and **Entra-only machine authentication**, so Files does not need a second
+credential lifecycle or store any client secret.
 
 ## Decision
 
@@ -25,32 +25,42 @@ assumed (OQ-03), with identification by (`tid`, `oid`).
 
 **Machines**
 
-- Primary: Entra client credentials. The integration stores `entra_client_id` (and the service
-  principal `object_id` for audit); the token's `azp`/`appid` must match an active integration,
-  and its app-role claims must map to that integration's permissions. Tokens from unregistered
-  apps are rejected.
-- Fallback: API keys, format `flk_<kid>_<secret>`; `kid` = 12 base32 chars (lookup), `secret` =
-  32 random bytes base64url. Only `HMAC-SHA256(pepper, secret)` is stored; verification is
-  constant-time. The plaintext is returned exactly once. Keys have expiry, revocation, rotation
-  overlap, per-integration scope, and optional IP allowlist.
-- Key material peppers come from configuration (`Auth__ApiKeyPepper`) and can be rotated with a
-  versioned prefix in the stored hash (see runbook).
-- No machine credential can cross integration boundaries; authority is always
+- Entra client credentials only. The integration stores `entra_client_id` (and the service
+  principal `object_id` for audit); the token's `azp`/`appid` must match an active integration.
+- The `Files.Integration` role proves the app was granted the API permission; the **actual
+  permissions are read from Files** (`file.write`, `file.read`, `file.delete`), never from token
+  scopes.
+- **No API keys, no client secrets, and no shared symmetric credentials are stored by Files.**
+  The consumer owns its Entra secret/certificate; rotation happens in Entra. Files needs no
+  notification when the consumer rotates.
+- Unregistered, disabled, or IP-restricted integrations are rejected; authority is always
   integration ID + permission + file ownership/grant.
+
+**Directory data for link ACLs**
+
+- Private links can target specific Entra users/groups. The API needs read-only directory access
+  to search users/groups and evaluate membership:
+  - Graph application permissions `User.ReadBasic.All`, `Group.ReadBasic.All`, and
+    `GroupMember.Read.All` (admin consent), scoped to the tenant;
+  - or the token's `groups` claim for group checks, with Graph fallback when the claim is absent
+    or over the limit.
+- The directory search endpoint is portal-only, rate-limited, and returns only object ID, display
+  name, and (for users) email; no other directory data is exposed.
 
 ## Consequences
 
-- Two authentication handlers plus a policy scheme that routes `flk_` to API keys and JWT
-  otherwise. Endpoint policies decide which actor types are allowed.
-- API key lookup is O(1) by `kid`; a leaked key is revocable without touching the integration.
-- Entra app registrations are an operational dependency per integration (admin runbook).
-- API key support adds secret-handling, rotation, and scanning obligations; it can be disabled
-  globally by feature flag if unused.
+- One authentication handler for humans and one for app tokens; no API key handler, pepper, or
+  credential table.
+- A compromised consumer secret is handled in Entra (disable the app/rotate); Files rejects the
+  app as soon as its integration is disabled or its client ID is removed.
+- The directory integration adds Graph app permissions and a cache; if Graph is unavailable, new
+  link ACL editing fails closed while existing links keep working.
+- Entra application registration remains an operational dependency per integration.
 
 ## Alternatives considered
 
-- Only API keys: rejected (rotation and audit weaker; spec prefers Entra).
-- Only Entra: rejected for legacy compatibility (OQ-11), but it remains the default path.
-- Storing API keys encrypted instead of hashed: rejected (reversible secrets are unnecessary and
-  riskier).
-- Argon2id for API keys: rejected (unnecessary for 256-bit secrets, adds verification cost).
+- **API keys** (previous design): rejected by OQ-11; removes rotation, hashing, and leak surface.
+- **Storing client secrets in Files:** rejected (no need; Entra validates the app).
+- **Group membership only from the token `groups` claim:** insufficient for large tenants
+  (overage) and for dynamic groups; Graph fallback is required.
+- **No private-link ACL:** rejected by OQ-04; specific users/groups or all-tenant are required.

@@ -62,14 +62,15 @@ milestone you are implementing. Check `git log` for what changed since the last 
 | Host size | `t3.large` (8 GiB) for ClamAV + PostgreSQL + API/worker | D-35 |
 | Link token | 32 bytes base64url (43 chars), SHA-256 at rest | ADR-0005 |
 | Download key | Exactly 8 chars `[A-Za-z0-9]`, Argon2id verifier, versioned pepper, never logged | ADR-0005 |
-| API keys | `flk_<kid>_<secret>`, HMAC-SHA256 peppered, show once | ADR-0004 |
-| Retention | `finite` ⇔ `expires_at` not null; `indefinite` ⇔ null; never a far-future date | ADR-0006 |
+| Machine auth | Entra client credentials only; **no API keys** are issued or stored | ADR-0004 |
+| Retention | `finite` ⇔ `expires_at` not null; human default 30 d, absolute max 365 d, note required above default; indefinite only integrations | ADR-0006 |
 | Integration files | Indefinite, `integration_only`, no public links, no portal visibility | Requirements §5.4 |
-| Admins | Manage metadata/policy; **no content access** by default | D-19 |
+| Admins | Manage metadata/policy/legal hold; **no content access** | D-19 |
 | Deletion | Logical first, physical async, tombstone retained; backups caveat | ADR-0008 |
 | Jobs | Quartz in-memory + PG advisory locks; transactional outbox | ADR-0007 |
 | Errors | RFC 9457, stable `code`, 404 for foreign link/file | ADR-0012 |
-| Frontend | Angular standalone + Bootstrap 5.3 + MSAL, Spanish UI | ADR-0013 |
+| Frontend | Angular standalone + Bootstrap 5.3 + MSAL; Spanish/English selector (Spanish default) | ADR-0013 |
+| Links | Public 15 d / private 30 d (admin-defined, owner cannot change); private ACL by users/groups or all-tenant | ADR-0005 |
 
 When a decision must change: add/update an ADR or `decisions.md`, update affected requirements,
 stories, tests, schema, and contract **in the same change**, and note it in `AGENTS.md`.
@@ -77,7 +78,7 @@ stories, tests, schema, and contract **in the same change**, and note it in `AGE
 ## 4. Conventions
 
 - **Language:** docs, code, identifiers, commits in English. User-facing UI strings in Spanish
-  (`es-CO`) unless OQ-14 changes it.
+  and English (Spanish default); emails use the recipient locale.
 - **Commits:** Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`), small and focused.
 - **Branches:** `feat/...`, `fix/...`; never commit directly to `main` once the team grows.
 - **Tests:** every behavior change includes tests; authorization changes include denied cases.
@@ -146,7 +147,7 @@ Local endpoints: API `http://localhost:8080`, Portal `http://localhost:4200`, Lo
    Angular workspace, health endpoints, config validation, OTel wiring; bring up compose; run CI.
    Add the API/worker Dockerfiles required by `deploy/docker-compose.prod.yml`.
 2. **S2 / M1:** EF Core mapping + repositories + audit/outbox writers; user/integration persistence.
-3. **S3 / M1:** Entra JWT validation, JIT provisioning, role policies, integration admin + API keys.
+3. **S3 / M1:** Entra JWT validation, JIT provisioning, role policies, integration admin (Entra app binding; no API keys).
 4. **S4–S5 / M2:** `IObjectStore`, `IChunkStore` staging, chunk endpoints, server-side S3 commit,
    completion verification, disk reserve, cleanup; integration tests with LocalStack S3.
 5. **S6–S8:** portal, then links/public downloads.
@@ -169,6 +170,9 @@ DB, S3, streaming, audit, and counts together.
 - ❌ Returning 403 for another user's file — use 404 to avoid existence oracles.
 - ❌ Letting portal search see integration files.
 - ❌ Giving admins content access "for support" without an ADR and audit design.
+- ❌ Issuing API keys or storing integration client secrets; machine auth is Entra-only.
+- ❌ Letting a legal-hold file expire or be deleted.
+- ❌ Allowing a link owner to override the admin-defined public/private TTL.
 - ❌ Far-future timestamps for indefinite retention.
 - ❌ Auto-migrating the database on API startup or editing an applied migration.
 - ❌ Committing `/opt/files/.env`, S3 keys, or Terraform state.

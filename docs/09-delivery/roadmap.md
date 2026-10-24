@@ -8,12 +8,12 @@ Progress is updated at the end of every work session (see [AGENTS.md](../../AGEN
 | ID | Milestone | Outcome | Exit criteria |
 |---|---|---|---|
 | M0 | Foundations | Buildable repo, local stack, CI, health, telemetry | `docker compose up` works; API/worker build; health endpoints; CI green; `make validate` passes. |
-| M1 | Identity, data, admin base | Schema, Entra auth, RBAC, integrations/credentials | Migrations applied; JIT user; `/me`; admin integration + key issuance; audit rows; auth tests green. |
+| M1 | Identity, data, admin base | Schema, Entra auth, RBAC, integrations | Migrations applied; JIT user; `/me`; admin integration + Entra app binding; audit rows; auth tests green. |
 | M2 | Upload and storage | Chunked API upload, local staging, S3 commit, verification, cleanup | 5 GiB chunked upload works against LocalStack S3; staging/disk checks; stale sessions and multipart cleaned; tests. |
 | M3 | Portal MVP | Human file management | Sign-in, upload, list/search/tags, detail, download, delete; accessibility scan; E2E. |
 | M4 | Links and public access | Public/private links, keys, grants, abuse controls | Key shown once; grant flow; limits under concurrency; lockout; stats; tests. |
-| M5 | Integration API | Machine consumers end-to-end | Client credentials + API key; idempotency; upload/read/content/delete/availability; quotas; §15 flow demo. |
-| M6 | Retention, notifications, deletion | Lifecycle automation | Policy versions; M365 SMTP email (POP inbound only); unique notifications; expiry/deletion jobs; ClamAV scan/commit; reconcile; admin UI/API. |
+| M5 | Integration API | Machine consumers end-to-end | Entra client credentials only; idempotency; upload/read/content/delete/availability; quotas; §15 flow demo. |
+| M6 | Retention, notifications, deletion | Lifecycle automation | Policy versions; legal hold; M365 SMTP email; unique notifications; expiry/deletion jobs; ClamAV scan/commit; reconcile; admin UI/API. |
 | M7 | Hardening and launch | Production readiness | Pen test fixes; load/soak; DR drill; SLO dashboards/alerts; cost approved; runbooks; OQ blockers resolved. |
 
 ## 2. Session plan
@@ -25,15 +25,15 @@ can run partly in parallel once their dependencies are met.
 |---|---|---|---|
 | S1 | M0 | Bootstrap the solution | `Files.slnx`/`Files.sln`, projects, `Directory.Build.props`, `global.json`, Angular workspace, compose, `/health`, config validation, CI, `make validate`. |
 | S2 | M1 | Database and persistence base | Flyway runner, EF DbContext + naming, repository seams, user/integration entities, audit writer, outbox writer, DB tests. |
-| S3 | M1 | Entra auth and admin base | JWT validation, policies, JIT users, `/me`, integration CRUD, API key issue/revoke, admin audit. |
+| S3 | M1 | Entra auth and admin base | JWT validation, policies, JIT users, `/me`, integration CRUD (Entra app binding, no API keys), admin audit. |
 | S4 | M2 | Storage adapter, staging, sessions | `IObjectStore` (S3; LocalStack locally), `IChunkStore` staging, create session, chunk endpoints, disk/quota checks. |
 | S5 | M2 | Completion, ClamAV scan/commit, cleanup | Verify chunks/size/checksum, scan before S3, server-side multipart/put, HeadObject, retry commit, abort/cleanup, integration tests. |
 | S6 | M3 | Portal shell and files UX | Angular app, MSAL, API client, file list/search/filters/pagination, detail, upload orchestration. |
 | S7 | M3 | Portal management | Rename/tags/retention, delete, owner download grant, E2E + accessibility, error UX. |
-| S8 | M4 | Links and public downloads | Link create/list/revoke, public/private metadata, key verify, grants, reservation concurrency, abuse controls, stats. |
+| S8 | M4 | Links and public downloads | Link create/list/revoke, admin TTL, private ACL/directory, public/private metadata, key verify, grants, reservation concurrency, abuse controls, stats. |
 | S9 | M5 | Integration API | Integration auth handlers, idempotency filter, content/availability/delete, chunk upload, quotas, §15 demo, OpenAPI contract tests. |
-| S10 | M6 | Retention and notifications | Policy versioning, scheduler, templates/renderer, M365 SMTP sender, retries, admin endpoints/UI. |
-| S11 | M6 | Expiration and deletion | Expiration/deletion jobs, tombstones, reconciliation, retention purge, metrics/alerts. |
+| S10 | M6 | Retention, legal hold, notifications | Policy versioning (30/365 + note), legal hold, scheduler, templates/renderer, M365 SMTP sender, retries, admin endpoints/UI. |
+| S11 | M6 | Expiration and deletion | Expiration/deletion jobs (skip legal hold), tombstones, reconciliation, retention purge, metrics/alerts. |
 | S12 | M7 | Test hardening and security | IDOR/auth matrices, upload tampering, ZAP, dependency/IaC scans, pen-test fixes, load/soak. |
 | S13 | M7 | Operations readiness | Terraform EC2/S3/IAM plan, Docker Compose/Caddy deploy, backup/restore drill, dashboards/alerts, runbooks rehearsal, cost review. |
 | S14 | M7 | Launch | Staging sign-off, migration/backfill rehearsal, production cutover, post-launch monitoring. |

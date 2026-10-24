@@ -24,7 +24,8 @@
 | Files Auditor | `Files.Auditor` | Users/Groups | Read-only audit/usage. |
 | Files Integration | `Files.Integration` | Applications | Proves the caller is a registered machine app; per-integration permissions live in Files. |
 
-- **Optional claims:** `email`, `upn` (if available), `groups` not required.
+- **Optional claims:** `email`, `upn` (if available), and optionally `groups` (used as a fast path for private-link group checks; Graph is the fallback for overage/dynamic groups).
+- **Microsoft Graph application permissions (admin consent):** `User.ReadBasic.All`, `Group.ReadBasic.All`, and `GroupMember.Read.All`. Used only for the portal directory picker and private-link ACL membership checks; no tenant data is stored beyond the ACL object IDs.
 - **Token configuration:** v2 access tokens; `roles` included for app roles.
 - **Redirect URIs** belong to `files-portal`, not `files-api`.
 
@@ -136,9 +137,14 @@ permanently with `no_recipient` (visible in notification events).
 - A private link URL (`/d/{token}`) is a portal route. If there is no session, MSAL redirects to
   Entra with a `returnUrl` (validated against an allowlist).
 - After login, the SPA calls `POST /v1/download-links/{token}/downloads` with the bearer token.
-- The API verifies: valid tenant token, active user, active link, file downloadable, link limits.
-- Any tenant member with the link may download (OQ-04 default). The link is the authorization,
-  not the user's relationship to the file.
+- The API verifies: valid tenant token, active user, active link, file downloadable, link limits,
+  and the link ACL.
+- The private link has either `allow_all_tenant = true` (any active tenant member) or an ACL of
+  Entra user/group object IDs selected by the owner (OQ-04). A user outside the ACL gets the
+  generic `404 link_not_found`.
+- Group membership is checked from the `groups` token claim when present; otherwise (or for
+  dynamic/large groups) the API calls Graph with a cached result. Graph failure fails closed for
+  the check.
 - A user from another tenant is rejected (`401 tenant_not_allowed`), even if the link is valid.
 - Guest/B2B accounts: not supported in v1 because `tid` may reflect the home tenant. If guests
   must be supported, add an explicit tenant-membership check (OQ-03/OQ-04).

@@ -31,7 +31,7 @@ stateDiagram-v2
     processing --> quarantined: scan infected/failed policy
     available --> quarantined: reconciliation finds object missing
     available --> expired: expires_at <= now()
-    available --> pending_deletion: owner/admin delete
+    available --> pending_deletion: owner/admin delete (no legal hold)
     quarantined --> pending_deletion: admin delete
     expired --> pending_deletion: expiration job (same run)
     upload_failed --> pending_deletion: cleanup job
@@ -51,7 +51,7 @@ stateDiagram-v2
 | T4 | `processing` | Scan infected | ClamAV infected | `quarantined` | `scan_status=infected`, `quarantine_reason`, **no S3 upload**, delete staging/chunks, revoke links, audit, alert. |
 | T4b | `processing` | Scanner unavailable/timeout | — | `processing` | `scan_status=failed`, retry with backoff, alert; staging retained, not downloadable. |
 | T5 | `available` | Expiration job | `expires_at <= now()` and no legal hold | `expired` → `pending_deletion` (one run) | Revoke active links, recompute `access_mode` to `owner_only`, cancel pending notifications, audit `expired`, outbox `file.expired`, set `next_deletion_at=now()`. |
-| T6 | `available` | Owner/integration delete | Owner (or admin) and permission | `pending_deletion` | `deletion_requested_by`, reason, revoke links, recompute `access_mode`, audit, outbox `file.deletion_requested`, `next_deletion_at=now()`. |
+| T6 | `available` | Owner/integration delete | Owner (or admin) and permission and no legal hold | `pending_deletion` | `deletion_requested_by`, reason, revoke links, recompute `access_mode`, audit, outbox `file.deletion_requested`, `next_deletion_at=now()`. |
 | T7 | `quarantined` | Admin delete | Admin + reason | `pending_deletion` | Audit, revoke links. |
 | T8 | `upload_failed` | Cleanup job | Terminal >24 h | `pending_deletion` | Delete any staging file/multipart, audit cleanup. |
 | T9 | `pending_deletion` | Deletion job | — | `deleted` | S3 delete (external, idempotent), `deleted_at=now()`, `last_deletion_error=null`, audit `deleted`, outbox. |
@@ -60,6 +60,8 @@ stateDiagram-v2
 | T12 | `available` | Reconciliation | Object missing | `quarantined` | `quarantine_reason='object_missing'`, revoke links, alert, audit. |
 
 No transition from `expired`, `quarantined`, `pending_deletion`, or `deleted` back to `available`.
+Legal hold is a flag, not a state: it can be set on `available`/`expired` files and blocks the
+next expiry/deletion run. Only an admin can set/release it, with a reason; every action is audited.
 Retention extension is only possible **before** expiry (while `available`).
 
 ## 4. Download eligibility predicate
@@ -70,7 +72,7 @@ A file is downloadable only when **all** hold:
 status = 'available'
 AND (expires_at IS NULL OR expires_at > now())
 AND scan_status IN ('clean', 'not_scanned')
-AND legal_hold = false            -- reserved for future use; v1 always false
+-- legal hold blocks expiry/deletion, not a normal unexpired download
 ```
 
 Authorization is evaluated additionally:
@@ -92,7 +94,7 @@ between the two is not served. A link's validity never overrides the file predic
 | Retention change outside policy | Admin | Yes (≥10 chars) |
 | Delete own file | Owner | No |
 | Delete any file | Admin | Yes |
-| Disable integration / revoke credential | Admin | Yes |
+| Disable integration / rotate Entra credential | Admin / consumer | Yes |
 | Bulk retention migration | Admin | Yes |
 | Quarantine | System | Automatic reason code |
 
@@ -134,7 +136,8 @@ between the two is not served. A link's validity never overrides the file predic
 ## 9. Metrics and audit per transition
 
 Every transition writes a `file_audit_events` row (`action` = `upload_created`,
-`upload_verified`, `scan_completed`, `quarantined`, `expired`, `deletion_requested`, `deleted`,
+`upload_verified`, `scan_completed`, `quarantined`, `legal_hold_set`, `legal_hold_released`,
+`expired`, `deletion_requested`, `deleted`,
 `deletion_failed`, `retention_changed`, `metadata_updated`) with actor, result, reason, trace ID,
 and JSONB metadata (before/after status, size, error class). Counters:
 `file_transitions_total{from,to}` and `files_deletion_failures_total`.

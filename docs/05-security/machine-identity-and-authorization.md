@@ -2,25 +2,27 @@
 
 **Decisions:** ADR-0004, ADR-0011 · **Requirements:** FR-M2M-001..014, FR-INT-001..011
 
+Machine authentication is **Entra ID client credentials only**. Files does not issue API keys,
+store client secrets, or accept shared symmetric credentials.
+
 ## 1. Registration model
 
-An integration is created by an administrator in two coordinated steps:
+An integration is created in two coordinated steps:
 
-1. **Entra:** create/obtain an app registration for the consumer with the application permission
-   `Files.Integration` (admin consent). Record its client ID.
-2. **Files:** `POST /v1/admin/integrations` with `slug`, `name`, `permissions`, optional
-   `entraClientId`, optional IP allowlist. Then issue an API key if the consumer needs the
-   fallback (`POST .../credentials` with `credentialType=api_key`).
+1. **Entra:** the consumer's app registration gets the application permission/role
+   `Files.Integration` (admin consent). Record its **client ID** (`appId`).
+2. **Files:** an administrator calls `POST /v1/admin/integrations` with `slug`, `name`,
+   permissions, optional `entraClientId`, and optional IP allowlist.
 
 The integration row stores:
 
-- `status` (`active`/`disabled`) — disabling is immediate for all credential types.
-- Permissions (`file.write`, `file.read`, `file.delete`) — replaceable only by an admin, audited.
-- `entra_client_id` — unique, matched against the token's `azp`.
-- `allowed_ip_cidrs` — optional; empty means any source (still requires a valid credential).
+- `status` (`active`/`disabled`); disabling is immediate.
+- Permissions (`file.write`, `file.read`, `file.delete`), admin-managed and audited.
+- `entra_client_id` — unique; matched against the token's `azp`/`appid`.
+- `allowed_ip_cidrs` — optional; empty means any source (a valid token is still required).
 - Disable/enable metadata with reason and actor.
 
-## 2. Primary authentication: Entra client credentials
+## 2. Client-credentials flow
 
 The API/worker is the only S3 client (D-30); integration credentials authorize API calls, never
 S3 calls.
@@ -45,148 +47,95 @@ sequenceDiagram
 Rules:
 
 - Tokens are cached by the consumer until near expiry; Files never issues its own JWTs.
-- `azp` (or `appid`) must map to exactly one active integration. Unregistered clients get
+- `azp`/`appid` must map to exactly one active integration. Unregistered clients get
   `401 invalid_token`; disabled integrations get `401 integration_disabled`.
-- The presence of `Files.Integration` proves the app was granted the app role; **permissions are
-  always read from the Files database**, not from the token.
-- Client secrets/certificates never reach Files. Consumers must use certificates or managed
-  identity where possible.
+- The `Files.Integration` role proves the app was granted the API permission; **permissions are
+  always read from the Files database**.
+- Client secrets/certificates stay in the consumer's secret store; they never reach Files.
+  Consumers should use certificates or managed identity where possible.
+- No API keys, basic-auth credentials, or shared secrets are accepted.
 
-## 3. Fallback authentication: API keys
-
-### Format
-
-```
-flk_<kid>_<secret>
-    kid    = 12 lowercase base32/base36 chars (lookup index, not secret)
-    secret = 32 random bytes, base64url (43 chars)
-```
-
-Example (fake): `flk_7k2m9q4xw1ab_Vq3t...43chars`. The full value is 256-bit entropy.
-
-### Storage and verification
-
-- Store `key_id = kid`, `key_prefix = "flk_<kid>_"` (for display), and
-  `secret_hash = HMAC-SHA256(pepper, secret)` (32 bytes). The pepper is
-  `Auth__ApiKeyPepper`; `hash_key_version` records which pepper version verified
-  the hash so peppers can be rotated (runbook §15).
-- Authentication: parse → lookup `key_id` → reject if integration disabled/credential
-  revoked/expired → verify HMAC in constant time → update `last_used_at` (at most once/minute).
-- The plaintext is returned exactly once at issuance; the UI shows it once and never again.
-- Keys are never written to logs, traces, URLs, or error messages. Redaction filters include
-  `Authorization` and any `flk_` pattern.
-
-### Lifecycle
-
-| Operation | Behavior |
-|---|---|
-| Issue | Admin selects name, expiry (default 365 days), optional `rotateFromId`. Secret returned once. |
-| Rotate | Issue a second key; both are valid during the overlap window (consumer deploys the new one, then revokes the old). |
-| Revoke | `revoked_at` set; authentication fails immediately (`401 api_key_expired`). Reason required. |
-| Expire | `expires_at` enforced at authentication; alerts 30/7/1 days before. |
-| Disable integration | All keys fail regardless of expiry. |
-
-Limits: at most 2 active API keys per integration; 5 credentials per integration total. Exceeding
-returns `422 validation_error`.
-
-## 4. Authentication handler selection
-
-```
-Authorization header missing                          -> 401
-Bearer value starts with "flk_"                      -> ApiKey handler
-otherwise                                           -> JWT handler (user or app token)
-```
-
-The JWT handler accepts both delegated and app-only tokens; the endpoint's authorization policy
-decides which actor types are allowed. API key authentication always resolves to an integration;
-the integration policy rejects it on portal routes.
-
-## 5. Permissions and file-level authorization
+## 3. Authorization and file access
 
 | Operation | Permission | Ownership/grant |
 |---|---|---|
-| Create upload session / proxy upload | `file.write` | New file owned by caller. |
+| Create upload session | `file.write` | New file owned by caller. |
 | Read metadata | `file.read` | Owned or active `integration_file_grants` row. |
 | Check availability | `file.read` | Same. |
 | Download content | `file.read` | Same. |
-| Delete file | `file.delete` | **Owner only** (grants are read-only). |
-
-Additional rules:
+| Delete file | `file.delete` | **Owner only**; grants are read-only. |
 
 - Grants are created by admins (`POST /v1/admin/files/{fileId}/grants`), can expire, and are
-  revocable. A grant never allows deletion or writing.
-- Disabled integrations, expired grants, and deleted files fail closed.
-- Cross-integration access attempts are audited as denied download events.
+  revocable.
+- Disabled integrations, expired grants, and deleted/expired files fail closed.
+- Cross-integration attempts are audited as denied download events.
 - Foreign/unauthorized files return `404 file_not_found` (no existence oracle).
 
-## 6. Per-integration quotas and limits
+## 4. Per-integration quotas and limits
 
 | Limit | Default | Config |
 |---|---|---|
-| Max file size | 5 GiB (or lower per integration) | `Storage__MaxFileSizeBytes` + per-integration override |
-| Concurrent upload sessions | 5 | `platform_settings.max_upload_sessions_per_integration` |
+| Max file size | 5 GiB (or lower per integration) | `Storage__MaxFileSizeBytes` + override |
+| Concurrent upload sessions | 3 | `platform_settings` / integration |
 | Daily ingress bytes | 50 GiB | `daily_usage` |
 | Requests per minute | 600 | rate limiter |
-| API keys | 2 active | — |
+| API keys | **not supported** | — |
 
-Quota and staging-capacity checks happen **before** creating the session or accepting any chunk, and are enforced atomically with `daily_usage` upserts.
-`429 quota_exceeded` includes `Retry-After` until the next UTC day.
+Quota and staging-capacity checks happen **before** creating a session or accepting any chunk,
+and are enforced atomically with `daily_usage` upserts. `429 quota_exceeded` includes
+`Retry-After`.
 
-## 7. IP allowlist
+## 5. IP allowlist
 
 - Stored as `cidr[]`; empty = any.
-- The API trusts `X-Forwarded-For` only from Caddy (Docker network) and takes the first untrusted
-  hop; direct connections to the API port are impossible from the internet (Caddy is the only
-  published listener).
-- IPv4 and IPv6 supported. `403 ip_not_allowed` is logged with the resolved IP (hashed in audit).
+- The API trusts `X-Forwarded-For` only from Caddy and takes the first untrusted hop; direct
+  connections to the API port are impossible from the internet.
+- IPv4 and IPv6 are supported. `403 ip_not_allowed` is logged with the resolved IP (hashed in
+  audit).
 - Changing the allowlist is audited and takes effect immediately.
 
-## 8. Audit events
+## 6. Audit events
 
 | Event | Data |
 |---|---|
-| Integration created/updated/disabled | Admin actor, reason, before/after (no secrets). |
-| Credential issued | Key ID, type, expiry, actor; never the secret. |
-| Credential revoked/expired | Reason, actor, timestamp. |
+| Integration created/updated/disabled | Admin actor, reason, before/after. |
+| Entra client ID bound/changed | Admin actor, old/new client ID, reason. |
 | Upload session created/completed | Integration, file ID, size, IP hash. |
 | Metadata/content access | Integration, file ID, result, IP hash, trace ID. |
 | Access denied | Reason code (`no_grant`, `disabled`, `ip_not_allowed`, `unavailable`). |
 | File deleted | Integration actor, prior state, result. |
 
-## 9. Rotation runbook (summary)
+## 7. Credential rotation (consumer-owned)
 
-1. Issue key B with `rotateFromId = A`; distribute B to the consumer through the approved secret
-   channel.
-2. Consumer deploys B and confirms successful calls (monitor `last_used_at` and 401 metrics).
-3. Revoke A with a reason.
-4. If a key leaks: revoke immediately, issue a replacement, review `download_events` and
-   `file_audit_events` for the exposure window, notify security.
+1. In Entra, add a new client secret/certificate to the consumer's app registration.
+2. Deploy the new credential to the consumer; confirm calls succeed.
+3. Remove the old secret/certificate in Entra.
+4. No Files change is required because the integration is keyed by `azp`/`client ID`.
 
-For Entra client credentials, rotation is managed in Entra: add a new secret/certificate, update
-the consumer, then remove the old one; Files needs no change because the integration is keyed by
-`azp`.
+If an Entra credential leaks: disable the integration in Files immediately (blocks all tokens),
+revoke the app secret in Entra, review `download_events`/`file_audit_events`, then re-enable with a
+new credential.
 
-## 10. Error behavior
+## 8. Error behavior
 
 | Situation | Status/code |
 |---|---|
 | Missing header | 401 `invalid_token` |
-| Unknown key ID | 401 `api_key_invalid` |
-| Wrong secret | 401 `api_key_invalid` |
-| Expired/revoked key | 401 `api_key_expired` |
+| Invalid/expired token | 401 `invalid_token` / `token_expired` |
+| Unregistered `azp` | 401 `invalid_token` |
 | Disabled integration | 401 `integration_disabled` |
-| Valid credential, missing permission | 403 `insufficient_permission` |
-| Valid credential, IP outside allowlist | 403 `ip_not_allowed` |
+| Valid token, missing permission | 403 `insufficient_permission` |
+| IP outside allowlist | 403 `ip_not_allowed` |
 | File not owned/no grant | 404 `file_not_found` |
 | File expired/quarantined | 404 `file_unavailable` |
 | Quota exceeded | 429 `quota_exceeded` |
 
-## 11. Consumer obligations (documented in the integration guide)
+## 9. Consumer obligations
 
-- Store credentials in a secret manager, never in source control or browsers.
-- Use client credentials from the backend only; never expose them to a browser.
+- Store the Entra secret/certificate in a secret manager; never in source or a browser.
+- Use client credentials only from the backend.
 - Send an `Idempotency-Key` on create operations and retry with the same key.
-- Treat 404 as "not accessible" and never retry 4xx except 429.
+- Treat 404 as "not accessible"; never retry 4xx except 429.
 - Validate the user's business authorization **before** requesting a file; Files enforces only
   file-level access.
-- Persist the returned `fileId` alongside the business record; do not store file bytes.
+- Persist the returned `fileId` with the business record; do not store file bytes.

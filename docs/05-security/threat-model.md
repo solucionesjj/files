@@ -18,7 +18,7 @@ business authorization, end-user devices, and Microsoft's own infrastructure.
 | File content | Confidential (customer documents) | Data breach, regulatory exposure. |
 | File metadata (names, owners, sizes, tags) | Confidential | Inference of business relationships. |
 | Human identities / tokens | Confidential | Account takeover, unauthorized access. |
-| Integration credentials (API keys, Entra secrets) | Secret | Machine access to files and metadata. |
+| Entra application credentials (consumer-owned secrets/certificates) | Secret | Machine access to files and metadata. |
 | Download keys and link tokens | Secret | Unauthorized downloads. |
 | Audit and download events | Sensitive | Loss of non-repudiation. |
 | Database and backups | Confidential | Full compromise. |
@@ -49,6 +49,7 @@ business authorization, end-user devices, and Microsoft's own infrastructure.
 8. Operator ↔ EC2 via SSH (restricted `admin_cidr`; key auth; fail2ban).
 9. CI/CD ↔ EC2 (SSH deploy user; no AWS keys).
 10. Public visitor ↔ API (token + key + throttling).
+11. API ↔ Microsoft Graph (443; app-only directory permissions, no writes).
 
 ## 5. STRIDE analysis
 
@@ -59,7 +60,7 @@ Likelihood/impact: L/M/H. Status is the v1 control; verification is how we prove
 | ID | Threat | L/I | Mitigation | Verification |
 |---|---|---|---|---|
 | S-01 | Forged/self-signed JWT or `alg=none` | L/H | Strict signature, `alg`, issuer, audience, lifetime validation; JWKS from Entra; tenant check. | Integration tests with tampered tokens; pen test. |
-| S-02 | Stolen API key used by attacker | M/H | 256-bit keys, HMAC verifier, expiry, rotation, IP allowlist, rate limits, audit `last_used_at`, revocation. | Auth tests; key-leak tabletop. |
+| S-02 | Stolen Entra client secret/certificate used by attacker | M/H | Consumer-owned secret rotation, integration IP allowlist, rate limits, instant disable in Files, token audit. | Auth tests; credential-leak tabletop. |
 | S-03 | Forged integration identity via a different Entra app | L/H | `azp` must match an active integration; `Files.Integration` role required; DB permissions authoritative. | Token tests with unregistered app. |
 | S-04 | Session/token theft via XSS | M/H | MSAL `sessionStorage`, no `innerHTML` for filenames, CSP, framework escaping, short token lifetime. | ZAP baseline; XSS tests; CSP review. |
 | S-05 | Phishing with a lookalike public link | M/M | Fixed domain, TLS, clear link landing page, no credential prompt on `/d/*`, user training. | UX review; domain monitoring. |
@@ -71,7 +72,10 @@ Likelihood/impact: L/M/H. Status is the v1 control; verification is how we prove
 | T-01 | Client alters size/content type/checksum to bypass validation | M/M | Declared expectations recorded at session creation; staged size and optional whole-file checksum verified before the S3 call; `HeadObject` verifies size/type/metadata after; content-type allowlist. | Chunk/complete negative tests; S3 integration tests. |
 | T-02 | Chunk replay or cross-session write | M/M | Chunk endpoint requires session ownership + chunk number/offset; idempotent only for same size/hash; sessions expire; staging paths are random and `0600`. | Cross-session and duplicate-chunk tests. |
 | T-03 | SQL injection | L/H | Parameterized EF/Dapper, no string concatenation, integration tests. | SAST/DAST; code review. |
-| T-04 | Audit tampering | L/H | Append-only API, no UPDATE/DELETE grants for the app role on audit tables, transactional writes, DB audit logs. | DB permission tests; review. |
+| T-04 | Audit tampering or early purge | L/H | Append-only API, no UPDATE/DELETE grants for the app role on audit tables, transactional writes, 60-month retention; purge job requires the system role. | DB permission tests; purge test; review. |
+| T-08 | Private-link ACL bypass (forged user/group or stale cache) | M/H | ACL stores Entra object IDs; authorization checks the authenticated `oid` and group membership (claim + Graph fallback); generic 404; every denial audited. | ACL matrix tests, group-membership tests, IDOR suite. |
+| T-09 | Legal hold removed or ignored | L/H | Only `Files.Admin` can set/release with a reason; expiration/deletion jobs check `legal_hold`; every action audited; release requires confirmation. | Job tests, admin matrix, audit test. |
+| T-10 | Retention extended beyond policy | M/M | Absolute 365-day cap enforced in DB and API; mandatory note above default; every change audited. | Boundary tests, audit tests. |
 | T-05 | Filename/header injection (CRLF, path traversal) | M/M | Sanitizer, length limit, `Content-Disposition` RFC 5987 + ASCII fallback, `nosniff`, no filesystem paths. | Property-based tests; E2E download. |
 | T-06 | Link counter manipulation | L/M | Atomic SQL reservations, state predicates, unique grant tokens. | Concurrency tests (parallel grants). |
 | T-07 | Malware upload reaches storage/download | M/H | ClamAV scans the staged file **before** the S3 commit; infected files are quarantined and never uploaded; scanner failure keeps the file unavailable; signatures refreshed by freshclam. | EICAR test, infected fixture, scanner-down test. |
@@ -80,7 +84,7 @@ Likelihood/impact: L/M/H. Status is the v1 control; verification is how we prove
 
 | ID | Threat | L/I | Mitigation | Verification |
 |---|---|---|---|---|
-| R-01 | User/integration denies an upload/download/deletion | M/M | Audit events with actor, IP hash, UA, trace ID; download events for denials; immutable via API; retention 24 months. | Audit E2E; log review. |
+| R-01 | User/integration denies an upload/download/deletion | M/M | Audit events with actor, IP hash, UA, trace ID; download events for denials; immutable via API; retention 60 months. | Audit E2E; log review. |
 | R-02 | Admin denies a policy change/deletion | L/M | Admin audit with before/after, reason, trace; no update/delete endpoints. | Admin E2E. |
 
 ### Information disclosure
@@ -153,7 +157,7 @@ verify to reduce timing differences. Locked-out requests skip hashing (documente
 | Private S3, BPA, SSE, no ACLs | Terraform + bucket policy |
 | Least-privilege IAM | EC2 instance role + bucket policy deny |
 | No credentials/presigned URLs in URLs/logs/errors | Redaction, API contract, S3 exclusivity |
-| Argon2id for link keys; HMAC for API keys | `Files.Infrastructure.Crypto` |
+| Argon2id for link keys; Entra-only machine auth (no API keys) | `Files.Infrastructure.Crypto` / auth handlers |
 | 256-bit link/grant tokens | `IKeyGenerator` |
 | Tenant + audience + signature validation | Auth handler |
 | Server-side authorization on every query | Repositories/services + tests |

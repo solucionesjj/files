@@ -19,7 +19,7 @@ straightforward Entra integration.
 - No NgRx in v1; feature services + signals. No UI component library beyond Bootstrap.
 - Runtime configuration via `/assets/config.json` (no secrets), not build-time environment files
   for values that differ per deployment.
-- Spanish UI via `@angular/localize`; English identifiers/docs.
+- Bilingual UI (Spanish default, English selector) via Angular i18n; English identifiers/docs.
 - WCAG 2.1 AA and keyboard-first flows as acceptance criteria, not polish.
 
 ## Consequences
