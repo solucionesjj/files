@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help up down reset logs migrate db-verify validate check-docs lint-openapi fmt-tf tf-validate compose-config bootstrap
+.PHONY: help up down reset logs migrate db-verify validate check-docs lint-openapi fmt-tf tf-validate compose-config compose-prod-config bootstrap build test web-build docker-build
 
 help: ## List available targets
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -24,7 +24,21 @@ migrate: ## Apply Flyway migrations to the local database
 db-verify: ## Apply migrations to a throwaway PostgreSQL 18 and assert the schema
 	./scripts/db-verify.sh
 
-validate: check-docs lint-openapi fmt-tf compose-config compose-prod-config ## Validate docs, contract, IaC, compose
+build: ## Build the .NET solution with warnings as errors
+	dotnet build -warnaserror
+
+test: ## Run the .NET test suite
+	dotnet test
+
+web-build: ## Install and build the Angular portal
+	cd web && npm ci && npm run build
+
+docker-build: ## Build the API, worker, and web Docker images
+	docker build -f src/Files.Api/Dockerfile -t files-api:local .
+	docker build -f src/Files.Worker/Dockerfile -t files-worker:local .
+	docker build -f web/Dockerfile -t files-web:local web
+
+validate: check-docs lint-openapi fmt-tf compose-config compose-prod-config build test web-build ## Validate docs, contract, IaC, compose, and code
 
 check-docs: ## Check markdown links, fences, and requirement/story IDs
 	python3 scripts/check_docs.py

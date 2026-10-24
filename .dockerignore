@@ -1,0 +1,39 @@
+# Docker build context ignore list (build context is the repository root for the API/worker).
+# Keep the context small: only the .NET source is needed to build the API and worker images.
+
+.git
+.gitignore
+.github
+.vscode
+.idea
+.editorconfig
+
+# .NET build artifacts
+**/bin
+**/obj
+**/TestResults
+**/*.user
+**/*.suo
+artifacts
+
+# Node / frontend (built separately from the web/ context)
+web
+**/node_modules
+**/dist
+**/.angular
+
+# Non-build content (docs, IaC, deploy assets, DB, scripts)
+docs
+infra
+deploy
+db
+scripts
+tests
+
+# Secrets and local data
+.env
+.env.*
+!.env.example
+data
+logs
+*.log
