@@ -3,6 +3,7 @@ using Files.Api.Logging;
 using Files.Api.Middleware;
 using Files.Api.Telemetry;
 using Files.Application.Configuration;
+using Files.Infrastructure.DependencyInjection;
 using Files.Infrastructure.Health;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
@@ -30,6 +31,10 @@ try
 
     builder.Services.AddHttpContextAccessor();
     builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("database", tags: ["ready"]);
+
+    // Persistence: EF Core maps the Flyway-owned schema (no auto-migration on startup, ADR-0002).
+    builder.Services.AddFilesPersistence(builder.Configuration);
+
     builder.Services.AddFilesTelemetry(builder.Configuration, "files-api");
 
     // The API is only reachable through Caddy on the internal network; trust its forwarded headers.
