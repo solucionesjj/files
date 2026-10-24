@@ -1,6 +1,6 @@
 # Roadmap and Delivery Plan
 
-**Status date:** 2026-10-24 · **Phase:** Implementation started — M0 (S1) foundations delivered.
+**Status date:** 2026-10-24 · **Phase:** Implementation started — M1 (S1–S3) delivered.
 Progress is updated at the end of every work session (see [AGENTS.md](../../AGENTS.md)).
 
 ## 1. Milestones
@@ -53,7 +53,7 @@ S5 and S9. S11 depends on S10.
 | Milestone | Design | Implementation | Notes |
 |---|---|---|---|
 | M0 | ✅ | ✅ | S1 done: .NET 10 solution, Angular workspace, health/config endpoints, OTel, Dockerfiles, local compose. |
-| M1 | ✅ | 🟡 | S2 done: EF mapping, repositories, audit/outbox writers, DB tests. S3 Entra auth pending. |
+| M1 | ✅ | ✅ | S1–S3 done: foundations, EF mapping + repositories, audit/outbox writers, Entra JWT auth (user + integration), JIT users, role policies, `/me`, integration admin CRUD + Entra app binding, admin audit. |
 | M2 | ✅ | ⬜ | Upload/download design finalized. |
 | M3 | ✅ | ⬜ | Frontend design finalized. |
 | M4 | ✅ | ⬜ | Link/key/grant design finalized. |
@@ -92,9 +92,9 @@ Legend: ✅ complete · 🟡 in progress · ⬜ not started.
 | Key brute force incident | Security | Throttling + monitoring designed; rehearse runbook. |
 | Backup erasure expectations | Legal | ADR-0008 wording; legal sign-off. |
 
-## 6. Next session (S3) checklist
+## 6. Next session (S4) checklist
 
 1. Read `AGENTS.md`, this roadmap, and the [session log](session-log.md).
-2. Entra JWT validation (both audiences), JIT user provisioning, and role policies; no API keys.
-3. Token-backed `ICurrentActor`, `/v1/me`, and integration admin CRUD (Entra app binding).
+2. `IObjectStore` (S3; LocalStack locally) and `IChunkStore` staging with free-space reserve.
+3. Chunk upload-session endpoints (portal + integration), disk/quota checks, and cleanup.
 4. Keep `make validate` green and update the progress table + session log.

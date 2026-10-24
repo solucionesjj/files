@@ -6,7 +6,65 @@ entry.
 
 ---
 
-## 2026-10-24 — S2/M1: database and persistence base (current)
+## 2026-10-24 — S3/M1: Entra auth, JIT identity, and integration admin base (current)
+
+**Scope:** S3 (M1) — Entra ID JWT validation for humans and machines, JIT user provisioning, the
+token-backed `ICurrentActor`, portal/integration authorization policies, contract-first `GET
+/v1/me` and admin integration CRUD (no API keys), and admin audit + outbox.
+
+**Delivered**
+
+- `Files.Api/Authentication`: two JWT bearer schemes — `BearerUser` (delegated, rejects app-only)
+  and `BearerIntegration` (app-only, requires the `Files.Integration` role) — sharing one
+  `TokenValidationParameters` (signature RS256, `iss`, `aud` = `api://…` + client-id GUID, `exp`/
+  `nbf` ≤2 min skew, `tid == Entra__TenantId`, `MapInboundClaims = false`). Challenges/forbids write
+  RFC 9457 bodies (`invalid_token`/`token_expired`/`tenant_not_allowed`/`forbidden`). `JwtBearer`
+  only — `Microsoft.Identity.Web` was not used (no token acquisition, no secrets).
+- `Files.Api/Authorization`: `PortalRoleRequirement`(+handler) mapping roles → `User`/`Admin`/
+  `Auditor` policies (admin implies user), and `IntegrationRequirement`(+handler) enforcing role +
+  active integration via `azp`/`appid` + permissions read from `integration_permissions`.
+- `Files.Api/Identity`: `IdentityService` (resolves `ResolvedActor` once per request),
+  `TokenCurrentActor` (replaces `SystemCurrentActor`; System actor when unauthenticated), and
+  `CurrentActorMiddleware`. `Files.Infrastructure/Identity/UserProvisioner` does JIT provisioning
+  (`(tenant_id, object_id)` key; `last_login_at` updated ≤1/min; email/display name each login).
+- Admin endpoints (`/v1/admin/integrations` CRUD + permissions) and `GET /v1/me`, contract-first
+  from the OpenAPI: each admin mutation writes `admin_audit_events` (via the new
+  `IAuditWriter.WriteAdminAuditAsync` + `InsertAdminAuditEvent.sql`) and an `outbox_messages` row
+  in the same transaction. CORS reads `Cors__AllowedOrigins`.
+- `integration_permissions` is now EF-mapped as part of the integration aggregate
+  (`IntegrationPermissionEntry`; 13 entity types), so permissions persist atomically with the
+  integration and are read from the DB, never from tokens.
+
+**Validated**
+
+- `dotnet build -warnaserror` (0 warnings), `dotnet test` (56 tests: 29 unit + 1 contract + 26
+  integration), `dotnet format --verify-no-changes`.
+- Auth integration tests mint self-signed RS256 JWTs (new `Entra__IssuerSigningKey` test-only key)
+  and hit the real host against Testcontainers PostgreSQL 18 + Flyway: JIT, roles→policy, 401/403/
+  404, app-only rejected on `/me`, admin create/disable/permissions with audit+outbox, and the
+  `IntegrationRequirementHandler` denial matrix (missing role, unregistered `azp`, disabled, missing
+  permission) reading permissions from the DB.
+
+**Decisions / notes**
+
+- `Entra__IssuerSigningKey` (base64 RSA public key) is a test/dev-only override for authority
+  discovery; never set in production (documented in `EntraOptions`).
+- Authorization requirements/handlers live in `Files.Api` (not `Files.Application`) so the
+  Application project stays free of ASP.NET Core types beyond `Microsoft.Extensions.*`.
+- 401 codes `integration_disabled` and unregistered-`azp`→401, plus IP-allowlist enforcement, are
+  integration-endpoint concerns deferred to S4/S9; S3 ships the `IntegrationRequirement` with 403
+  semantics and the auth-level `invalid_token`/`tenant_not_allowed`/`token_expired` 401s.
+- Integration list cursor keysets on `created_at` (id as a deterministic tiebreaker); integrations
+  are created one per transaction so `now()` collisions are effectively impossible.
+
+**Next**
+
+- S4/M2: `IObjectStore` (S3/LocalStack) + `IChunkStore` staging, upload-session/chunk endpoints,
+  disk reserve and cleanup.
+
+---
+
+## 2026-10-24 — S2/M1: database and persistence base
 
 **Scope:** S2 (M1) — EF Core mapping of the Flyway schema, domain entities/enums/value objects,
 repository seams + EF implementations, Dapper transactional audit/outbox writers, and DB tests

@@ -20,8 +20,8 @@ IDs match [requirements.md](../01-product/requirements.md).
 
 | ID | Story | Epic | Size | Milestone | Requirements | Depends on | Status |
 |---|---|---|---|---|---|---|---|
-| US-001 | Sign in with Entra ID | E1 | M | M1 | FR-ID-001..004, 008, 009 | S1 | Todo |
-| US-002 | Role-based administration | E1 | S | M1 | FR-ID-010, 011 | US-001 | Todo |
+| US-001 | Sign in with Entra ID | E1 | M | M1 | FR-ID-001..004, 008, 009 | S1 | Doing |
+| US-002 | Role-based administration | E1 | S | M1 | FR-ID-010, 011 | US-001 | Doing |
 | US-003 | Upload a file | E2 | L | M2/M3 | FR-UP-001..018 | US-001, T-04 | Todo |
 | US-004 | Browse and inspect files | E2 | M | M3 | FR-FILE-001/002, FR-RET-004 | US-003 | Todo |
 | US-005 | Edit metadata and retention | E2 | M | M3 | FR-FILE-003/004, FR-RET-003/006 | US-004 | Todo |
@@ -29,9 +29,9 @@ IDs match [requirements.md](../01-product/requirements.md).
 | US-007 | Manage tags | E2 | S | M3 | FR-SRCH-001 | US-004 | Todo |
 | US-008 | Search, filter, sort, paginate | E2 | M | M3 | FR-SRCH-002..006 | US-004 | Todo |
 | US-009 | Accessible, responsive portal | E2 | M | M3 | FR-GEN-003/004, NFR-016 | US-004 | Todo |
-| US-010 | Register and manage an integration | E3 | M | M1 | FR-M2M-001/008/009/010 | US-002 | Todo |
+| US-010 | Register and manage an integration | E3 | M | M1 | FR-M2M-001/008/009/010 | US-002 | Doing |
 | US-011 | Entra client credentials + metadata | E3 | M | M5 | FR-M2M-002/003/007/008, FR-INT-003/005/006 | US-010, T-04 | Todo |
-| US-012 | Bind an integration to its Entra application | E3 | M | M1/M5 | FR-M2M-004/005/006/013 | US-010 | Todo |
+| US-012 | Bind an integration to its Entra application | E3 | M | M1/M5 | FR-M2M-004/005/006/013 | US-010 | Doing |
 | US-013 | Rate limits and quotas | E3 | M | M5 | FR-M2M-014, FR-INT-010 | US-010 | Todo |
 | US-014 | Delete an integration-owned file | E3 | S | M5 | FR-INT-002, FR-DEL-007/009 | US-011 | Todo |
 | US-015 | Upload via integration API | E3 | L | M2/M5 | FR-UP-002..017, FR-INT-004/007 | US-003, US-011 | Todo |
@@ -60,9 +60,9 @@ IDs match [requirements.md](../01-product/requirements.md).
 | T-02 | Local stack (PostgreSQL 18, LocalStack S3, Mailpit, OTel) | S | M0 | `docker-compose.yml`, healthchecks, Flyway profile. **Done (S1):** now also starts API, worker, and web. |
 | T-03 | CI pipeline | M | M0 | Build, tests, contract lint, migrations, terraform fmt/validate. **Done (S1):** builds/tests the .NET solution and the Angular workspace. |
 | T-04 | EF Core persistence + repositories + outbox | L | M1 | DbContext, mapping, audit/outbox writers, DB tests. **Done (S2).** |
-| T-05 | Authentication handlers and policies | L | M1 | Entra user/integration tokens, tenant check; no API keys. |
+| T-05 | Authentication handlers and policies | L | M1 | Entra user/integration tokens, tenant check; no API keys. **Done (S3):** BearerUser + BearerIntegration schemes, JIT users, role policies, integration requirement, admin audit. |
 | T-06 | Storage adapter, local staging and S3 commit | L | M2 | Chunk store (pwrite), multipart/put, HeadObject, ranges, delete, copy, disk reserve. |
-| T-07 | Audit and download event writers | M | M1 | Transactional, append-only, no secrets. **Doing:** file-audit + outbox writers done (S2); download events deferred to S8. |
+| T-07 | Audit and download event writers | M | M1 | Transactional, append-only, no secrets. **Doing:** file-audit + admin-audit + outbox writers done (S2/S3); download events deferred to S8. |
 | T-08 | OpenAPI contract tests and DTO generation | S | M1 | Redocly lint, schema validation, TS types. |
 | T-09 | Rate limiting + abuse counters | M | M4 | ASP.NET limiter + Postgres tables. |
 | T-10 | Email sender (M365 SMTP AUTH; Graph fallback) + template renderer | M | M6 | Mailpit/SMTP tests, retries, statuses. |

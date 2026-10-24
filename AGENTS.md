@@ -4,8 +4,10 @@
 transfer, and integration platform. The design is complete; implementation starts at milestone M0.
 
 **Status:** 2026-10-24 — documentation, data model, API contract, operations, and delivery plan
-complete. **S1/M0 foundations implemented** (.NET 10 solution, Angular workspace, health/config
-endpoints, OpenTelemetry, Dockerfiles, local compose). Terraform skeleton under `infra/terraform/`.
+complete. **S1–S3/M1 implemented** (.NET 10 solution, Angular workspace, health/config endpoints,
+OpenTelemetry, Dockerfiles, local compose, EF Core persistence + repositories + audit/outbox
+writers, and Entra JWT authentication with JIT users, role policies, and integration admin).
+Terraform skeleton under `infra/terraform/`.
 
 ---
 
@@ -139,7 +141,7 @@ Local endpoints: API `http://localhost:8080`, Portal `http://localhost:4200`, Lo
 | IaC skeleton | Done: single EC2 + S3, `terraform validate` (review on change) |
 | Local stack, CI, scripts | Done |
 | Deployment assets | Done: Compose, Caddy, backup/restore/smoke |
-| Application code | **S2/M1 done** — EF Core mapping, domain entities, repositories, audit/outbox writers, DB tests; S3+ pending |
+| Application code | **S3/M1 done** — EF Core mapping, domain entities, repositories, audit/outbox writers, Entra JWT auth (user + integration), JIT users, role policies, `/me`, integration admin CRUD + admin audit; S4+ pending |
 | Terraform applied to AWS | Not started |
 
 ## 7. Next steps (in order)
@@ -147,7 +149,7 @@ Local endpoints: API `http://localhost:8080`, Portal `http://localhost:4200`, Lo
 1. ✅ **S1 / M0 (done):** .NET solution + Angular workspace, health endpoints, config validation,
    OTel wiring, local compose, and the API/worker Dockerfiles are in place.
 2. ✅ **S2 / M1 (done):** EF Core mapping + repositories + audit/outbox writers; user/integration persistence.
-3. **S3 / M1:** Entra JWT validation, JIT provisioning, role policies, integration admin (Entra app binding; no API keys).
+3. ✅ **S3 / M1 (done):** Entra JWT validation, JIT provisioning, role policies, integration admin (Entra app binding; no API keys).
 4. **S4–S5 / M2:** `IObjectStore`, `IChunkStore` staging, chunk endpoints, server-side S3 commit,
    completion verification, disk reserve, cleanup; integration tests with LocalStack S3.
 5. **S6–S8:** portal, then links/public downloads.
