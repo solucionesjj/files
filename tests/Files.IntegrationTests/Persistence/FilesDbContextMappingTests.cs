@@ -30,9 +30,10 @@ public class FilesDbContextMappingTests
             .OrderBy(x => x.Table)
             .ToList();
 
-        // The DbContext intentionally maps the 12 aggregate tables; operational tables
-        // (outbox, idempotency, usage, ...) are accessed with Dapper, not EF.
-        mapped.Should().HaveCount(12);
+        // The DbContext maps the 12 aggregate tables plus the integration_permissions join table
+        // (part of the integration aggregate); operational tables (outbox, idempotency, usage,
+        // admin audit, ...) are accessed with Dapper, not EF.
+        mapped.Should().HaveCount(13);
 
         var missing = new List<string>();
         await using var connection = new NpgsqlConnection(_fixture.ConnectionString);
