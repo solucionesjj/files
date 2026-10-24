@@ -1,0 +1,29 @@
+<nav class="navbar navbar-expand bg-body-tertiary border-bottom">
+  <div class="container-fluid">
+    <span class="navbar-brand fw-semibold">Files</span>
+    <div class="d-flex align-items-center gap-2">
+      <app-language-selector></app-language-selector>
+      @if (auth.isConfigured()) {
+        <button type="button" class="btn btn-primary btn-sm" (click)="auth.login()" i18n="@@app.signIn">
+          Iniciar sesión
+        </button>
+      } @else {
+        <button type="button" class="btn btn-primary btn-sm" disabled i18n="@@app.signIn">Iniciar sesión</button>
+      }
+    </div>
+  </div>
+</nav>
+
+<main class="container py-5">
+  <div class="p-5 text-center bg-body-tertiary rounded-3">
+    <h1 class="display-5 fw-bold">Files</h1>
+    <p class="lead" i18n="@@app.tagline">
+      Plataforma segura de almacenamiento, transferencia e integración de archivos
+    </p>
+    @if (!auth.isConfigured()) {
+      <p class="text-muted small" i18n="@@app.authNotConfigured">
+        Autenticación aún no configurada (credenciales de Entra provisionales).
+      </p>
+    }
+  </div>
+</main>

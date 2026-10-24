@@ -1,0 +1,7 @@
+# Docker build context ignore list for the Angular portal (context is web/).
+.git
+node_modules
+dist
+.angular
+coverage
+*.log

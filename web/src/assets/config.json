@@ -1,0 +1,11 @@
+{
+  "environment": "local",
+  "apiBaseUrl": "http://localhost:8080",
+  "tenantId": "",
+  "clientId": "",
+  "apiScope": "api://00000000-0000-0000-0000-000000000000/Files.Access",
+  "redirectUri": "http://localhost:4200/auth/callback",
+  "features": {
+    "publicLinks": true
+  }
+}
