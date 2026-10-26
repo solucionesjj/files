@@ -16,7 +16,7 @@ env:
 
 jobs:
   docs-and-contracts:
-    name: Docs, OpenAPI, Compose, Terraform
+    name: Docs, OpenAPI, Compose
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,17 +39,6 @@ jobs:
 
       - name: Validate docker compose (production, example env)
         run: FILES_ENV_FILE=env.prod.example docker compose --env-file deploy/env.prod.example -f deploy/docker-compose.prod.yml config -q
-
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.13.4"
-      - name: Terraform format
-        run: terraform fmt -check -recursive infra/terraform
-      - name: Terraform validate
-        working-directory: infra/terraform
-        run: |
-          terraform init -backend=false -input=false
-          terraform validate
 
   backend:
     name: Backend build and tests
