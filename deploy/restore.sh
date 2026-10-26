@@ -19,6 +19,10 @@ get_env() {
 }
 POSTGRES_DB="$(get_env POSTGRES_DB)"
 POSTGRES_USER="$(get_env POSTGRES_USER)"
+S3_REGION="$(get_env S3__Region)"
+export AWS_ACCESS_KEY_ID="$(get_env S3__AccessKeyId)"
+export AWS_SECRET_ACCESS_KEY="$(get_env S3__SecretAccessKey)"
+export AWS_DEFAULT_REGION="$S3_REGION"
 
 LOCAL_DUMP="/var/tmp/restore-$(date -u +%Y%m%dT%H%M%SZ).dump.gz"
 trap 'rm -f "$LOCAL_DUMP"' EXIT

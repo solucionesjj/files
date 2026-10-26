@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Nightly logical backup: pg_dump -> gzip -> S3 backups/postgres/.
-# Runs on the EC2 host as the deploy user; uses the instance role (no keys).
+# Runs on the host as the deploy user; authenticates to S3 with the static
+# access keys read from /opt/files/.env (there is no instance role).
 set -euo pipefail
 
 APP_DIR="${APP_DIR:-/opt/files/app}"
@@ -19,10 +20,15 @@ POSTGRES_DB="$(get_env POSTGRES_DB)"
 POSTGRES_USER="$(get_env POSTGRES_USER)"
 S3_BUCKET="$(get_env S3__Bucket)"
 S3_REGION="$(get_env S3__Region)"
+export AWS_ACCESS_KEY_ID="$(get_env S3__AccessKeyId)"
+export AWS_SECRET_ACCESS_KEY="$(get_env S3__SecretAccessKey)"
+export AWS_DEFAULT_REGION="$S3_REGION"
 
 : "${POSTGRES_DB:?missing POSTGRES_DB in $ENV_FILE}"
 : "${POSTGRES_USER:?missing POSTGRES_USER in $ENV_FILE}"
 : "${S3_BUCKET:?missing S3__Bucket in $ENV_FILE}"
+: "${AWS_ACCESS_KEY_ID:?missing S3__AccessKeyId in $ENV_FILE}"
+: "${AWS_SECRET_ACCESS_KEY:?missing S3__SecretAccessKey in $ENV_FILE}"
 
 DUMP="$TMP_DIR/files-${STAMP}.dump.gz"
 trap 'rm -f "$DUMP"' EXIT
