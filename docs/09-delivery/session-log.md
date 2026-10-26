@@ -6,7 +6,85 @@ entry.
 
 ---
 
-## 2026-10-24 — S3/M1: Entra auth, JIT identity, and integration admin base (current)
+## 2026-10-25 — Align to pre-existing infrastructure (remove Terraform, static S3 key)
+
+**Scope:** the infrastructure already exists — one Ubuntu 24.04 host (public IP, SSH, ≥8 GiB) and
+one S3 bucket reachable only from that host; there is no dev/staging, so development/testing run
+entirely locally. Terraform no longer provisions anything.
+
+**Changes**
+
+- Removed `infra/terraform/` (EC2/EIP/SG/IAM/bucket/policy). Kept `infra/local/` (LocalStack init +
+  local OTel).
+- Added `deploy/host-bootstrap.sh` (idempotent: Docker + Compose, AWS CLI, directories, swap; does
+  **not** touch the externally managed firewall).
+- S3 auth switched from "EC2 instance role (no static keys)" to a **static access key** in
+  `/opt/files/.env`; `deploy/env.prod.example` now carries `S3__AccessKeyId`/`S3__SecretAccessKey`,
+  and `backup.sh`/`restore.sh` export them for the AWS CLI.
+- Bucket policy/lifecycle are managed outside this repo and must not be edited by Files.
+- Removed Terraform from `Makefile` (`fmt-tf`, `tf-validate`) and `.github/workflows/ci.yml`.
+- Rewrote `deploy/README.md` and `docs/08-operations/infrastructure-and-iac.md` for the existing
+  host; updated ADR-0010 (amended), ADR-0003, D-13/D-14/D-30/D-32, and the architecture/threat/
+  upload/runbook/testing/cost/requirements docs, plus `AGENTS.md`, `README.md`, roadmap §S13, and
+  the backlog/traceability.
+
+**Decisions recorded**
+
+- One tenant per deployment remains (D-01 Accepted). Production-only; dev/test 100 % local.
+- Domain `files.sacservices.cloud` → host public IP (infra team creates the `A` record).
+- Firewall/SSH already configured and left untouched.
+
+**Still needed (data, not decisions)**
+
+- S3 bucket name and `S3__AccessKeyId`/`S3__SecretAccessKey`.
+- `Entra__TenantId`/`Entra__ApiClientId`/`Entra__PortalClientId`; Graph consent confirmation.
+- SMTP app password (delivered out of band).
+
+**Next**
+
+- Unchanged: S4/S5 (M2). None of the outstanding data blocks M2.
+
+---
+
+## 2026-10-24 — Operational inputs confirmed (deployment unblockers)
+
+**Scope:** answer the remaining operational questions for S13–S14. No product decision changed;
+D-01 (one Entra tenant per deployment) moved from Provisional to **Accepted**.
+
+**Confirmed by the owner**
+
+- AWS: existing account, `us-east-1`; the **S3 bucket already exists and is reused**; the host is
+  administered over **SSH via the public IP**.
+- Entra: tenant and app registrations exist; the three Graph ACL permissions are approved with
+  admin consent.
+- Email: SMTP AUTH is enabled on `notificationsagent@ecs-la.com`; the app password is delivered out
+  of band.
+- DNS: the infra team creates the `A` record once the Elastic IP is known.
+- Environments: **production only** (no staging). Budget approved. Manual deployment per
+  `deploy/README.md`.
+
+**Still needed (data, not decisions)**
+
+- S3 bucket name; confirm its policy grants only the instance role. Terraform declares
+  `aws_s3_bucket.this`, so S13 must `import` the existing bucket or switch to a data source.
+- `Entra__TenantId`, `Entra__ApiClientId`, `Entra__PortalClientId`; confirmation that Graph admin
+  consent landed (needed for M4).
+- Admin CIDR and EC2 key-pair name for `admin_cidr`/`ssh_key_name`.
+- SMTP app password in `/opt/files/.env`.
+
+**Resolved conflict**
+
+- Launch gate 9 assumed staging. The owner chose to relax it: the exact production Flyway sequence
+  and rollback are rehearsed on a disposable instance/local PostgreSQL 18. Recorded in
+  `roadmap.md` §4 and `open-questions.md`.
+
+**Next**
+
+- Unchanged: S4/S5 (M2). None of the outstanding data blocks M2.
+
+---
+
+## 2026-10-24 — S3/M1: Entra auth, JIT identity, and integration admin base
 
 **Scope:** S3 (M1) — Entra ID JWT validation for humans and machines, JIT user provisioning, the
 token-backed `ICurrentActor`, portal/integration authorization policies, contract-first `GET

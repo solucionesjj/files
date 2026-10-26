@@ -35,12 +35,12 @@ incompatible with strict S3 exclusivity.
 **Downloads:** clients stream through the API with a 120-second single-use grant (ADR-0005); no
 presigned GET URLs.
 
-**S3 access control:** the only principal with object/list/multipart permissions is the EC2
-instance role used by the API and worker. A bucket policy **denies** those actions to every other
-principal (`StringNotEquals aws:PrincipalArn`). The bucket has Block Public Access, SSE-S3, no
-ACLs, no versioning, and lifecycle rules for `staging/`, `orphan/`, `backups/`, and incomplete
-multipart uploads. Infrastructure automation may manage bucket configuration, but not read or
-write objects. No presigned URLs are issued anywhere.
+**S3 access control:** the API/worker are the only clients and authenticate to S3 with a static
+access key held in `/opt/files/.env` (the host has no instance role). The existing bucket policy
+(managed outside this repository) restricts object access to this host and **denies** those actions
+to every other principal. The bucket has Block Public Access, SSE-S3, no ACLs, no versioning, and
+lifecycle rules for `staging/`, `orphan/`, `backups/`, and incomplete multipart uploads. No
+presigned URLs are issued anywhere.
 
 Object keys remain `f/{fileId}`, `staging/` (only if a future server-side copy needs it),
 `orphan/`, and `backups/`; the API/worker is the only writer/reader.
@@ -69,7 +69,7 @@ Object keys remain `f/{fileId}`, `staging/` (only if a future server-side copy n
 - **Browser → API → S3 streaming without local staging:** rejected for 5 GiB because a failed S3
   commit forces a full client re-upload and holds a request open for a long time; staging makes
   commit retries cheap and enables verification before S3.
-- **S3 Access Points / VPC endpoint policies:** still S3 access by the instance role and do not
+- **S3 Access Points / VPC endpoint policies:** still S3 access by the host and do not
   prevent other principals in the account; the bucket policy deny is the control.
 - **MinIO on EC2 instead of S3:** rejected; the bucket is the mandated durable store and the
   instance is not a backup target.

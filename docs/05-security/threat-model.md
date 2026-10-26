@@ -22,7 +22,7 @@ business authorization, end-user devices, and Microsoft's own infrastructure.
 | Download keys and link tokens | Secret | Unauthorized downloads. |
 | Audit and download events | Sensitive | Loss of non-repudiation. |
 | Database and backups | Confidential | Full compromise. |
-| S3 bucket and IAM role | Critical | Read/delete all objects. |
+| S3 bucket and access key | Critical | Read/delete all objects. |
 | Availability/SLO | Business | Reputational and operational cost. |
 
 ## 3. Actors and capabilities
@@ -34,7 +34,7 @@ business authorization, end-user devices, and Microsoft's own infrastructure.
 | Malicious/compromised integration | Valid credentials; attempts cross-integration access or quota abuse. |
 | Link recipient | Has one valid link/key; may share or attempt brute force. |
 | Rogue administrator | Can change policy, disable integrations, delete files; cannot read content by design. |
-| Cloud/insider attacker | IAM/DB compromise, log access, backup access. |
+| Cloud/insider attacker | Access-key/DB compromise, log access, backup access. |
 | Automated scanners/bots | Enumeration, credential stuffing (limited by Entra), volumetric attacks. |
 
 ## 4. Trust boundaries
@@ -44,10 +44,10 @@ business authorization, end-user devices, and Microsoft's own infrastructure.
 3. Browser ↔ Entra (OIDC; PKCE; tokens in the browser).
 4. Consumer backend ↔ Entra/API (machine credentials).
 5. API/Worker ↔ PostgreSQL (Docker network; no host port).
-6. API/Worker ↔ S3 (EC2 instance role only; bucket policy denies every other principal; no presigned URLs).
+6. API/Worker ↔ S3 (static access key only; the existing bucket policy restricts access to the host; no presigned URLs).
 7. Worker/API ↔ Microsoft 365 SMTP (587/STARTTLS; mailbox credentials in `.env`).
-8. Operator ↔ EC2 via SSH (restricted `admin_cidr`; key auth; fail2ban).
-9. CI/CD ↔ EC2 (SSH deploy user; no AWS keys).
+8. Operator ↔ host via SSH (restricted by the externally managed firewall; key auth).
+9. CI/CD ↔ host (SSH deploy user; no AWS keys in CI).
 10. Public visitor ↔ API (token + key + throttling).
 11. API ↔ Microsoft Graph (443; app-only directory permissions, no writes).
 
@@ -96,12 +96,12 @@ Likelihood/impact: L/M/H. Status is the v1 control; verification is how we prove
 | I-03 | Credentials/tokens in logs, traces, errors | M/H | Redaction middleware, no body logging for auth/upload, structured logging allowlist, secret scanning in CI. | Log inspection test; CI secret scan. |
 | I-04 | Error oracle reveals link/key validity | M/M | Uniform 404 body; constant-time verify; dummy hash for unknown tokens; comparable timing; rate limit. | Timing tests; code review. |
 | I-05 | Enumeration via status codes | M/M | 404 for foreign resources and link/grant failures; 403 only in non-sensitive admin context. | API tests. |
-| I-06 | S3 bucket accessed by another principal or made public | L/H | Block Public Access, no ACLs, SSE-S3, bucket policy explicitly denies object/list/multipart actions to every principal except the Files EC2 role; Terraform review. | `terraform plan` + bucket-policy tests; AWS Config rule (when available). |
+| I-06 | S3 bucket accessed by another principal or made public | L/H | Block Public Access, no ACLs, SSE-S3, and the existing bucket policy restricts object/list/multipart actions to the host. The key lives only in `/opt/files/.env`. | Bucket-policy review with the infra owner; AWS Config rule (when available). |
 | I-07 | Link metadata leaks filename to token holder | M/L | Token is a capability; landing page shows only name/size/expiry; no owner email; accepted risk. | Privacy review. |
 | I-08 | Deleted data recoverable from backups | M/M | Documented 35-day backup window; no false erasure claims; encryption at rest; lifecycle. | DR doc review; legal sign-off. |
 | I-09 | Public link key in browser history/referrer | L/M | Key POST body, never URL; `Referrer-Policy: no-referrer`; `no-store`; no third parties on `/d/*`. | E2E header checks. |
 | I-11 | Link/grant token captured in edge access logs | M/M | Caddy access logging is disabled globally (or restricted and retained ≤7 days with URI redaction); application logs emit only a fingerprint. Grants are 120 s/single-use. | Caddyfile review; staging log inspection. |
-| I-12 | Database backup in S3 exposed or tampered | L/H | Bucket policy denies backups to all but the instance role; SSE-S3; lifecycle 35 days; backup jobs run as the instance role; restore verifies checksum. | Bucket policy test; restore drill. |
+| I-12 | Database backup in S3 exposed or tampered | L/H | The existing bucket policy restricts backups to the host; SSE-S3; lifecycle 35 days; backup jobs use the static key from `/opt/files/.env`; restore verifies checksum. | Bucket policy review; restore drill. |
 | I-10 | Email contents leak file data | L/L | Templates include only filename/expiry/portal URL; escaping; no attachments. | Template review; tests. |
 
 ### Denial of service
@@ -113,7 +113,7 @@ Likelihood/impact: L/M/H. Status is the v1 control; verification is how we prove
 | D-03 | Argon2 memory exhaustion via key attempts | M/M | Attempt throttling before hashing, lockout, bounded parallelism, small argon2 memory (19 MiB). | Stress test on link endpoints. |
 | D-04 | Job starvation / duplicate work | L/M | Advisory locks, batch limits, isolated worker, outbox lag alerts. | Chaos test with two workers. |
 | D-05 | Link token enumeration causes DB load | L/L | 256-bit tokens, rate limits, generic 404, indexed hash lookup. | Load test. |
-| D-06 | Large upload/download saturates the single EC2 | M/H | Streaming/pwrite, chunk size limits, 3 concurrent sessions, bandwidth and disk alerts, maintenance windows; scale-up path documented. | 5 GiB load/soak test; disk/CPU alerts. |
+| D-06 | Large upload/download saturates the single host | M/H | Streaming/pwrite, chunk size limits, 3 concurrent sessions, bandwidth and disk alerts, maintenance windows; scale-up path documented. | 5 GiB load/soak test; disk/CPU alerts. |
 
 ### Elevation of privilege
 
@@ -121,8 +121,8 @@ Likelihood/impact: L/M/H. Status is the v1 control; verification is how we prove
 |---|---|---|---|---|
 | E-01 | User reaches admin endpoints | L/H | Entra app-role policy on every admin route, server-side checks, tests. | Authorization matrix tests. |
 | E-02 | Integration accesses another integration's files | M/H | Explicit grants only, read-only; 404 otherwise; audit. | Cross-integration test suite. |
-| E-03 | Container or host compromise grants bucket-wide access | L/H | Single EC2 instance role with prefix-scoped S3 and bucket-policy deny for others; no static AWS keys; containers run non-root with read-only root FS where possible; no Docker socket mounted into app containers. | IAM review; `tfsec`; container hardening checks. |
-| E-05 | SSH compromise of the public host | M/H | Port 22 only from `admin_cidr`; key-only auth; fail2ban; UFW; unattended upgrades; no password login; IMDSv2. | SSH config review; external port scan. |
+| E-03 | Container or host compromise grants bucket-wide access | L/H | Static S3 access key scoped by the existing bucket policy (restricts access to the host); key lives only in `/opt/files/.env`; containers run non-root with read-only root FS where possible; no Docker socket mounted into app containers. | Access-key review; container hardening checks. |
+| E-05 | SSH compromise of the public host | M/H | Port 22 restricted by the externally managed firewall; key-only auth; unattended upgrades; no password login. | SSH config review; external port scan. |
 | E-06 | Host patching/root access bypasses application controls | M/H | OS patching, least-privilege deploy user, no application secrets in shell history, Docker group restricted; root access is break-glass. | Access review; audit of sudo. |
 | E-04 | Supply-chain compromise of a dependency | M/H | Lockfiles, Dependabot, `dotnet list package --vulnerable`, Trivy image scan, pinned actions, SBOM. | CI pipeline. |
 
@@ -154,8 +154,8 @@ verify to reduce timing differences. Locked-out requests skip hashing (documente
 | Requirement | Where enforced |
 |---|---|
 | TLS 1.2+ everywhere, HSTS | Caddy + app middleware |
-| Private S3, BPA, SSE, no ACLs | Terraform + bucket policy |
-| Least-privilege IAM | EC2 instance role + bucket policy deny |
+| Private S3, BPA, SSE, no ACLs | Existing bucket (externally managed) + static key in `/opt/files/.env` |
+| Least-privilege access | Static access key scoped by the existing bucket policy |
 | No credentials/presigned URLs in URLs/logs/errors | Redaction, API contract, S3 exclusivity |
 | Argon2id for link keys; Entra-only machine auth (no API keys) | `Files.Infrastructure.Crypto` / auth handlers |
 | 256-bit link/grant tokens | `IKeyGenerator` |
@@ -188,9 +188,9 @@ verify to reduce timing differences. Locked-out requests skip hashing (documente
 ## 9. Verification plan
 
 - **Automated:** IDOR suite per endpoint, auth matrix tests, concurrency tests for reservations,
-  upload tampering tests, contract tests, secret scanning, SAST, dependency/image scanning,
-  Terraform static analysis (`tfsec`/Checkov), ZAP baseline against staging.
-- **Manual:** threat-model review per milestone; key-flow code review; AWS IAM review; pen test
+  upload tampering tests, contract tests, secret scanning, SAST, dependency/image scanning, and a
+  ZAP baseline against a local/staging-like deployment.
+- **Manual:** threat-model review per milestone; key-flow code review; AWS S3 access-key review; pen test
   before public launch (scope: auth, links, IDOR, upload abuse, key brute force).
 - **Operational:** daily review of denied-download spikes and key lockouts; quarterly access
   review of integrations and admin roles; annual DR/threat-model refresh.

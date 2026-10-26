@@ -35,7 +35,7 @@ can run partly in parallel once their dependencies are met.
 | S10 | M6 | Retention, legal hold, notifications | Policy versioning (30/365 + note), legal hold, scheduler, templates/renderer, M365 SMTP sender, retries, admin endpoints/UI. |
 | S11 | M6 | Expiration and deletion | Expiration/deletion jobs (skip legal hold), tombstones, reconciliation, retention purge, metrics/alerts. |
 | S12 | M7 | Test hardening and security | IDOR/auth matrices, upload tampering, ZAP, dependency/IaC scans, pen-test fixes, load/soak. |
-| S13 | M7 | Operations readiness | Terraform EC2/S3/IAM plan, Docker Compose/Caddy deploy, backup/restore drill, dashboards/alerts, runbooks rehearsal, cost review. |
+| S13 | M7 | Operations readiness | Host bootstrap + Docker Compose/Caddy deploy to the existing host, backup/restore drill, dashboards/alerts, runbooks rehearsal, cost review. |
 | S14 | M7 | Launch | Staging sign-off, migration/backfill rehearsal, production cutover, post-launch monitoring. |
 
 Dependency graph (critical path):
@@ -74,7 +74,11 @@ Legend: ✅ complete · 🟡 in progress · ⬜ not started.
 6. SLO dashboards + alerts live; on-call rota and runbooks reviewed.
 7. Cost estimate approved; budgets/alerts configured.
 8. Legal wording for deletion/backups approved; privacy review done.
-9. Staging has run the exact production migration sequence; rollback rehearsed.
+9. The exact production migration sequence (Flyway `V1`/`V2`) and the rollback have been rehearsed
+   on a disposable instance or local PostgreSQL 18; results recorded.
+
+> **Resolved (2026-10-25):** the owner approved **production-only** (no staging environment). Gate 9
+> is met by that disposable-instance rehearsal, not a standing staging environment.
 10. Existing-file backfill plan (if applicable) has a dry run, mapping, and dual-run/cutover plan.
 11. Support/operations training for link revocation, credential rotation, and deletion failures.
 
@@ -84,11 +88,11 @@ Legend: ✅ complete · 🟡 in progress · ⬜ not started.
 |---|---|---|
 | Email provider not approved (OQ-01) | Blocks M6 exit | Decide early; the `IEmailSender` seam allows SMTP/SES fallback. |
 | Entra app registrations/consent delays | Blocks M1/M5 | Start the IT request in S1; use mock OIDC until available. |
-| 5 GiB performance/disk issues | M2/M7 slip | Test early with LocalStack S3 and a real EC2 disk; tune chunk/S3 part sizes and staging reserve. |
+| 5 GiB performance/disk issues | M2/M7 slip | Test early with LocalStack S3 and a real host disk; tune chunk/S3 part sizes and staging reserve. |
 | Single-node outage | Launch risk | Document 99.5%/RPO 24h, rehearse restore, keep the scale-up path ready. |
 | Scope creep (preview, folders, sharing) | Delay | Explicitly out of scope; change control. |
 | Single-tenant assumption wrong | Architecture rework | Confirm OQ-03 before M1 schema is frozen (it is already designed with no tenant columns). |
-| AWS quota/EIP/key-pair limits | Deployment delay | Request EC2/EIP capacity and confirm the SSH key early. |
+| AWS quota/limits | Deployment delay | Confirm S3 bucket access and the SSH key early; no instance/EIP provisioning is needed (host pre-exists). |
 | Key brute force incident | Security | Throttling + monitoring designed; rehearse runbook. |
 | Backup erasure expectations | Legal | ADR-0008 wording; legal sign-off. |
 

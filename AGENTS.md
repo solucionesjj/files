@@ -7,7 +7,9 @@ transfer, and integration platform. The design is complete; implementation start
 complete. **S1–S3/M1 implemented** (.NET 10 solution, Angular workspace, health/config endpoints,
 OpenTelemetry, Dockerfiles, local compose, EF Core persistence + repositories + audit/outbox
 writers, and Entra JWT authentication with JIT users, role policies, and integration admin).
-Terraform skeleton under `infra/terraform/`.
+**2026-10-25:** infrastructure is pre-existing (one Ubuntu 24.04 host + one S3 bucket, managed
+outside the repo); Terraform was removed and replaced by `deploy/host-bootstrap.sh` + Compose, and
+S3 auth switched from an instance role to a static access key in `/opt/files/.env`.
 
 ---
 
@@ -17,10 +19,10 @@ Terraform skeleton under `infra/terraform/`.
   files.
 - **API** (.NET 10) for machine integrations to upload/retrieve files without a user session.
 - **Private S3** storage, reachable only by Files, with chunked API uploads and streamed
-  downloads; PostgreSQL 18, Caddy, and ClamAV run in Docker on **one EC2 instance**; Entra ID
-  identity, Microsoft 365 SMTP email, SigNoz telemetry.
+  downloads; PostgreSQL 18, Caddy, and ClamAV run in Docker on **one pre-existing Ubuntu 24.04
+  host**; Entra ID identity, Microsoft 365 SMTP email, SigNoz telemetry.
 - Public links require an **8-character download key** in addition to a 256-bit link token.
-- One Entra tenant and one AWS account per environment (v1).
+- One Entra tenant and one AWS account for production; development/test run entirely locally.
 
 Source specification: `FILES_Product_Requirements_Technical_Specifications.md` (v0.2).
 
@@ -39,8 +41,8 @@ Source specification: `FILES_Product_Requirements_Technical_Specifications.md` (
 | `docs/07-quality/` | Testing strategy. |
 | `docs/08-operations/` | IaC, deployment/rollback, SLOs/alerting, cost model, runbooks. |
 | `docs/09-delivery/` | Roadmap, backlog, traceability, session log. |
-| `infra/terraform/` | AWS single-node: EC2, Elastic IP, security group, instance role, S3 bucket/policy. |
-| `deploy/` | Production Compose, Caddy, env template, backup/restore/smoke scripts. |
+| `infra/local/` | LocalStack S3 init script + local OTel Collector config (dev only). |
+| `deploy/` | Host bootstrap, production Compose, Caddy, env template, backup/restore/smoke scripts. |
 | `docker-compose.yml` | Local PostgreSQL 18, LocalStack S3, Mailpit, OTel Collector, Flyway. |
 | `scripts/` | Bootstrap and validation helpers. |
 
@@ -54,15 +56,15 @@ milestone you are implementing. Check `git log` for what changed since the last 
 | IDs | UUIDv7 (`uuidv7()`), exposed as UUID strings | ADR-0002 |
 | DB changes | SQL migrations, forward-only; **no EF migrations, no EnsureCreated** | ADR-0002 |
 | Transfers | **API-only S3**: chunked uploads to local staging then server-side S3; downloads streamed; no presigned URLs ever | ADR-0003 |
-| S3 access | Only the EC2 instance role; bucket policy denies all other principals | D-30 |
-| Hosting | Single EC2 Ubuntu 24.04, Docker Compose, Caddy TLS, PostgreSQL 18 container; no ALB/ECS/RDS | ADR-0010 |
+| S3 access | Static access key in `/opt/files/.env`; the existing bucket policy (externally managed) restricts access to the host | D-30 (amended) |
+| Hosting | Single pre-existing Ubuntu 24.04 host (≥2 vCPU/8 GiB, public IP), Docker Compose, Caddy TLS, PostgreSQL 18 container; no ALB/ECS/RDS | ADR-0010 (amended) |
 | Counts | Increment only on completed stream; reservation for `max_downloads` | ADR-0005 |
 | Staging | 16 MiB chunks, 10 GiB reserve, 3 concurrent sessions; complete scans/commits to S3 and can be retried | ADR-0003 |
 | Malware | ClamAV scans the staged file **before** S3; infected files are never uploaded; scanner failure keeps `processing` | D-35 |
 | Email | Microsoft 365 mailbox: POP inbound only; **SMTP AUTH 587** for sending | D-09 / ADR-0009 |
-| Domain | `files.sacservices.cloud` (Network Solutions A record → Elastic IP); Caddy TLS | D-34 |
+| Domain | `files.sacservices.cloud` (Network Solutions A record → host public IP); Caddy TLS | D-34 |
 | Backups | Nightly `pg_dump` to `s3://<bucket>/backups/postgres/`, 35 days; RPO 24 h/RTO 4 h | D-31/D-33 |
-| Host size | `t3.large` (8 GiB) for ClamAV + PostgreSQL + API/worker | D-35 |
+| Host size | ≥8 GiB / ≥2 vCPU (t3.large-class) for ClamAV + PostgreSQL + API/worker | D-35 |
 | Link token | 32 bytes base64url (43 chars), SHA-256 at rest | ADR-0005 |
 | Download key | Exactly 8 chars `[A-Za-z0-9]`, Argon2id verifier, versioned pepper, never logged | ADR-0005 |
 | Machine auth | Entra client credentials only; **no API keys** are issued or stored | ADR-0004 |
@@ -91,7 +93,7 @@ stories, tests, schema, and contract **in the same change**, and note it in `AGE
 - **Migrations:** immutable once applied; add a new `V<n>__...sql`. Test from an empty DB.
 - **API:** contract-first. Update `docs/04-api/openapi/files-api.v1.yaml`, then the DTOs and tests.
 - **Docs:** update the relevant doc and traceability matrix with the code. Stale docs are bugs.
-- **Formatting:** `dotnet format`, Prettier/ESLint, `terraform fmt`, Redocly lint.
+- **Formatting:** `dotnet format`, Prettier/ESLint, Redocly lint.
 - **Warnings:** zero build warnings; analyzers enabled.
 
 ## 5. Commands
@@ -116,11 +118,8 @@ cd web && npm install && npm start
 # OpenAPI
 npx --yes @redocly/cli@latest lint docs/04-api/openapi/files-api.v1.yaml
 
-# Terraform (single EC2 + S3)
-cd infra/terraform && terraform init -backend=false && terraform validate
-
-# Production deployment assets
-deploy/docker-compose.prod.yml · deploy/Caddyfile · deploy/backup.sh
+# Production deployment assets (host + bucket already exist; see deploy/README.md)
+deploy/host-bootstrap.sh · deploy/docker-compose.prod.yml · deploy/Caddyfile · deploy/backup.sh
 ```
 
 Local endpoints: API `http://localhost:8080`, Portal `http://localhost:4200`, LocalStack S3
@@ -138,11 +137,10 @@ Local endpoints: API `http://localhost:8080`, Portal `http://localhost:4200`, Lo
 | Security designs + threat model | Done |
 | Workflows (lifecycle/upload/download/retention) | Done |
 | Testing strategy | Done |
-| IaC skeleton | Done: single EC2 + S3, `terraform validate` (review on change) |
+| Infrastructure | Pre-existing host + S3 bucket, managed outside the repo; no Terraform; `deploy/host-bootstrap.sh` + Compose provided |
 | Local stack, CI, scripts | Done |
-| Deployment assets | Done: Compose, Caddy, backup/restore/smoke |
+| Deployment assets | Done: host-bootstrap, Compose, Caddy, backup/restore/smoke |
 | Application code | **S3/M1 done** — EF Core mapping, domain entities, repositories, audit/outbox writers, Entra JWT auth (user + integration), JIT users, role policies, `/me`, integration admin CRUD + admin audit; S4+ pending |
-| Terraform applied to AWS | Not started |
 
 ## 7. Next steps (in order)
 
@@ -177,7 +175,8 @@ DB, S3, streaming, audit, and counts together.
 - ❌ Allowing a link owner to override the admin-defined public/private TTL.
 - ❌ Far-future timestamps for indefinite retention.
 - ❌ Auto-migrating the database on API startup or editing an applied migration.
-- ❌ Committing `/opt/files/.env`, S3 keys, or Terraform state.
+- ❌ Editing the existing S3 bucket policy/lifecycle directly — it is managed outside this repo.
+- ❌ Committing `/opt/files/.env` or S3 access keys.
 - ❌ Logging `Authorization`, `key`, `token`, `grant`, object keys, or filenames.
 - ❌ Committing real secrets or `.env` files.
 

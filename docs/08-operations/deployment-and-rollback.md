@@ -44,7 +44,8 @@ maintenance windows; Caddy keeps the SPA available while the API restarts.
 
 ## 3. First deployment (bootstrap)
 
-1. Terraform apply (EC2 + EIP + S3 + IAM). Point `files.sacservices.cloud` (Network Solutions) at the EIP.
+1. The host and bucket already exist. Run `deploy/host-bootstrap.sh` once over SSH (Docker +
+   directories + swap). Point `files.sacservices.cloud` (Network Solutions) at the host's public IP.
 2. SSH as the admin/deploy user; verify Docker, UFW, fail2ban.
 3. `git clone` the repository to `/opt/files/app` at the release tag.
 4. Create `/opt/files/.env` from `deploy/env.prod.example`; fill secrets (0600).
@@ -94,8 +95,9 @@ maintenance windows; Caddy keeps the SPA available while the API restarts.
 
 ### Host
 
-- If the instance is lost, create a new EC2 from Terraform, restore the latest dump, redeploy the
-  release, point DNS/EIP at it. S3 objects are unaffected.
+- If the host is lost, ask the infrastructure owner for a replacement (or provision a new Ubuntu
+  24.04 host), run `deploy/host-bootstrap.sh`, restore the latest dump, redeploy the release, and
+  repoint DNS at the new public IP. S3 objects are unaffected.
 
 ## 6. Smoke tests (`deploy/smoke.sh`)
 
@@ -134,7 +136,7 @@ Production smoke uses a dedicated synthetic integration and deletes its files im
 
 The deploy job writes `/opt/files/.env` atomically (`umask 077`, temp file + `mv`) from GitHub
 Environment secrets. Required values: DB password/connection string, Entra tenant/client/audience,
-M365 SMTP host/username/password/from mailbox, optional Graph directory app secret, link-key pepper, S3 bucket/region, SigNoz endpoint.
+M365 SMTP host/username/password/from mailbox, optional Graph directory app secret, link-key pepper, S3 bucket/region/access-key/secret, SigNoz endpoint.
 Never echo the file; never commit it. Rotate via the runbook.
 
 ## 10. Incident hooks

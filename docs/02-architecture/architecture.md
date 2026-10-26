@@ -12,8 +12,8 @@
    chunked through the API into a local staging file, and downloads stream from S3 through the API.
 4. **The database is the source of truth.** S3 stores blobs; consistency is reconciled.
 5. **Idempotency everywhere.** Chunks, completion, jobs, and retries are safe.
-6. **Least privilege.** One EC2 instance role with prefix-scoped S3 access and a deny-all bucket
-   policy; the public surface is Caddy only.
+6. **Least privilege.** A static S3 access key scoped by the existing bucket policy, plus a
+   deny-all bucket policy managed outside the repo; the public surface is Caddy only.
 7. **Observable and auditable.** Traces, metrics, and audit events; honest single-node SLOs.
 
 ## 2. System context (C4 level 1)
@@ -29,7 +29,7 @@ flowchart LR
   signoz["SigNoz (self-hosted or external)<br/>OTLP"]
 
   subgraph aws["AWS account (construction phase)"]
-    subgraph ec2["Single EC2 · Ubuntu 24.04 · Elastic IP"]
+    subgraph host["Single host · Ubuntu 24.04 · public IP"]
       caddy["Caddy<br/>TLS · reverse proxy · SPA"]
       api["Files API<br/>.NET 10"]
       worker["Files Worker<br/>.NET 10"]
@@ -67,8 +67,8 @@ for private-link ACLs), Amazon S3 (blobs), and SigNoz (telemetry).
 
 ```mermaid
 flowchart TB
-  internet["Internet / Elastic IP"]
-  subgraph host["EC2 instance (Ubuntu 24.04, Docker Compose)"]
+  internet["Internet / public IP"]
+  subgraph host["Host (Ubuntu 24.04, Docker Compose)"]
     subgraph edge["Edge container"]
       caddy["Caddy 2.x<br/>:80/:443 · automatic TLS<br/>SPA static + /v1,/health proxy"]
     end
@@ -97,8 +97,8 @@ flowchart TB
   api --> staging
   worker --> staging
   worker --> clam
-  api -->|instance role| s3
-  worker -->|instance role| s3
+  api -->|static key| s3
+  worker -->|static key| s3
   worker --> smtp
   api -.-> entra
   api -.-> otel
@@ -115,7 +115,8 @@ flowchart TB
 | OTel Collector | OTLP export to SigNoz. | Internal (optional). |
 
 The host also runs a `pg_dump` backup job (cron/systemd timer) that writes to
-`s3://<bucket>/backups/postgres/` using the same instance role. No other AWS services are used.
+`s3://<bucket>/backups/postgres/` using the same static key from `/opt/files/.env`. No other AWS
+services are used.
 
 ## 4. API components (C4 level 3)
 
@@ -206,10 +207,10 @@ safety net for overlapping cron ticks.
 | Download | Client ↔ API ↔ S3 | Per request/grant | Streamed, counted, audited. |
 | Public link | Visitor → API (grant) → API stream | Key + link + file checks | Grant 120 s, single use. |
 | Delete/expire | Worker → S3 | System job + DB state | Idempotent. |
-| Backup | Host cron → `pg_dump` → S3 | Instance role | Nightly; lifecycle 35 days. |
+| Backup | Host cron → `pg_dump` → S3 | Static key | Nightly; lifecycle 35 days. |
 
 **Why the API proxies both directions:** S3 exclusivity (D-30), completion-based counting, audit,
-and immediate revocation. The trade-off is EC2 bandwidth/disk, accepted for the construction
+and immediate revocation. The trade-off is host bandwidth/disk, accepted for the construction
 phase (ADR-0003, ADR-0010).
 
 ## 7. Key flows
@@ -297,10 +298,10 @@ See [file-lifecycle.md](../06-workflows/file-lifecycle.md) and
 
 ```mermaid
 flowchart TB
-  dns["DNS name (required for TLS)"] --> eip["Elastic IP"]
-  eip --> sg["Security group<br/>80/443 world · 22 admin CIDR"]
-  sg --> ec2["EC2 · Ubuntu 24.04 · t3.large<br/>100 GiB gp3 EBS"]
-  subgraph ec2box["Docker Compose"]
+  dns["DNS name (required for TLS)"] --> ip["Public IP"]
+  ip --> fw["Firewall (externally managed)<br/>80/443 world · SSH restricted"]
+  fw --> host["Host · Ubuntu 24.04 · ≥2 vCPU / 8 GiB"]
+  subgraph hostbox["Docker Compose"]
     caddy["Caddy :80/:443"] --> api["API :8080"]
     api --> pg[("PostgreSQL 18")]
     api --> staging[("Staging dir")]
@@ -308,21 +309,21 @@ flowchart TB
     worker --> staging
     worker --> clam["ClamAV"]
   end
-  ec2 --> ec2box
-  api -->|instance role| s3[("S3 bucket")]
-  worker -->|instance role| s3
-  cron["Host cron: pg_dump"] -->|instance role| s3
+  host --> hostbox
+  api -->|static key| s3[("S3 bucket")]
+  worker -->|static key| s3
+  cron["Host cron: pg_dump"] -->|static key| s3
   api -.->|OTLP| signoz["SigNoz"]
   worker -.->|OTLP| signoz
-  ec2 -->|443| entra["Entra ID"]
-  ec2 -->|587 STARTTLS| m365["Microsoft 365 SMTP"]
+  host -->|443| entra["Entra ID"]
+  host -->|587 STARTTLS| m365["Microsoft 365 SMTP"]
 ```
 
 - The API and PostgreSQL are not reachable from the internet; Caddy is the only listener.
-- The Elastic IP keeps the public address stable across instance stop/start (within the account).
-- Production domain `files.sacservices.cloud` (Network Solutions A record → Elastic IP) is a hard
+- The host has a static public IP and its firewall is managed externally.
+- Production domain `files.sacservices.cloud` (Network Solutions A record → public IP) is a hard
   prerequisite; Caddy obtains the certificate. A bare IP cannot get a trusted certificate (OQ-15).
-- SSH is restricted to `admin_cidr`; IMDSv2 is required; UFW mirrors the security group.
+- SSH is restricted by the externally managed firewall.
 
 ## 9. Trust boundaries
 
@@ -331,10 +332,10 @@ flowchart TB
 | Internet ↔ Caddy | Untrusted | TLS 1.2/1.3, request size limits, headers, rate limiting at the API. |
 | Caddy ↔ API | Local Docker network | No published API port; `ForwardedHeaders` only from Caddy. |
 | API/Worker ↔ PostgreSQL | Docker network | Strong password, no host port, least-privilege DB role. |
-| API/Worker ↔ S3 | IAM instance role | Prefix-scoped identity policy + bucket policy deny-all-except-role; TLS. |
+| API/Worker ↔ S3 | Static access key | Key in `/opt/files/.env`; existing bucket policy restricts access to the host; TLS. |
 | Worker ↔ Microsoft 365 SMTP | Outbound TLS 587 | Mailbox credentials in `.env`; STARTTLS; no POP for sending. |
 | API ↔ Microsoft Graph | Outbound HTTPS 443 | App-only `User.ReadBasic.All`, `Group.ReadBasic.All`, `GroupMember.Read.All`; no directory data persisted beyond ACL IDs. |
-| Host ↔ operator | SSH | Restricted CIDR, key auth, fail2ban, no password login. |
+| Host ↔ operator | SSH | Restricted by the externally managed firewall, key auth, no password login. |
 | Public visitor ↔ API | Untrusted | Token + key + throttling; generic errors. |
 
 ## 10. Technology baseline
@@ -348,13 +349,13 @@ flowchart TB
 | Object storage | AWS S3 SDK v4 (LocalStack S3 locally) | AWS SDK for .NET v4. |
 | Edge | Caddy | 2.8.x. |
 | Orchestration | Docker Engine + Compose plugin | Ubuntu 24.04 packages. |
-| Host | EC2 + gp3 EBS + Elastic IP | Ubuntu 24.04 LTS. |
+| Host | Ubuntu 24.04 + Docker (pre-existing; static public IP) | Ubuntu 24.04 LTS. |
 | Auth | Microsoft.Identity.Web / JwtBearer; MSAL Angular | Latest stable compatible. |
 | Jobs | Quartz.NET, in-memory scheduler + PG advisory locks | 3.x. |
 | Email | Microsoft 365 SMTP AUTH (MailKit); Graph SDK optional | Latest stable. |
 | Telemetry | OpenTelemetry .NET → OTLP → SigNoz (optional self-hosted) | Latest stable. |
 | Malware | ClamAV `clamd` container, signatures via freshclam | 1.4+/stable. |
-| IaC | Terraform | ≥1.9 (repo tested with 1.13). |
+| Provisioning | None (host + bucket pre-exist) | Bootstrap via `deploy/host-bootstrap.sh`; deploy via Compose. |
 
 ## 11. Cross-cutting concerns
 

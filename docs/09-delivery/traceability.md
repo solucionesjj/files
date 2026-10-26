@@ -34,17 +34,17 @@ targets for the implementation; when a suite is created, link its path.
 | NFR-006 idempotency | `IdempotencyTests`, duplicate job runs, outbox replay tests |
 | NFR-007 recovery | quarterly restore drill; RPO 24 h/RTO 4 h recorded in runbooks |
 | NFR-008 durability | nightly `pg_dump` marker test; S3 durability; optional EBS snapshot verification |
-| NFR-009 security | threat-model checklist; ZAP; tfsec; secret scanning; pen test |
+| NFR-009 security | threat-model checklist; ZAP; secret scanning; pen test |
 | NFR-010 audit | audit within 60 s; `AuditWriteTests`; 60-month audit/24-month download retention; dashboard |
 | NFR-011 observability | OTel traces/metrics; dashboards; alert tests |
 | NFR-012 testability | CI thresholds; coverage gates |
-| NFR-013 reproducibility | `docker compose up`; Terraform EC2/S3 apply; Compose deploy with Git SHA |
+| NFR-013 reproducibility | `docker compose up`; host bootstrap script + Compose deploy with Git SHA |
 | NFR-014 configurability | config validation tests; admin settings tests |
 | NFR-015 portability | LocalStack S3 integration suite; S3-compatible adapter |
 | NFR-016 accessibility | axe-core E2E on core routes |
 | NFR-017 browsers | Playwright full matrix nightly |
 | NFR-018 cost visibility | cost tags, budgets, monthly review |
-| NFR-019 data residency | Terraform region pin; no cross-region without approval |
+| NFR-019 data residency | S3 bucket and host in the same approved AWS region (default `us-east-1`); no cross-region without approval |
 | NFR-020 limits | quota and staging reserve tests; 429/507 codes |
 | NFR-021 host capacity | disk/CPU/memory alerts; 80/90% thresholds |
 
@@ -59,7 +59,7 @@ targets for the implementation; when a suite is created, link its path.
 | Error codes | `docs/04-api/error-catalog.md` | API, frontend, tests |
 | Lifecycle | `docs/06-workflows/file-lifecycle.md` | Backend, tests |
 | SLOs/alerts | `docs/08-operations/observability-and-slos.md` | Ops, dashboards |
-| Infra | `infra/terraform/` | Deployments |
+| Infra | `deploy/` (host bootstrap, Compose, Caddy, backups) | Deployments |
 | Session state | `AGENTS.md`, `docs/09-delivery/roadmap.md` | Future sessions |
 
 ## Change control

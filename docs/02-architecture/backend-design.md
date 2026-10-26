@@ -143,7 +143,7 @@ Environment variables use `__` separators. Full template in `.env.example`.
 | `S3__Bucket` | `files-prod-...` | Required. |
 | `S3__ServiceUrl` | empty | Set for LocalStack S3. |
 | `S3__ForcePathStyle` | `true` (local) / `false` (AWS) | |
-| `S3__AccessKeyId` / `S3__SecretAccessKey` | empty | LocalStack only; production uses the EC2 instance role. |
+| `S3__AccessKeyId` / `S3__SecretAccessKey` | empty | LocalStack only locally; in production the static key from `/opt/files/.env`. |
 | `S3__UseSsl` | `true` | Never false in production. |
 | `Storage__MaxFileSizeBytes` | `5368709120` | 5 GiB. |
 | `Storage__ChunkSizeBytes` | `16777216` | 16 MiB client chunk. |

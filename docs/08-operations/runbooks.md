@@ -22,11 +22,11 @@ Never paste secrets into a shell that logs history; use the `.env` file and
 
 **Symptoms:** external health check fails, SSH times out, no metrics.
 
-1. AWS console/CLI: instance status checks, system log, EBS status.
-2. If the instance is running but unresponsive: reboot once (`aws ec2 reboot-instances`); if it
-   fails, stop/start (Elastic IP stays associated).
-3. If the instance is impaired or the volume is damaged, create a replacement from Terraform,
-   attach/restore the EBS/data (or restore the S3 `pg_dump`), redeploy, and point DNS/EIP.
+1. AWS console/CLI: instance status checks, system log, disk status.
+2. If the host is running but unresponsive: reboot once (`aws ec2 reboot-instances`); if it fails,
+   stop/start (the public IP stays associated).
+3. If the host is impaired or the disk is damaged, ask the infra owner for a replacement host, run
+   `deploy/host-bootstrap.sh`, restore the S3 `pg_dump`, redeploy, and point DNS at the new IP.
 4. Verify: health 200, SPA loads, upload/download smoke, backup marker fresh.
 
 ## API errors
@@ -46,7 +46,8 @@ errors.
 2. Staging: list stale sessions/files; the cleanup job runs every 10 min. If it is not running,
    stop the worker, remove files older than 24 h whose sessions are terminal, restart.
 3. PostgreSQL: check WAL/table growth, outbox/events, vacuum; do not delete DB files.
-4. Resize the EBS volume (gp3) and grow the filesystem (`growpart` + `resize2fs`) if needed.
+4. Resize the host's data volume and grow the filesystem if needed (coordinated with the infra
+   owner).
 5. Verify: free space > reserve, uploads succeed, DB healthy.
 
 ## Container down
@@ -60,13 +61,14 @@ errors.
 ## S3 outage
 
 1. Confirm AWS S3 health; check `s3_requests_total{result="error"}` and API logs (no keys logged).
-2. Verify the instance role is attached and the bucket policy still allows the role ARN:
-   `aws sts get-caller-identity` on the host (instance profile).
-3. Check bucket policy/BPA/SSE changes, bucket name/region in `.env`, clock skew, and outbound 443.
-4. Do not add static keys; fix IAM/bucket policy via Terraform.
+2. Verify the static key still works and the bucket policy still allows this host:
+   `aws sts get-caller-identity` on the host (after exporting the keys from `/opt/files/.env`).
+3. Check bucket policy/BPA/SSE changes (with the infra owner), bucket name/region/key in `.env`,
+   clock skew, and outbound 443.
+4. Do not add a second key or edit the bucket policy yourself; escalate to the infra owner.
 5. If S3 is down, uploads fail closed (`502 upload_commit_failed`); staged files remain and
    `complete` can be retried. Downloads fail; metadata remains available.
-6. Verify: a test PUT/GET in `f/` via the API succeeds; `head-object` works with the instance role.
+6. Verify: a test PUT/GET in `f/` via the API succeeds; `head-object` works with the static key.
 
 ## Deletion failures
 
@@ -75,9 +77,9 @@ SELECT id, owner_type, deletion_attempts, next_deletion_at, last_deletion_error
 FROM files WHERE status = 'pending_deletion' ORDER BY next_deletion_at LIMIT 50;
 ```
 
-1. `AccessDenied`: role/policy/bucket policy; `NoSuchKey` is success; throttling is retryable.
+1. `AccessDenied`: key/bucket policy; `NoSuchKey` is success; throttling is retryable.
 2. Fix the cause, then force a retry: `UPDATE files SET next_deletion_at = now() WHERE id = $1;`
-3. If urgent legal deletion: delete the object with the instance role, then record a manual audit
+3. If urgent legal deletion: delete the object with the static key, then record a manual audit
    note with two-person approval.
 4. Verify the object is gone and the row is `deleted` with an audit event.
 
@@ -161,7 +163,7 @@ set -a; . /opt/files/.env; set +a
 aws s3 ls "s3://$S3__Bucket/backups/postgres/" | tail
 ```
 
-1. If the dump failed: check disk, DB health, AWS CLI/instance role, and the cron logs.
+1. If the dump failed: check disk, DB health, AWS CLI/static key, and the cron logs.
 2. Run manually; confirm size >0; verify the `_latest` marker object.
 3. Restore into a fresh instance/database:
    - Download the chosen dump.
@@ -173,7 +175,7 @@ aws s3 ls "s3://$S3__Bucket/backups/postgres/" | tail
 
 ## TLS
 
-1. Check Caddy logs for ACME errors; verify DNS A record → Elastic IP and ports 80/443 reachable.
+1. Check Caddy logs for ACME errors; verify DNS A record → host public IP and ports 80/443 reachable.
 2. Ensure the domain is correct in `FILES_DOMAIN` and the Caddyfile; no IPv6-only mismatch.
 3. If rate-limited, wait or use a different domain/issuer; do not disable TLS.
 4. Verify: certificate chain, expiry >14 days, HTTP→HTTPS redirect, HSTS.

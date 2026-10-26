@@ -32,7 +32,7 @@
 | **RPO / RTO** | Recovery point objective (max data loss) / recovery time objective (max downtime). |
 | **Presigned URL** | Time-limited S3 URL that authorizes one operation without exposing AWS credentials. **Not used by Files**; S3 is exclusive to the API (D-30). |
 | **Multipart upload** | S3 mechanism for uploading large objects in parts and completing atomically. |
-| **Staging file** | Temporary local file on the EC2 EBS volume where the API writes upload chunks before committing them to S3. |
+| **Staging file** | Temporary local file on the host's disk where the API writes upload chunks before committing them to S3. |
 | **Chunk** | Fixed-size slice of an upload (16 MiB default) sent to the API and written at an offset in the staging file. |
 | **Problem Details** | RFC 9457 JSON error format used by the API (`application/problem+json`). |
 | **Cursor pagination** | Opaque, stable pagination based on a sort key rather than offsets. |

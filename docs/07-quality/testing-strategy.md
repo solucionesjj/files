@@ -21,7 +21,7 @@
 | Integration | ~30% | xUnit + Testcontainers + `WebApplicationFactory` | API endpoints, EF/Dapper, SQL, S3, outbox, jobs, auth handlers. |
 | Contract | ~5% | Schemathesis / OpenAPI schema validation | Request/response/error shapes, status codes, headers. |
 | E2E | ~5% | Playwright | Portal flows, link redemption, admin policy change. |
-| Non-functional | ~5% | k6, ZAP, tfsec, Trivy | Performance, security, IaC, images. |
+| Non-functional | ~5% | k6, ZAP, Trivy | Performance, security, images. |
 
 Coverage gates: ≥80% line on `Files.Domain` + `Files.Application`; ≥60% overall API;
 no drop >2% in a PR without justification.
@@ -130,9 +130,10 @@ Run on Chromium in PR CI; full browser matrix (Edge/Firefox/Safari) nightly.
   grant reuse, enumeration.
 - **Headers:** no secrets in logs/traces (capture test), `Content-Disposition` encoding, no
   `X-Powered-By`, CORS allowlist, `nosniff`, CSP for the SPA.
-- **Dependencies/IaC:** `dotnet list package --vulnerable`, `npm audit`, Trivy image scan, tfsec,
+- **Dependencies/secrets:** `dotnet list package --vulnerable`, `npm audit`, Trivy image scan,
   secret scanning (gitleaks), SBOM generation.
-- **DAST:** OWASP ZAP baseline + authenticated scan against staging before each release.
+- **DAST:** OWASP ZAP baseline + authenticated scan against a local/staging-like deployment before
+  each release.
 
 ## 8. Performance and resilience
 
@@ -165,11 +166,11 @@ Run on Chromium in PR CI; full browser matrix (Edge/Firefox/Safari) nightly.
 | Integration | Every PR | PostgreSQL 18 + LocalStack S3 containers |
 | Contract | Every PR | OpenAPI valid (Redocly), schemas match |
 | Migration | Every PR | Fresh apply + drift test |
-| Security static | Every PR | Vulnerable deps, secrets, tfsec |
+| Security static | Every PR | Vulnerable deps, secrets |
 | E2E (Chromium) | PR + main | Critical paths |
 | Performance smoke | main / nightly | Budgets |
 | Image scan + SBOM | main | No critical CVEs (exception process) |
-| Deploy to EC2 | main/tag | Backup + migrations + compose + smoke tests |
+| Deploy to host | main/tag | Backup + migrations + compose + smoke tests |
 | Deploy prod | Tag + approval | Same + rollback plan |
 
 ## 10. Test data and environments
@@ -178,7 +179,8 @@ Run on Chromium in PR CI; full browser matrix (Edge/Firefox/Safari) nightly.
 - Test users/integrations are seeded per test via the API or SQL helpers, never shared globally.
 - Email is always mocked; no real messages from tests.
 - Staging uses a dedicated Entra test tenant or mock OIDC; production uses the real tenant.
-- Nightly tests run against an ephemeral environment created by Terraform where feasible.
+- There is no permanent staging/QA environment; integration tests run against local PostgreSQL 18 +
+  LocalStack S3, and the pre-launch migration rehearsal runs on a disposable host.
 
 ## 11. Flaky tests
 
@@ -191,5 +193,5 @@ Run on Chromium in PR CI; full browser matrix (Edge/Firefox/Safari) nightly.
 
 - Key-flow review: link key entry, admin credential issuance (secret shown once).
 - Threat-model checklist (security doc §7).
-- Restore drill (quarterly) and IAM/access review.
+- Restore drill (quarterly) and S3 access-key review.
 - Exploratory testing of uploads from slow networks and Safari.

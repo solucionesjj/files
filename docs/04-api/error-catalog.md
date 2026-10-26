@@ -50,7 +50,7 @@ which condition failed. Specific reasons are recorded only in audit events and m
 | `chunk_checksum_mismatch` | 422 | `X-Chunk-SHA256` does not match. | No | Re-send the chunk. |
 | `upload_size_mismatch` | 422 | Staged size ≠ declared size. | No | Restart with the correct size. |
 | `upload_checksum_mismatch` | 422 | Whole-file SHA-256 mismatch. | No | Restart the upload. |
-| `staging_capacity_exceeded` | 507 | The EC2 staging reserve would be exhausted. | Yes (after cleanup) | Abort old sessions or wait for cleanup. |
+| `staging_capacity_exceeded` | 507 | The host staging reserve would be exhausted. | Yes (after cleanup) | Abort old sessions or wait for cleanup. |
 | `staging_write_failed` | 503 | Local disk write failed (I/O, permissions, full). | Yes | Retry after checking disk. |
 | `upload_commit_failed` | 502 | The API could not complete the S3 upload; staged bytes are retained. | Yes | Retry `complete`; do not re-upload chunks. |
 | `upload_abort_failed` | 502 | S3 multipart abort failed; cleanup retries. | Yes | Retry later. |

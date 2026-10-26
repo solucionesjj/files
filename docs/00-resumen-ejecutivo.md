@@ -4,7 +4,7 @@
 > (igual que la especificación de origen); la interfaz del producto será en español. Este resumen
 > no reemplaza los documentos enlazados.
 
-**Fecha:** 23 de octubre de 2026 · **Estado:** diseño completo, implementación no iniciada.
+**Fecha:** 25 de octubre de 2026 · **Estado:** diseño completo; **M1 (S1–S3) implementado**; infraestructura preexistente (sin Terraform).
 
 ## 1. Qué es Files
 
@@ -14,7 +14,7 @@ Una plataforma centralizada para almacenar, administrar y distribuir archivos de
 - **API** para sistemas empresariales (identidades máquina, sin sesión interactiva).
 - **S3 privado, accesible solo por Files**, para el contenido; PostgreSQL 18 para metadatos,
   permisos, retención y auditoría.
-- **Una sola EC2 Ubuntu 24.04** con Docker Compose, Caddy (TLS) y PostgreSQL 18 en el host.
+- **Una sola VM Ubuntu 24.04 (preexistente)** con Docker Compose, Caddy (TLS) y PostgreSQL 18 en el host.
 - **Enlaces públicos** protegidos por un token de 256 bits **más** una clave de 8 caracteres.
 - **Retención, notificaciones de vencimiento, borrado físico y auditoría** automatizados.
 
@@ -33,18 +33,19 @@ Una plataforma centralizada para almacenar, administrar y distribuir archivos de
 | Diseño de Entra ID, identidades máquina y modelo de amenazas STRIDE | [entra-id](05-security/entra-id-authentication.md) · [machine identity](05-security/machine-identity-and-authorization.md) · [threat model](05-security/threat-model.md) |
 | Ciclo de vida, carga/descarga de archivos grandes, retención/notificaciones/borrado | [file-lifecycle](06-workflows/file-lifecycle.md) · [upload/download](06-workflows/upload-and-download.md) · [retention](06-workflows/retention-notifications-deletion.md) |
 | Estrategia de pruebas | [testing-strategy.md](07-quality/testing-strategy.md) |
-| Infraestructura AWS (Terraform), despliegue/rollback, SLOs, costos, runbooks | [operations](08-operations/) |
+| Infraestructura y despliegue (host existente, sin Terraform), rollback, SLOs, costos, runbooks | [operations](08-operations/) |
 | Hoja de ruta (M0–M7, sesiones S1–S14), backlog y trazabilidad | [roadmap.md](09-delivery/roadmap.md) · [backlog.md](09-delivery/backlog.md) · [traceability.md](09-delivery/traceability.md) |
 
 Además: guía de trabajo para futuras sesiones ([AGENTS.md](../AGENTS.md)), pila local
-(PostgreSQL 18 + LocalStack S3 + Mailpit + OpenTelemetry), CI y scripts de validación, y un esqueleto
-de Terraform para AWS.
+(PostgreSQL 18 + LocalStack S3 + Mailpit + OpenTelemetry), CI y scripts de validación, y el
+bootstrap del host + despliegue con Compose en `deploy/`.
 
 ## 3. Decisiones clave (resumen)
 
-1. **S3 exclusivo de Files:** solo el rol de la instancia EC2 accede al bucket; una política de
-   bucket niega objetos/listado/multipart a cualquier otro principal. No se emiten URLs prefirmadas.
-2. **Cargas 100 % por la API en bloques de 16 MiB**, con área temporal en el EBS, verificación de
+1. **S3 exclusivo de Files:** solo Files accede al bucket (access key estática en
+   `/opt/files/.env`); la política del bucket (gestionada externamente) restringe el acceso a esta
+   VM. No se emiten URLs prefirmadas.
+2. **Cargas 100 % por la API en bloques de 16 MiB**, con área temporal en el disco del host, verificación de
    tamaño/hash y subida multipart desde la API a S3 (reintentable sin re-subir del cliente).
 3. **Descargas a través de la API** con concesiones de 120 s y un solo uso; se cuenta solo la
    descarga completada y se puede revocar al instante.
@@ -63,11 +64,12 @@ de Terraform para AWS.
 9. **Procesos en segundo plano:** outbox transaccional + Quartz en memoria + *advisory locks* de
    PostgreSQL; jobs idempotentes para notificar, vencer, borrar y reconciliar.
 10. **Correo:** buzón Microsoft 365; POP solo para recibir, **SMTP AUTH 587** para enviar (Graph
-    opcional). Quedan pendientes la dirección exacta y la contraseña/app password (OQ-01).
-11. **Infraestructura:** una EC2 Ubuntu 24.04 en `us-east-1`, VPC/subred por defecto, Elastic IP y
-    un bucket S3, provistos con Terraform; `files.sacservices.cloud` (Network Solutions) apunta a la
-    IP; Caddy es la única entrada pública (80/443), PostgreSQL no expone puerto, la API/Worker usan
-    el rol de instancia y los secretos viven en `/opt/files/.env` (0600).
+    opcional). SMTP AUTH confirmado habilitado; la app password queda pendiente de entrega (OQ-01).
+11. **Infraestructura:** una VM Ubuntu 24.04 **preexistente** (IP pública, SSH) en `us-east-1` y un
+    bucket S3 **preexistente**; no se crea infraestructura (sin Terraform). `files.sacservices.cloud`
+    (Network Solutions) apunta a la IP pública; Caddy es la única entrada pública (80/443),
+    PostgreSQL no expone puerto, la API/Worker usan una access key estática y los secretos viven en
+    `/opt/files/.env` (0600). El desarrollo/pruebas corren 100 % en local (LocalStack).
 12. **Fase inicial sin HA:** disponibilidad objetivo 99.5%, RPO ≤24 h (backup nocturno `pg_dump`
     a S3) y RTO ≤4 h; ClamAV escanea antes de subir a S3; el camino de escalamiento a RDS/ECS/ALB
     queda documentado.
@@ -80,22 +82,29 @@ de Terraform para AWS.
 - Contrato OpenAPI válido y sin advertencias con Redocly (47 rutas, 59 operaciones).
 - Pila local levantada: PostgreSQL 18.6, LocalStack 3.8.1 (bucket privado, sin CORS porque el
   navegador no accede a S3), Mailpit, colector OTel; Flyway aplicó las migraciones.
-- Terraform `fmt`/`validate` correctos sobre EC2 + S3 (AWS provider 6.70.x); grafo sin ciclos.
+- Pila de despliegue verificada: `docker compose config` (local y producción); `make validate` sin
+  Terraform (la infraestructura ya existe y se gestiona fuera del repo).
 - Enlaces internos y consistencia de IDs de requisitos/historias verificados por script.
 
 ## 5. Decisiones cerradas y datos operativos pendientes
 
-Las decisiones de producto (OQ-01…OQ-26) están cerradas. Para desplegar solo faltan datos operativos:
+Las decisiones de producto (OQ-01…OQ-26) están cerradas y los datos operativos se confirmaron el
+**2026-10-24**. Para desplegar solo queda recibir los datos marcados en la última columna:
 
 | Tema | Estado | Qué falta |
 |---|---|---|
-| Correo | Buzón `notificationsagent@ecs-la.com`; POP solo recepción, SMTP AUTH 587 para envío. | Contraseña/app password en `/opt/files/.env` y confirmar SMTP AUTH en Microsoft 365. |
-| Nube/región | AWS `us-east-1`, VPC/subred por defecto, una EC2 + un bucket S3. | Nombre/cuenta del bucket y, si la EC2 ya existe, importarla. |
-| Dominio/TLS | `files.sacservices.cloud` en Network Solutions; Caddy/Let's Encrypt. | Crear el registro `A` hacia la IP elástica al desplegar. |
+| Correo | Buzón `notificationsagent@ecs-la.com`; POP solo recepción, SMTP AUTH 587 para envío. **SMTP AUTH confirmado habilitado** (2026-10-24). | Recibir la app password fuera del chat y depositarla en `/opt/files/.env`. |
+| Nube/S3 | AWS `us-east-1`. **Una VM Ubuntu 24.04 existente (IP pública, SSH) + un bucket S3 existente**; no se crea infraestructura (sin Terraform). | Nombre del bucket y la access key estática (`S3__AccessKeyId`/`S3__SecretAccessKey`); la policy del bucket ya restringe el acceso a esta VM. |
+| Entra ID | Tenant y app registrations ya existen. | `Entra__TenantId`, `Entra__ApiClientId`, `Entra__PortalClientId`. |
+| Graph (ACL) | Permisos `User.ReadBasic.All`, `Group.ReadBasic.All`, `GroupMember.Read.All` aprobados con consentimiento de admin. | Confirmar la concesión antes de M4. |
+| Dominio/TLS | `files.sacservices.cloud` en Network Solutions; Caddy/Let's Encrypt. El equipo de infra crea el registro `A` hacia la IP pública de la VM. | Confirmación de que el registro existe. |
+| Acceso al host | Administración por **SSH vía IP pública**; el firewall/security group ya está configurado y **no se toca**. | Nada (clave SSH entregada por el equipo de infra). |
+| Entornos | **Solo producción**; sin staging separado (2026-10-24). El gate 9 se relaja a un ensayo sobre instancia desechable. | Ejecutar y registrar el ensayo de migraciones/rollback antes de S14. |
+| Despliegue | Manual, siguiendo `deploy/README.md`. | — |
 | Retención | 30 días por defecto, 365 máximo, nota obligatoria para ampliar; legal hold en v1. | Nada; implementar. |
 | Enlaces | Públicos 15 días, privados 30 días (admin); ACL por usuarios/grupos o todo el tenant. | Nada; implementar. |
-| Escaneo | ClamAV antes de S3; `t3.large`. | Nada; el host debe ser x86_64. |
-| Presupuesto | ~US$110–125/mes producción; ~US$26/mes dev sin escaneo. | Aprobación financiera. |
+| Escaneo | ClamAV antes de S3; host de **≥8 GiB / ≥2 vCPU**. | Nada; el host debe ser x86_64. |
+| Presupuesto | ~US$110–125/mes producción; ~US$26/mes dev sin escaneo. **Aprobado** (2026-10-24). | Activar alertas de presupuesto en AWS. |
 | Alcance | Sin carpetas, sin vista previa, sin acceso admin al contenido, sin API keys, UI español/inglés; **legal hold incluido**. | Nada; está en el alcance. |
 
 ## 6. Próximos pasos

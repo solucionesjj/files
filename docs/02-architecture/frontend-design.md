@@ -7,7 +7,7 @@
 - `@azure/msal-angular` + `@azure/msal-browser` for Entra ID (Authorization Code + PKCE).
 - TypeScript strict, ESLint + Prettier, SCSS.
 - Testing: Vitest/Jest unit tests (Angular default), Playwright E2E.
-- Workspace lives in `web/`; build output is static and served by Caddy on the EC2 host.
+- Workspace lives in `web/`; build output is static and served by Caddy on the host.
 
 ```
 web/src/app/

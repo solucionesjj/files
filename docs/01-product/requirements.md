@@ -261,13 +261,13 @@ Targets are measurable and become SLOs in [observability-and-slos.md](../08-oper
 | NFR-010 | Audit | All security-relevant events auditable within 60 s of occurrence; retention configurable (default 60 months audit / 24 months downloads). | M |
 | NFR-011 | Observability | 100% of requests traced; RED metrics per endpoint; job success/lag metrics; alerting to on-call. | M |
 | NFR-012 | Testability | Automated unit/integration/E2E/contract tests in CI; coverage ≥80% line on Domain/Application. | M |
-| NFR-013 | Reproducibility | One-command local stack; Git-SHA container images; Terraform-managed EC2/S3/IAM; deploy via Compose with only documented `.env` provisioning. | M |
+| NFR-013 | Reproducibility | One-command local stack; Git-SHA container images; host bootstrap script + Compose deploy with only documented `.env` provisioning. | M |
 | NFR-014 | Configurability | Max file size, retention, quotas, rate limits, timeouts, and notification intervals configurable without code changes. | M |
 | NFR-015 | Portability | Storage abstraction allows S3-compatible backends (LocalStack S3, LocalStack S3) for local/test. | S |
 | NFR-016 | Accessibility | WCAG 2.1 AA on upload, list, detail, link management, and admin core flows. | S |
 | NFR-017 | Browsers | Latest 2 versions of Edge, Chrome, Firefox, Safari; no IE. | S |
 | NFR-018 | Cost visibility | AWS cost allocation tags per environment/service; monthly cost report with storage/egress/request breakdown. | S |
-| NFR-019 | Data residency | EC2 EBS and S3 bucket in the same approved AWS region (default `us-east-1`); no cross-region copies without approval. | S |
+| NFR-019 | Data residency | Host disk and S3 bucket in the same approved AWS region (default `us-east-1`); no cross-region copies without approval. | S |
 | NFR-020 | Limits | Per-integration/global quotas and staging-disk quotas enforced; 429/507 responses include a stable code. | M |
 | NFR-021 | Host capacity | The single EC2 MUST be monitored for CPU, memory, disk (staging and PostgreSQL), and network; alerts fire before disk exhaustion. | M |
 

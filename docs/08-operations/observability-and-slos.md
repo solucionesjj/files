@@ -1,4 +1,4 @@
-# Observability, SLOs, and Alerting (Single EC2)
+# Observability, SLOs, and Alerting (Single host)
 
 **Stack:** OpenTelemetry (.NET) → OTel Collector → SigNoz (self-hosted or external). Host and
 container metrics come from Docker/systemd; there is no CloudWatch or ALB in this phase.
@@ -98,7 +98,7 @@ Caddy access logs are disabled for token-bearing URIs.
 4. **Jobs/outbox:** runs, durations, last success, lag, pending deletions/notifications, backup
    freshness.
 5. **Host:** CPU, memory, swap, disk (staging + PostgreSQL), network, container restarts.
-6. **Cost/usage:** S3 storage/egress/requests, EC2 hours, data transfer.
+6. **Cost/usage:** S3 storage/egress/requests, host hours, data transfer.
 
 ## 4. Alerts
 

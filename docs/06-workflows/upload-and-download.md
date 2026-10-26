@@ -5,8 +5,8 @@
 
 ## 1. Objectives
 
-- Support up to 5 GiB on a single EC2 without exposing S3 to any client.
-- Stream bytes through the API, stage them on EBS, verify them, and commit to S3 from the API.
+- Support up to 5 GiB on a single host without exposing S3 to any client.
+- Stream bytes through the API, stage them on the host disk, verify them, and commit to S3 from the API.
 - Never issue presigned URLs, S3 keys, or bucket credentials.
 - Verify every object before it becomes available and scan it with ClamAV before it reaches S3.
 - Count only completed downloads; enforce link limits under concurrency.
@@ -21,11 +21,11 @@
 | `backups/postgres/` | Nightly `pg_dump` files from the host. | Expire after 35 days. |
 | (multipart parts) | Incomplete uploads under the final key. | Abort after 7 days (lifecycle) / 24 h (worker). |
 
-- Bucket per environment: `files-<env>-<account-id>-<region>-<suffix>`.
+- Bucket per environment: `files-<env>-<account-id>-<region>-<suffix>` (production bucket pre-exists and is named by the infra owner).
 - Block Public Access (all four flags), no ACLs, owner enforced, SSE-S3, versioning off.
-- **Only the EC2 instance role has object/list/multipart access.** The bucket policy denies those
-  actions to every other principal (`StringNotEquals aws:PrincipalArn`), including the deployment
-  role. No presigned URLs are generated. The API/worker uses the instance role (no static keys).
+- **Only the Files API/worker have object/list/multipart access**, using a static access key held in
+  `/opt/files/.env`. The existing bucket policy (managed outside this repo) restricts those actions
+  to this host. No presigned URLs are generated and no client receives S3 credentials.
 - No S3 CORS: the browser talks to the API only. The API still allows the configured portal
   origin (for local `ng serve`); in production Caddy serves the SPA same-origin.
 

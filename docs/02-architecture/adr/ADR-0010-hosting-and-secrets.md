@@ -1,8 +1,14 @@
-# ADR-0010 — Initial hosting: one EC2 instance, Docker Compose, Caddy, and one private bucket
+# ADR-0010 — Initial hosting: one existing host, Docker Compose, Caddy, and one private bucket
 
-- **Status:** Accepted (replaces the ECS/RDS/ALB design for the construction phase)
+- **Status:** Accepted (amended 2026-10-25: infrastructure is pre-existing, S3 uses a static key)
 - **Date:** 2026-10-23
 - **Deciders:** Architecture, Operations, Security
+
+> **Amendment (2026-10-25).** The EC2 instance and S3 bucket already exist and are managed outside
+> this repository; Terraform no longer provisions anything and was removed. S3 access uses a static
+> access key stored in `/opt/files/.env` (the host has no instance role), and the existing bucket
+> policy already restricts object access to this host. The text below reflects this; the superseded
+> "instance role / Terraform" wording is kept only where it describes history.
 
 ## Context
 
@@ -15,12 +21,10 @@ Angular portal, expose the API, keep S3 private and exclusive to Files, and be r
 
 **Host**
 
-- One EC2 instance, Ubuntu 24.04 LTS x86_64, default `t3.large` (8 GiB, for ClamAV + PostgreSQL + API/worker), 100 GiB gp3 encrypted EBS,
-  Elastic IP (stable public address), IMDSv2 required, termination protection enabled.
-- Default VPC public subnet; security group allows 80/443 from the internet and 22 only from
-  `admin_cidr`. No database port is exposed.
-- Bootstrap via Terraform `user_data`: Docker Engine + Compose plugin, AWS CLI, UFW, fail2ban,
-  unattended upgrades, directories (`/opt/files`, `/var/lib/files/{staging,postgres}`), 2 GiB swap.
+- One pre-existing Ubuntu 24.04 LTS x86_64 host (≥2 vCPU / 8 GiB for ClamAV + PostgreSQL + API/worker) with a public IP and SSH access. No instance is provisioned by this repository.
+- The host's firewall/security group is managed externally and already exposes only 80/443 (and SSH to the administrator). No database port is exposed.
+- One-time bootstrap via `deploy/host-bootstrap.sh`: Docker Engine + Compose plugin, AWS CLI,
+  directories (`/opt/files`, `/var/lib/files/{staging,postgres,portal}`), 2 GiB swap.
 
 **Runtime (Docker Compose on the host)**
 
@@ -33,18 +37,20 @@ Angular portal, expose the API, keep S3 private and exclusive to Files, and be r
 | `clamav` | internal | clamd on 3310; scans staged files before S3 commit; signature volume. |
 | `otel-collector` (optional profile) | internal | OTLP to SigNoz (self-hosted on the same host or external). |
 
-- The API is the **only** S3 client; it uses the EC2 instance role (no static keys).
+- The API is the **only** S3 client; it authenticates with a static access key stored in
+  `/opt/files/.env` (the host has no instance role). The existing bucket's policy already restricts
+  object access to this host.
 - Secrets live in `/opt/files/.env` (mode `0600`), loaded by Compose and provisioned by the
   deployment pipeline. No AWS Secrets Manager in this phase.
 - PostgreSQL backups: nightly `pg_dump` (`-Fc`, gzip) from the host to
   `s3://<bucket>/backups/postgres/`, retained 35 days by lifecycle. No PITR/WAL archiving.
-- Production name: **`files.sacservices.cloud`** (DNS at Network Solutions, A record to the
-  Elastic IP). Caddy obtains/renews the certificate automatically. A bare IP is only for temporary
+- Production name: **`files.sacservices.cloud`** (DNS at Network Solutions, A record to the host's
+  public IP). Caddy obtains/renews the certificate automatically. A bare IP is only for temporary
   tests with a self-signed cert (OQ-15/OQ-26).
 
-**Provisioning:** Terraform covers the instance, Elastic IP, security group, IAM role/profile,
-the S3 bucket, and the restrictive bucket policy. Application deployment is Git + SSH + Docker
-Compose (see `deploy/`).
+**Provisioning:** the host and the S3 bucket already exist and are managed outside this repository
+(no Terraform). Application deployment is Git + SSH + Docker Compose (see `deploy/`), with a
+one-time host bootstrap via `deploy/host-bootstrap.sh`.
 
 ## Consequences
 

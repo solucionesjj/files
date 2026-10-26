@@ -37,7 +37,7 @@ row remains as a tombstone with `storage_key` retained for audit but never expos
 - A nightly logical `pg_dump` is written to `s3://<bucket>/backups/postgres/` and retained 35 days
   by lifecycle; it is separate from the live table, so deleted rows persist there until the
   backup window passes. There is no PITR/WAL archiving in the initial single-node phase.
-- Optional EBS snapshots (manual or scheduled outside Terraform) are treated as another backup
+- Optional host disk snapshots (manual or scheduled by the infra owner) are treated as another backup
   copy with the same erasure caveat.
 - S3 versioning is **disabled** in production to avoid hidden copies; lifecycle abort rules clean
   incomplete uploads. If versioning is enabled for operational reasons, a lifecycle rule must

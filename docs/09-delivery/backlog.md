@@ -58,7 +58,7 @@ IDs match [requirements.md](../01-product/requirements.md).
 |---|---|---|---|---|
 | T-01 | Bootstrap .NET solution + Angular workspace | M | M0 | `scripts/bootstrap-solution.sh`, Directory.Build.props, global.json. **Done (S1).** |
 | T-02 | Local stack (PostgreSQL 18, LocalStack S3, Mailpit, OTel) | S | M0 | `docker-compose.yml`, healthchecks, Flyway profile. **Done (S1):** now also starts API, worker, and web. |
-| T-03 | CI pipeline | M | M0 | Build, tests, contract lint, migrations, terraform fmt/validate. **Done (S1):** builds/tests the .NET solution and the Angular workspace. |
+| T-03 | CI pipeline | M | M0 | Build, tests, contract lint, migrations. **Done (S1):** builds/tests the .NET solution and the Angular workspace. |
 | T-04 | EF Core persistence + repositories + outbox | L | M1 | DbContext, mapping, audit/outbox writers, DB tests. **Done (S2).** |
 | T-05 | Authentication handlers and policies | L | M1 | Entra user/integration tokens, tenant check; no API keys. **Done (S3):** BearerUser + BearerIntegration schemes, JIT users, role policies, integration requirement, admin audit. |
 | T-06 | Storage adapter, local staging and S3 commit | L | M2 | Chunk store (pwrite), multipart/put, HeadObject, ranges, delete, copy, disk reserve. |
@@ -68,7 +68,7 @@ IDs match [requirements.md](../01-product/requirements.md).
 | T-10 | Email sender (M365 SMTP AUTH; Graph fallback) + template renderer | M | M6 | Mailpit/SMTP tests, retries, statuses. |
 | T-11 | Worker scheduler + advisory locks + outbox dispatcher | M | M2 | Quartz in-memory, batch jobs, metrics. |
 | T-12 | Observability (OTel, dashboards, alerts) | M | M0/M7 | Collector, SigNoz, SLOs, alert routes. |
-| T-13 | Terraform EC2/S3/IAM and environments | L | M7 | Instance, EIP, SG, instance role, bucket policy, lifecycle, user_data. |
+| T-13 | Host bootstrap for the existing VM (no IaC) | S | M7 | `deploy/host-bootstrap.sh`: Docker/Compose, directories, swap. **Done (S13 prep):** infra pre-exists; no Terraform. |
 | T-14 | SSH/Compose deployment, Caddy, backups, smoke tests | M | M7 | Docker Compose prod, Caddy/TLS, `.env`, migrations, backup/restore. |
 | T-15 | Threat model implementation checklist | M | M7 | IDOR/auth matrices, upload tampering, ZAP. |
 | T-16 | Load/soak test scripts | M | M7 | k6: metadata, upload, download, abuse. |

@@ -93,7 +93,7 @@ never receive a bucket credential, presigned URL, or S3 endpoint.
 1. `POST /portal/upload-sessions` or `POST /integrations/upload-sessions` with file name, size,
    content type, optional whole-file SHA-256, and (portal only) retention/tags.
 2. Response: `fileId`, `uploadSessionId`, `chunkSizeBytes`, `chunkCount`, `expiresAt`,
-   `receivedBytes` (0). The server creates a staging file on the EC2 volume; no S3 call yet.
+   `receivedBytes` (0). The server creates a staging file on the host disk; no S3 call yet.
    If `retention.days` exceeds the current default, the request MUST include
    `retention.reason` (mandatory note) and may not exceed 365 days.
 3. Upload chunks with

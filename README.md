@@ -15,9 +15,10 @@ token. Integration-owned files are isolated, indefinitely retained by default, a
 to their owner or explicitly granted integrations. Retention, expiration notifications, physical
 deletion, and audits are managed by the platform.
 
-> **Status (2026-10-23):** design and delivery package complete; application code not started.
-> The initial deployment target is **one EC2 instance (Ubuntu 24.04) + one S3 bucket**, with
-> Docker Compose, Caddy, and PostgreSQL 18 on the host. See the
+> **Status (2026-10-25):** M1 (S1–S3) implemented — .NET 10 solution, Angular workspace, EF Core
+> persistence, Entra JWT auth, JIT users, role policies, and integration admin. The deployment
+> target is **one pre-existing Ubuntu 24.04 host + one pre-existing S3 bucket**, with Docker
+> Compose, Caddy, and PostgreSQL 18 on the host. See the
 > [roadmap](docs/09-delivery/roadmap.md) and [AGENTS.md](AGENTS.md) for the next session.
 >
 > **Resumen en español:** [docs/00-resumen-ejecutivo.md](docs/00-resumen-ejecutivo.md).
@@ -41,7 +42,8 @@ flowchart LR
 
 - No ALB, ECS, RDS, ECR, NAT gateway, or CloudWatch in this phase.
 - The API/worker is the **only S3 client**; clients never receive presigned URLs or credentials.
-  Infrastructure automation may manage bucket configuration but cannot read or write objects.
+  The host authenticates to S3 with a static access key stored only in `/opt/files/.env`; the
+  existing bucket policy (managed outside this repo) restricts object access to the host.
 - Uploads are chunked through the API into local staging, verified, then uploaded to S3 by the API.
 - Downloads stream from S3 through the API with short-lived, single-use grants.
 - **ClamAV** scans staged files before they reach S3; infected files are quarantined.
@@ -78,8 +80,7 @@ flowchart LR
 AGENTS.md                  # working agreement for future sessions
 docs/                      # product, architecture, data, API, security, workflows, ops, delivery
 db/migrations/             # canonical Flyway SQL (PostgreSQL 18)
-infra/terraform/           # EC2 + Elastic IP + SG + IAM + S3 bucket/policy
-deploy/                    # production Compose, Caddy, env template, backup/restore/smoke
+deploy/                    # host bootstrap, production Compose, Caddy, env template, backup/restore/smoke
 infra/local/               # LocalStack S3 init and OTel collector for local development
 scripts/                   # bootstrap and validation helpers
 docker-compose.yml         # local dependencies
@@ -88,8 +89,8 @@ docker-compose.yml         # local dependencies
 
 ## Local quickstart
 
-Prerequisites: Docker, .NET SDK 10, Node.js 22 LTS (Angular 20 also supports 20.19+), Terraform
-1.9+ (IaC only). ClamAV runs on the x86_64 production host; local development keeps scanning off.
+Prerequisites: Docker, .NET SDK 10, Node.js 22 LTS (Angular 20 also supports 20.19+). ClamAV runs
+on the x86_64 production host; local development keeps scanning off.
 
 ```bash
 cp .env.example .env          # review; local values are non-secret
@@ -116,12 +117,13 @@ No S3 CORS is needed: the browser only talks to the API.
 
 ## Production deployment
 
-Terraform creates (or imports) the EC2 instance, Elastic IP, security group, instance role, and
-bucket. If the host/bucket already exist, import them or skip Terraform and apply the same policy
-manually. Then follow [`deploy/README.md`](deploy/README.md):
+The host and S3 bucket already exist and are managed outside this repository (no Terraform). Run
+`deploy/host-bootstrap.sh` once over SSH to install Docker/Compose and create the Files
+directories, then follow [`deploy/README.md`](deploy/README.md):
 
-1. Point DNS (e.g., `files.sacservices.cloud`) at the Elastic IP.
-2. Copy `deploy/` to `/opt/files/app`, create `/opt/files/.env` (mode 0600).
+1. Point DNS `files.sacservices.cloud` at the host's public IP.
+2. Clone the repo to `/opt/files/app`, create `/opt/files/.env` (mode 0600) from
+   `deploy/env.prod.example` — including the S3 static access key.
 3. Start PostgreSQL, run Flyway, build the SPA, start API/worker/Caddy.
 4. Install the nightly backup cron and verify a dump in S3.
 5. Run `deploy/smoke.sh`.
@@ -132,9 +134,8 @@ a trusted certificate (OQ-15).
 ## Validation
 
 ```bash
-make validate          # docs links/IDs, OpenAPI lint, compose config, Terraform fmt
+make validate          # docs links/IDs, OpenAPI lint, compose config, build + tests, web build
 make db-verify         # apply migrations to a throwaway PostgreSQL 18 container
-cd infra/terraform && terraform init -backend=false && terraform validate
 ```
 
 ## Core decisions at a glance

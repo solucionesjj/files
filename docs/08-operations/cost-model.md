@@ -1,23 +1,23 @@
-# Cost Model (Single EC2 + S3 + ClamAV)
+# Cost Model (Single host + S3 + ClamAV)
 
 **Currency:** USD · **Region:** us-east-1 · **Basis:** AWS public on-demand prices, October 2026.
 Verify with the AWS Pricing Calculator; excludes taxes, support, domain registration, and
-engineering time. Initial phase: one EC2, one EBS volume, one S3 bucket, one Elastic IP, ClamAV
-in a container.
+engineering time. Initial phase: one host (pre-existing), one data volume, one S3 bucket, one
+public IP, ClamAV in a container.
 
 ## 1. Baseline assumptions
 
 | Driver | Assumption |
 |---|---|
-| Host | EC2 `t3.large` on-demand (2 vCPU, 8 GiB, ClamAV + PostgreSQL + API/worker), 730 h/month |
+| Host | `t3.large`-class (2 vCPU, 8 GiB, ClamAV + PostgreSQL + API/worker), 730 h/month — already provisioned |
 | EBS | 100 GiB gp3, encrypted |
-| Public IPv4 | Elastic IP attached |
+| Public IPv4 | Static public IP — already provisioned with the host |
 | Stored objects | 500 GiB in S3 Standard (10,000 files) |
 | New ingress | 50 GiB/month |
 | Egress | 200 GiB/month (API streams from S3 to clients) |
 | Requests | ~5M API calls/month; ~200k S3 GET, ~20k PUT |
 | Backups | 50 GiB of nightly `pg_dump` in S3 (35-day lifecycle) |
-| ClamAV | Container on the same host; signatures ~1.5 GiB; no extra EC2 |
+| ClamAV | Container on the same host; signatures ~1.5 GiB; no extra host |
 | Telemetry | OTel Collector only; SigNoz external or not deployed |
 | Domain/TLS | `files.sacservices.cloud` (Network Solutions); Caddy/Let's Encrypt |
 
@@ -29,7 +29,7 @@ in a container.
 | EC2 `t3.small` | $0.0208 / hour |
 | EC2 `t3.xlarge` | $0.1664 / hour |
 | EBS gp3 | $0.08 / GB-month |
-| Elastic IP (attached) | $0.005 / hour (~$3.65/month) |
+| Public IPv4 (if Elastic IP) | $0.005 / hour (~$3.65/month) |
 | S3 Standard storage | $0.023 / GB-month |
 | S3 PUT/COPY/POST | $0.005 / 1,000 requests |
 | S3 GET | $0.0004 / 1,000 requests |
@@ -43,7 +43,7 @@ in a container.
 |---|---|---|
 | EC2 `t3.large` | 0.0832 × 730 | $60.74 |
 | EBS 100 GiB gp3 | 100 × 0.08 | $8.00 |
-| Elastic IP | 0.005 × 730 | $3.65 |
+| Public IPv4 | 0.005 × 730 | $3.65 |
 | S3 storage 500 GiB | 500 × 0.023 | $11.50 |
 | S3 requests | ~200k GET + 20k PUT | $0.18 |
 | Egress 200 GiB | 200 × 0.09 | $18.00 |
@@ -62,13 +62,13 @@ external SigNoz or a second `t3.small` adds roughly $20–40/month.
 | Item | Monthly |
 |---|---|
 | EC2 `t3.small` (50 GiB gp3) | $15.18 + $4.00 |
-| Elastic IP | $3.65 |
+| Public IPv4 | $3.65 |
 | S3 50 GiB + 20 GiB egress | $1.15 + $1.80 |
 | Backups 10 GiB | $0.23 |
 | **Total** | **≈ $26/mo** (plus domain; scanning off) |
 
 Local development is $0 AWS (LocalStack). A staging copy of production adds ~$65–110/month; stop
-the instance when idle (Elastic IP still billed while allocated).
+the host when idle (a public IPv4 is billed only if it is an Elastic IP).
 
 ## 5. Scenario C — Growth (12–18 months)
 
@@ -85,7 +85,7 @@ the instance when idle (Elastic IP still billed while allocated).
 |---|---|
 | EC2 `t3.xlarge` | $121.47 |
 | EBS 500 GiB | $40.00 |
-| Elastic IP | $3.65 |
+| Public IPv4 | $3.65 |
 | S3 2 TiB | $47.10 |
 | Egress 1 TiB | $90.00 |
 | Backups 200 GiB | $4.60 |

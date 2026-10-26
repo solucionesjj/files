@@ -1,6 +1,6 @@
 # Microsoft Entra ID Authentication Design
 
-**Decisions:** ADR-0004 · **Requirements:** FR-ID-001..011 · **Open items:** OQ-01 (mail), OQ-03 (multi-tenant)
+**Decisions:** ADR-0004 · **Requirements:** FR-ID-001..011 · **Open items:** OQ-01 (mail credential delivery only; tenant confirmed single on 2026-10-24)
 
 ## 1. App registrations
 
