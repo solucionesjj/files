@@ -7,7 +7,7 @@ info:
 
     Authentication:
     - Portal users: Microsoft Entra ID delegated bearer token (`userAuth`).
-    - Integrations: Microsoft Entra ID client-credentials bearer token (`integrationAuth`); no API keys.
+    - Integrations: Files-issued API key in the `X-Api-Key` header (`apiKey`).
     - Public link visitors: link token + separate 8-character download key.
 
     All errors use RFC 9457 `application/problem+json` with a stable `code`.
@@ -554,52 +554,6 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
-  /portal/directory/principals:
-    get:
-      tags: [Portal links]
-      operationId: searchDirectoryPrincipals
-      summary: Search tenant users/groups for a private-link ACL
-      parameters:
-        - name: type
-          in: query
-          required: true
-          schema:
-            type: string
-            enum: [user, group]
-        - name: q
-          in: query
-          required: true
-          schema:
-            type: string
-            minLength: 2
-            maxLength: 100
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 50
-            default: 20
-      responses:
-        '200':
-          description: Matching tenant principals (object ID, display name, email for users).
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DirectoryPrincipalList'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-        '503':
-          description: Directory (Graph) unavailable.
-          content:
-            application/problem+json:
-              schema:
-                $ref: '#/components/schemas/Problem'
-
   /public/download-links/{token}:
     get:
       tags: [Public links]
@@ -652,46 +606,6 @@ paths:
         '429':
           $ref: '#/components/responses/TooManyRequests'
 
-  /download-links/{token}:
-    get:
-      tags: [Public links]
-      operationId: getPrivateLinkMetadata
-      summary: Metadata for a private link (authenticated)
-      parameters:
-        - $ref: '#/components/parameters/LinkToken'
-      responses:
-        '200':
-          description: Full display metadata for an authenticated tenant user.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/LinkPublicInfo'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-  /download-links/{token}/downloads:
-    post:
-      tags: [Public links]
-      operationId: redeemPrivateLink
-      summary: Authenticate and issue a grant for a private link
-      parameters:
-        - $ref: '#/components/parameters/LinkToken'
-      responses:
-        '201':
-          description: Grant issued.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DownloadGrant'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '429':
-          $ref: '#/components/responses/TooManyRequests'
-
   /download-grants/{grantToken}:
     get:
       tags: [Downloads]
@@ -736,7 +650,7 @@ paths:
       operationId: createIntegrationUploadSession
       summary: Create an upload session owned by the integration
       security:
-        - integrationAuth: []
+        - apiKey: []
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -773,7 +687,7 @@ paths:
       operationId: uploadIntegrationChunk
       summary: Upload one chunk through the integration API
       security:
-        - integrationAuth: []
+        - apiKey: []
       parameters:
         - $ref: '#/components/parameters/SessionId'
         - $ref: '#/components/parameters/ChunkNumber'
@@ -822,7 +736,7 @@ paths:
       operationId: getIntegrationUploadStatus
       summary: Upload status for resume
       security:
-        - integrationAuth: []
+        - apiKey: []
       parameters:
         - $ref: '#/components/parameters/SessionId'
       responses:
@@ -841,7 +755,7 @@ paths:
       operationId: abortIntegrationUpload
       summary: Abort an integration upload and delete staged bytes
       security:
-        - integrationAuth: []
+        - apiKey: []
       parameters:
         - $ref: '#/components/parameters/SessionId'
       responses:
@@ -858,7 +772,7 @@ paths:
       operationId: completeIntegrationUpload
       summary: Complete and verify an integration upload
       security:
-        - integrationAuth: []
+        - apiKey: []
       parameters:
         - $ref: '#/components/parameters/SessionId'
       requestBody:
@@ -891,7 +805,7 @@ paths:
       operationId: listIntegrationFiles
       summary: List files owned by the integration
       security:
-        - integrationAuth: []
+        - apiKey: []
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -910,7 +824,7 @@ paths:
       operationId: getIntegrationFile
       summary: Get metadata for an owned or granted file
       security:
-        - integrationAuth: []
+        - apiKey: []
       parameters:
         - $ref: '#/components/parameters/FileId'
       responses:
@@ -929,7 +843,7 @@ paths:
       operationId: deleteIntegrationFile
       summary: Delete an owned file
       security:
-        - integrationAuth: []
+        - apiKey: []
       parameters:
         - $ref: '#/components/parameters/FileId'
       responses:
@@ -950,7 +864,7 @@ paths:
       operationId: getIntegrationFileAvailability
       summary: Check availability without transferring content
       security:
-        - integrationAuth: []
+        - apiKey: []
       parameters:
         - $ref: '#/components/parameters/FileId'
       responses:
@@ -971,7 +885,7 @@ paths:
       operationId: downloadIntegrationFile
       summary: Download file content (supports Range)
       security:
-        - integrationAuth: []
+        - apiKey: []
       parameters:
         - $ref: '#/components/parameters/FileId'
         - $ref: '#/components/parameters/Range'
@@ -1666,6 +1580,162 @@ paths:
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
 
+  /integrations/me:
+    get:
+      tags: [Integrations]
+      operationId: getIntegrationIdentity
+      summary: Current integration identity and effective scopes
+      security:
+        - apiKey: []
+      responses:
+        '200':
+          description: Integration identity and effective scopes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntegrationMe'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/users:
+    get:
+      tags: [Admin]
+      operationId: listUsers
+      summary: List users (keyset-paginated)
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Users page.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/users/{userId}/role:
+    patch:
+      tags: [Admin]
+      operationId: updateUserRole
+      summary: Change a user's role (audited)
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRoleRequest'
+      responses:
+        '200':
+          description: Updated user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /admin/integrations/{integrationId}/api-keys:
+    get:
+      tags: [Admin]
+      operationId: listApiKeys
+      summary: List API keys for an integration (never the secret)
+      parameters:
+        - $ref: '#/components/parameters/IntegrationId'
+      responses:
+        '200':
+          description: API keys (prefix/name only).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Admin]
+      operationId: createApiKey
+      summary: Issue an API key (secret returned once)
+      parameters:
+        - $ref: '#/components/parameters/IntegrationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateApiKeyRequest'
+      responses:
+        '201':
+          description: Key created; the secret is returned exactly once.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKey'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/integrations/{integrationId}/api-keys/{keyId}:
+    delete:
+      tags: [Admin]
+      operationId: revokeApiKey
+      summary: Revoke an API key (audited)
+      parameters:
+        - $ref: '#/components/parameters/IntegrationId'
+        - name: keyId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevokeApiKeyRequest'
+      responses:
+        '200':
+          description: Revoked key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKey'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
+
 components:
   securitySchemes:
     userAuth:
@@ -1673,13 +1743,11 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: Entra ID delegated token for a tenant user (scope `Files.Access`).
-    integrationAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: |
-        Microsoft Entra ID application token (client credentials). The token's
-        azp/appid must match an active integration; no API keys are issued.
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+      description: Files-issued integration API key (ADR-0014); scopes are enforced from the key.
 
   parameters:
     Cursor:
@@ -2356,61 +2424,11 @@ components:
       properties:
         accessMode:
           type: string
-          enum: [public, private]
+          enum: [public]
         maxDownloads:
           type: [integer, 'null']
           minimum: 1
           maximum: 1000000
-        allowAllTenant:
-          type: boolean
-          default: false
-          description: Private links only; if true, any active tenant user may redeem.
-        allowedPrincipals:
-          type: array
-          maxItems: 100
-          description: Private links only; specific Entra users/groups (mutually compatible with allowAllTenant=false).
-          items:
-            $ref: '#/components/schemas/LinkPrincipalRef'
-
-    LinkPrincipalRef:
-      type: object
-      required: [type, id]
-      properties:
-        type:
-          type: string
-          enum: [user, group]
-        id:
-          type: string
-          format: uuid
-          description: Entra object ID.
-        displayName:
-          type: [string, 'null']
-          readOnly: true
-
-    DirectoryPrincipal:
-      type: object
-      required: [type, id, displayName]
-      properties:
-        type:
-          type: string
-          enum: [user, group]
-        id:
-          type: string
-          format: uuid
-        displayName:
-          type: string
-        email:
-          type: [string, 'null']
-          format: email
-
-    DirectoryPrincipalList:
-      type: object
-      required: [items]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: '#/components/schemas/DirectoryPrincipal'
 
     Link:
       type: object
@@ -2424,7 +2442,7 @@ components:
           format: uuid
         accessMode:
           type: string
-          enum: [public, private]
+          enum: [public]
         status:
           type: string
           enum: [active, revoked, expired]
@@ -2434,13 +2452,7 @@ components:
         expiresAt:
           type: [string, 'null']
           format: date-time
-          description: Set by the server from the admin-configured public/private TTL.
-        allowAllTenant:
-          type: boolean
-        allowedPrincipals:
-          type: array
-          items:
-            $ref: '#/components/schemas/LinkPrincipalRef'
+          description: Set by the server from the admin-configured public TTL.
         maxDownloads:
           type: [integer, 'null']
         successfulDownloads:
@@ -2610,9 +2622,6 @@ components:
           type: array
           items:
             type: string
-        entraClientId:
-          type: [string, 'null']
-          format: uuid
         createdAt:
           type: string
           format: date-time
@@ -2662,9 +2671,6 @@ components:
           type: array
           items:
             type: string
-        entraClientId:
-          type: [string, 'null']
-          format: uuid
 
     UpdateIntegrationRequest:
       type: object
@@ -2684,14 +2690,11 @@ components:
           type: array
           items:
             type: string
-        entraClientId:
-          type: [string, 'null']
-          format: uuid
         reason:
           type: string
           minLength: 10
           maxLength: 500
-          description: Required when disabling or clearing the Entra client ID.
+          description: Required when disabling an integration.
 
     SetPermissionsRequest:
       type: object
@@ -3226,3 +3229,133 @@ components:
         requestedAt:
           type: string
           format: date-time
+
+    User:
+      type: object
+      required: [id, displayName, role, status, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: [string, 'null']
+          format: email
+        displayName:
+          type: string
+        role:
+          type: string
+          enum: [user, admin, auditor]
+        status:
+          type: string
+          enum: [active, disabled]
+        createdAt:
+          type: string
+          format: date-time
+        lastLoginAt:
+          type: [string, 'null']
+          format: date-time
+
+    UserList:
+      type: object
+      required: [items, hasMore]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        nextCursor:
+          type: [string, 'null']
+        hasMore:
+          type: boolean
+
+    UpdateUserRoleRequest:
+      type: object
+      required: [role]
+      properties:
+        role:
+          type: string
+          enum: [user, admin, auditor]
+        reason:
+          type: [string, 'null']
+          maxLength: 500
+
+    CreateApiKeyRequest:
+      type: object
+      required: [name, scopes]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        scopes:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [file.write, file.read, file.delete]
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+
+    RevokeApiKeyRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 10
+          maxLength: 500
+
+    ApiKey:
+      type: object
+      required: [id, name, prefix, scopes, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        prefix:
+          type: string
+        apiKey:
+          type: [string, 'null']
+          description: Present only in the create response; never returned again.
+        scopes:
+          type: array
+          items:
+            type: string
+            enum: [file.write, file.read, file.delete]
+        createdAt:
+          type: string
+          format: date-time
+        lastUsedAt:
+          type: [string, 'null']
+          format: date-time
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+        revokedAt:
+          type: [string, 'null']
+          format: date-time
+
+    ApiKeyList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApiKey'
+
+    IntegrationMe:
+      type: object
+      required: [integrationId, permissions]
+      properties:
+        integrationId:
+          type: string
+          format: uuid
+        permissions:
+          type: array
+          items:
+            type: string
+            enum: [file.write, file.read, file.delete]

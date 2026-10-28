@@ -6,6 +6,34 @@ entry.
 
 ---
 
+## 2026-10-27 — S3b implemented: roles in Files + Files-issued API keys
+
+**Delivered (code, tests green)**
+
+- Roles from `users.role` (`UserRole` enum; JIT creates `user`; first admin bootstrapped by SQL).
+  `PortalRoleRequirementHandler` is now scoped and reads the actor via `IIdentityService`; the token
+  `roles` claim is ignored. Admin endpoints: `GET /v1/admin/users`, `PATCH /v1/admin/users/{id}/role`
+  (last-admin guard + audit + outbox).
+- API keys: `IntegrationApiKey` entity + `integration_api_keys` mapping; `ApiKeys` (prefix + 256-bit
+  secret, SHA-256 hash, constant-time verify); `ApiKeyAuthenticationHandler` (`X-Api-Key`) enforcing
+  integration status, expiry, revocation, IP allowlist, and scope intersection; admin endpoints
+  `GET/POST /v1/admin/integrations/{id}/api-keys` and `DELETE .../api-keys/{keyId}` (secret shown
+  once); `GET /v1/integrations/me`.
+- Removed `BearerIntegration` (Entra client credentials) and `IntegrationRequirementHandler`'s `azp`
+  lookup (now key scope claims); dropped `entraClientId` from admin DTOs and the repository.
+- OpenAPI: `apiKey` header scheme; removed `entraClientId`, `allowAllTenant`/ACL/directory/private-link
+  redemption; added users/API-key/integration-me endpoints; Redocly-valid.
+- Tests: 56 passing (roles-from-DB, API-key issue/use/revoke, scope subset, last-admin guard).
+
+**Remaining (next)**
+
+- Align `docs/01-product/requirements.md` (FR-M2M-*, FR-ID-010/011, FR-LINK-*), user stories
+  (US-010/011/012/020/021/022), the RBAC matrix, and the threat model to drop Entra app roles,
+  Graph, and private links; refresh `docs/05-security/entra-id-authentication.md` and
+  `machine-identity-and-authorization.md`; update `AGENTS.md` §6; run `make validate`.
+
+---
+
 ## 2026-10-27 — Identity model realigned: Entra authenticates humans only (ADR-0014)
 
 **Owner decision.** Entra ID is used **only** to sign in tenant employees (their accounts live in

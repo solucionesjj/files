@@ -32,9 +32,9 @@ Source specification: `FILES_Product_Requirements_Technical_Specifications.md` (
 |---|---|
 | `docs/00-resumen-ejecutivo.md` | Spanish executive summary (orientation for stakeholders). |
 | `docs/01-product/` | Requirements (FR/NFR IDs), user stories, RBAC, decisions, open questions, glossary. |
-| `docs/02-architecture/` | C4 architecture, backend/frontend design, 13 ADRs. |
+| `docs/02-architecture/` | C4 architecture, backend/frontend design, 14 ADRs. |
 | `docs/03-data/` | Data model, invariants, retention schedule, EF notes. |
-| `db/migrations/` | **Canonical DDL** (Flyway `V1`, `V2`). |
+| `db/migrations/` | **Canonical DDL** (Flyway `V1`, `V2`, `V3`). |
 | `docs/04-api/` | Conventions, error catalog, OpenAPI 3.1 contract. |
 | `docs/05-security/` | Entra ID design, machine identity, threat model. |
 | `docs/06-workflows/` | Lifecycle state machine, upload/download, retention/notifications/deletion. |
@@ -133,7 +133,7 @@ Local endpoints: API `http://localhost:8080`, Portal `http://localhost:4200`, Lo
 |---|---|
 | Product requirements, stories, RBAC | Done |
 | Architecture + ADRs | Done |
-| Data model + V1/V2 migrations | Done, validated on PostgreSQL 18.6 |
+| Data model + V1/V2/V3 migrations | Done, validated on PostgreSQL 18.6 |
 | OpenAPI contract | Done, Redocly-valid |
 | Security designs + threat model | Done |
 | Workflows (lifecycle/upload/download/retention) | Done |
@@ -141,17 +141,18 @@ Local endpoints: API `http://localhost:8080`, Portal `http://localhost:4200`, Lo
 | Infrastructure | Pre-existing host + S3 bucket, managed outside the repo; no Terraform; `deploy/host-bootstrap.sh` + Compose provided |
 | Local stack, CI, scripts | Done |
 | Deployment assets | Done: host-bootstrap, Compose, Caddy, backup/restore/smoke |
-| Application code | **S3/M1 done** — EF Core mapping, domain entities, repositories, audit/outbox writers, Entra JWT auth (user + integration), JIT users, role policies, `/me`, integration admin CRUD + admin audit; S4+ pending |
+| Application code | **S3b done** — EF Core mapping, domain entities, repositories, audit/outbox writers, Entra JWT auth (humans only), JIT users, roles in `users.role` (admin endpoints), Files-issued API keys (auth + admin endpoints), `/me`, `/v1/integrations/me`; S4+ pending |
 
 ## 7. Next steps (in order)
 
 1. ✅ **S1 / M0 (done):** .NET solution + Angular workspace, health endpoints, config validation,
    OTel wiring, local compose, and the API/worker Dockerfiles are in place.
 2. ✅ **S2 / M1 (done):** EF Core mapping + repositories + audit/outbox writers; user/integration persistence.
-3. ✅ **S3 / M1 (done):** Entra JWT validation, JIT provisioning, role policies, integration admin (Entra app binding; no API keys).
-4. **S4–S5 / M2:** `IObjectStore`, `IChunkStore` staging, chunk endpoints, server-side S3 commit,
+3. ✅ **S3 / M1 (done):** Entra JWT validation (humans only), JIT provisioning, role policies, `/me`, integration admin CRUD, admin audit.
+4. ✅ **S3b / M1+M5 (done):** roles in `users.role` (Entra app roles removed), Files-issued API keys (auth + admin endpoints), private links/Graph removed from scope.
+5. **S4–S5 / M2:** `IObjectStore`, `IChunkStore` staging, chunk endpoints, server-side S3 commit,
    completion verification, disk reserve, cleanup; integration tests with LocalStack S3.
-5. **S6–S8:** portal, then links/public downloads.
+6. **S6–S8:** portal, then public links/downloads.
 
 Do not jump to UI before the upload/download vertical slice works end to end; it validates auth,
 DB, S3, streaming, audit, and counts together.
