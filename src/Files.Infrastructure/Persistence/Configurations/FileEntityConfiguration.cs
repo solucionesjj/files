@@ -33,6 +33,8 @@ public sealed class FileEntityConfiguration : IEntityTypeConfiguration<FileEntit
         builder.Property(x => x.RetentionPolicyId);
         builder.Property(x => x.ScanStatus).HasConversion(EnumConversion.SnakeCase<ScanStatus>());
         builder.Property(x => x.ScanCompletedAt);
+        builder.Property(x => x.ScanAttempts);
+        builder.Property(x => x.ScanNextAttemptAt);
         builder.Property(x => x.QuarantineReason);
         builder.Property(x => x.LegalHold);
         builder.Property(x => x.LegalHoldReason);

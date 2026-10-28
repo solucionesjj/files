@@ -21,6 +21,8 @@
   <ItemGroup>
     <!-- Flyway migrations are mounted into the Testcontainers Flyway runner from the test output. -->
     <None Include="..\..\db\migrations\*.sql" Link="migrations\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <!-- clamd.conf is mounted into the Testcontainers ClamAV container (raised 5 GiB scan limits). -->
+    <None Include="..\..\deploy\clamav\clamd.conf" Link="clamav\clamd.conf" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

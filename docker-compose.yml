@@ -54,6 +54,25 @@ services:
       retries: 20
     restart: unless-stopped
 
+  clamav:
+    image: clamav/clamav:1.4
+    environment:
+      CLAMAV_NO_MILTERD: "true"
+      CLAMAV_NO_CLAMD: "false"
+      CLAMAV_NO_FRESHCLAM: "false"
+    ports:
+      - "3310:3310"
+    volumes:
+      - ./deploy/clamav/clamd.conf:/etc/clamav/clamd.conf:ro
+      - clamdb:/var/lib/clamav
+    healthcheck:
+      test: ["CMD-SHELL", "clamdcheck.sh || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    restart: unless-stopped
+
   mailpit:
     image: axllent/mailpit:latest
     ports:
@@ -136,4 +155,5 @@ services:
 volumes:
   pgdata:
   localstackdata:
+  clamdb:
   staging:

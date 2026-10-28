@@ -47,6 +47,10 @@ public sealed class FileEntity : IVersionedEntity
 
     public DateTimeOffset? ScanCompletedAt { get; set; }
 
+    public int ScanAttempts { get; set; }
+
+    public DateTimeOffset? ScanNextAttemptAt { get; set; }
+
     public string? QuarantineReason { get; set; }
 
     public bool LegalHold { get; set; }
