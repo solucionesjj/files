@@ -1,8 +1,13 @@
 # ADR-0005 — Download links: 256-bit tokens, 8-character keys, 120-second grants
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-10-27: private links deferred; public links only in v1)
 - **Date:** 2026-10-23
 - **Deciders:** Security, Architecture, Product
+
+> **Amendment (2026-10-27).** The owner removed private links from v1 to avoid a Microsoft Graph
+> dependency (ADR-0014). Only **public links** (256-bit token + 8-character key) are implemented.
+> The private-link TTL, ACL, and `allow_all_tenant` sections below describe a future release; the
+> `download_link_acl`/`allow_all_tenant` columns remain in the schema but are unused in v1.
 
 ## Context
 

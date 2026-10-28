@@ -8,16 +8,16 @@ affected requirement, ADR, schema, and tests in the same change.
 | ID | Question | Resolution | Impact | Owner |
 |---|---|---|---|---|
 | OQ-01 | Sending mailbox and mechanism; POP cannot send. | Microsoft 365 mailbox **`notificationsagent@ecs-la.com`**; POP for receiving, **SMTP AUTH** `smtp.office365.com:587` (STARTTLS) for sending. Password/app password is configured in `/opt/files/.env`; SMTP AUTH must be enabled. Graph `Mail.Send` is the fallback. | Notifications (M6). | Platform/Identity |
-| OQ-02 | Cloud, region, network. | AWS **`us-east-1`**, account **default VPC/public subnet**, one EC2 + one S3 bucket. | IaC, latency, cost. | Architecture |
+| OQ-02 | Cloud, region, network. | AWS **`us-east-1`**; one **pre-existing** Ubuntu 24.04 host (public IP, SSH) + one existing S3 bucket, managed outside the repo. | Deployment, latency, cost. | Architecture |
 | OQ-03 | One or multiple Entra tenants? | **One tenant per deployment.** | No `tenant_id` on every table; isolation by deployment. | Product |
-| OQ-04 | Who can redeem a private link? | Owner selects **specific Entra users/groups** or enables **any authenticated tenant user**; the API enforces the ACL. | Link ACL table, directory search, Graph membership checks. | Product/Security |
+| OQ-04 | Who can redeem a private link? | **Out of scope for v1 (re-resolved 2026-10-27):** only public links are offered; no private ACL, no Graph directory access. `download_link_acl`/`allow_all_tenant` remain reserved for a future release. | No link ACL table use, no directory search, no Graph. | Product/Security |
 | OQ-05 | May admins download content? | **No.** Admins manage metadata, retention, legal hold, and deletion only. | No break-glass content path in v1. | Security/Legal |
 | OQ-06 | Storage/ingress/concurrency quotas. | **5 GiB/file, 500 GiB total, 200 GiB/integration, 50 GiB/day, 3 concurrent uploads.** Admin-configurable. | EBS sizing, throttling, alerts. | Operations |
 | OQ-07 | Human retention policy. | **Default 30 days**, admin-configurable for new files; **absolute maximum 365 days**, no admin exceptions; user may extend up to 365 with a **mandatory note**; indefinite forbidden for humans. Every change audited. | Lifecycle, UI, schema, audit. | Product/Legal |
 | OQ-08 | Legal/litigation hold. | **In v1.** Admin sets/releases with a reason; blocks expiration and deletion; audited. | Admin workflow, jobs, schema. | Legal |
 | OQ-09 | Malware scanning. | **ClamAV mandatory in production**, scanning staged files **before** S3; infected files never uploaded; `t3.large`. | Security, latency, memory. | Security |
 | OQ-10 | Audit/download retention. | **Audit 60 months; download events 24 months**; notification events 12 months. | Storage, purge job. | Security/Legal |
-| OQ-11 | API keys vs Entra. | **Entra client credentials only**; no API keys are issued or stored. | Removes credential table/endpoints/rotation. | Integrations |
+| OQ-11 | API keys vs Entra. | **Files-issued API keys for machines (re-resolved 2026-10-27).** Entra is used only for human authentication; each integration gets a Files-managed API key (hashed, scoped, revocable). | API-key table, admin endpoints, rotation, audit. | Integrations |
 | OQ-12 | Folders/hierarchy. | **No folders**; flat list + tags. | Model/UI unchanged. | Product |
 | OQ-13 | Expected volume. | **200 files/day, p95 50 MiB, 20 concurrent downloads, 3 concurrent uploads.** | Capacity/cost/SLO. | Integrations |
 | OQ-14 | UI language. | **Spanish and English with a selector**; Spanish default; emails per locale. | Angular i18n, templates. | Product |
@@ -27,7 +27,7 @@ affected requirement, ADR, schema, and tests in the same change.
 | OQ-18 | Admin delete of integration files. | **Yes**, with mandatory reason and audit. | Admin API/UI. | Product |
 | OQ-19 | In-browser preview. | **No**, download only. | Scope. | Product |
 | OQ-20 | Budget target. | **~US$110–125/month** production (`t3.large`, ClamAV, 100 GiB EBS, 500 GiB S3, 200 GiB egress); dev without scanning ~US$26/month. | Instance/storage/cost. | Finance |
-| OQ-21 | Link lifetimes. | **Public 15 days, private 30 days** by default; both admin-configurable for new links; owner **cannot** change them. Existing links keep their expiry. | Link creation, schema, UI. | Product |
+| OQ-21 | Link lifetimes. | **Public 15 days** by default, admin-configurable for new links, owner **cannot** change it; existing links keep their expiry. Private links (30 days) are deferred with OQ-04/D-43. | Link creation, schema, UI. | Product |
 | OQ-22 | SDK. | **OpenAPI 3.1 + cURL/.NET examples**; no versioned SDK. | Integration effort. | Integrations |
 | OQ-23 | Upload resume. | Resume within the **60-minute session**; no cross-session resume. | Staging cleanup/UX. | Product |
 | OQ-24 | Download notifications. | **No emails**; owner sees statistics. | Scope. | Product |

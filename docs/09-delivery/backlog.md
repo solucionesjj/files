@@ -30,8 +30,8 @@ IDs match [requirements.md](../01-product/requirements.md).
 | US-008 | Search, filter, sort, paginate | E2 | M | M3 | FR-SRCH-002..006 | US-004 | Todo |
 | US-009 | Accessible, responsive portal | E2 | M | M3 | FR-GEN-003/004, NFR-016 | US-004 | Todo |
 | US-010 | Register and manage an integration | E3 | M | M1 | FR-M2M-001/008/009/010 | US-002 | Doing |
-| US-011 | Entra client credentials + metadata | E3 | M | M5 | FR-M2M-002/003/007/008, FR-INT-003/005/006 | US-010, T-04 | Todo |
-| US-012 | Bind an integration to its Entra application | E3 | M | M1/M5 | FR-M2M-004/005/006/013 | US-010 | Doing |
+| US-011 | API key + metadata | E3 | M | M5 | FR-M2M-002/003/007/008, FR-INT-003/005/006 | US-010, T-04 | Todo |
+| US-012 | ~~Bind an integration to its Entra application~~ (superseded by API keys, ADR-0014) | E3 | — | — | FR-M2M-004/005/006/013 | — | Superseded |
 | US-013 | Rate limits and quotas | E3 | M | M5 | FR-M2M-014, FR-INT-010 | US-010 | Todo |
 | US-014 | Delete an integration-owned file | E3 | S | M5 | FR-INT-002, FR-DEL-007/009 | US-011 | Todo |
 | US-015 | Upload via integration API | E3 | L | M2/M5 | FR-UP-002..017, FR-INT-004/007 | US-003, US-011 | Todo |
@@ -40,7 +40,7 @@ IDs match [requirements.md](../01-product/requirements.md).
 | US-018 | Availability check and content | E3 | M | M5 | FR-INT-002/008/009 | US-015 | Todo |
 | US-019 | Existing product end-to-end | E3 | M | M5 | FR-INT-011 | US-015..018 | Todo |
 | US-020 | Create a public link with a key | E4 | M | M4 | FR-LINK-001..004, 015 | US-004 | Todo |
-| US-021 | Redeem public/private links | E4 | L | M4 | FR-LINK-002/007..012, FR-ID-007 | US-020 | Todo |
+| US-021 | Redeem public links | E4 | L | M4 | FR-LINK-002/007..012, FR-ID-007 | US-020 | Todo |
 | US-022 | Revoke or rotate a link | E4 | S | M4 | FR-LINK-006/013 | US-020 | Todo |
 | US-023 | Abuse protection for keys | E4 | M | M4 | FR-LINK-009 | US-021, T-09 | Todo |
 | US-024 | View download statistics | E4 | S | M4 | FR-LINK-014 | US-021 | Todo |
@@ -60,7 +60,7 @@ IDs match [requirements.md](../01-product/requirements.md).
 | T-02 | Local stack (PostgreSQL 18, LocalStack S3, Mailpit, OTel) | S | M0 | `docker-compose.yml`, healthchecks, Flyway profile. **Done (S1):** now also starts API, worker, and web. |
 | T-03 | CI pipeline | M | M0 | Build, tests, contract lint, migrations. **Done (S1):** builds/tests the .NET solution and the Angular workspace. |
 | T-04 | EF Core persistence + repositories + outbox | L | M1 | DbContext, mapping, audit/outbox writers, DB tests. **Done (S2).** |
-| T-05 | Authentication handlers and policies | L | M1 | Entra user/integration tokens, tenant check; no API keys. **Done (S3):** BearerUser + BearerIntegration schemes, JIT users, role policies, integration requirement, admin audit. |
+| T-05 | Authentication handlers and policies | L | M1 | Entra human tokens + Files API keys, tenant check, roles in Files. **Doing:** BearerUser + JIT + role policies done (S3); Entra app roles and BearerIntegration to be replaced in S3b (ADR-0014). |
 | T-06 | Storage adapter, local staging and S3 commit | L | M2 | Chunk store (pwrite), multipart/put, HeadObject, ranges, delete, copy, disk reserve. |
 | T-07 | Audit and download event writers | M | M1 | Transactional, append-only, no secrets. **Doing:** file-audit + admin-audit + outbox writers done (S2/S3); download events deferred to S8. |
 | T-08 | OpenAPI contract tests and DTO generation | S | M1 | Redocly lint, schema validation, TS types. |
@@ -72,6 +72,8 @@ IDs match [requirements.md](../01-product/requirements.md).
 | T-14 | SSH/Compose deployment, Caddy, backups, smoke tests | M | M7 | Docker Compose prod, Caddy/TLS, `.env`, migrations, backup/restore. |
 | T-15 | Threat model implementation checklist | M | M7 | IDOR/auth matrices, upload tampering, ZAP. |
 | T-16 | Load/soak test scripts | M | M7 | k6: metadata, upload, download, abuse. |
+| T-17 | Identity realignment (ADR-0014) | L | M1/M5 | `V3`; roles in `users.role`; API-key issue/verify/rotate/revoke + admin endpoints; remove Entra app roles and `BearerIntegration`; remove private-link/Graph scope. |
+| T-18 | API-key security review | S | M7 | Hashing, constant-time verify, rate limits, revocation, audit, no logging; threat-model update. |
 | T-17 | DR drill and runbook rehearsal | M | M7 | Restore, RTO/RPO measurement. |
 | T-18 | Docs upkeep + ADR log | S | ongoing | Update on every decision change. |
 | T-20 | Staging disk monitoring/cleanup and 507 path | M | M2 | Reserve check, pwrite failures, stale session cleanup, alerts. |

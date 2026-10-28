@@ -6,6 +6,50 @@ entry.
 
 ---
 
+## 2026-10-27 — Identity model realigned: Entra authenticates humans only (ADR-0014)
+
+**Owner decision.** Entra ID is used **only** to sign in tenant employees (their accounts live in
+Entra). Entra is not used for machine identity, directory data, or application roles. Integrations
+authenticate with **Files-issued API keys**; private links (and Graph) are **out of scope for v1**.
+
+**Recorded**
+
+- New [ADR-0014](../02-architecture/adr/ADR-0014-entra-human-auth-only.md); ADR-0004 superseded;
+  ADR-0005 amended (private links deferred).
+- Decisions **D-41** (roles in Files), **D-42** (Files-issued API keys), **D-43** (no private links);
+  D-20 and D-37 superseded.
+- OQ-04, OQ-11, OQ-21 re-resolved; `AGENTS.md` canonical facts and guardrails; roadmap (new
+  session **S3b**, M4/M5 scope, dependency graph); backlog (US-011/US-012/US-021, T-05, new
+  T-17/T-18); data model.
+- Migration **`V3`**: `users.role` (`user`/`admin`/`auditor`) and `integration_api_keys`
+  (prefix + SHA-256 hash + scopes + expiry + revocation); `integrations.entra_client_id`
+  deprecated.
+
+**Not yet implemented (S3b) — the repo is temporarily inconsistent**
+
+- The API still authorizes from the token `roles` claim and still accepts `BearerIntegration`
+  (Entra client credentials). S3b must:
+  - resolve roles from `users.role` (scoped authorization handler), JIT-create as `user`, and
+    bootstrap the first admin by SQL;
+  - add API-key authentication (prefix lookup, constant-time hash verify, scopes, expiry,
+    revocation, IP allowlist) and admin endpoints (create/list/rotate/revoke, secret shown once);
+  - remove Entra app roles and client credentials from the auth path;
+  - remove private-link ACL/directory endpoints and DTOs from the OpenAPI contract and add the
+    API-key endpoints.
+- Until S3b lands, docs describe ADR-0014 while code/tests still assert the old model; do not
+  deploy this state as final.
+
+**Validated**
+
+- `V3` applies from an empty PostgreSQL 18 (`scripts/db-verify.sh`).
+- `scripts/check_docs.py` (links, IDs, ADR references).
+
+**Next**
+
+- S3b (identity realignment), then S4/M2 (storage and chunk upload).
+
+---
+
 ## 2026-10-25 — Align to pre-existing infrastructure (remove Terraform, static S3 key)
 
 **Scope:** the infrastructure already exists — one Ubuntu 24.04 host (public IP, SSH, ≥8 GiB) and

@@ -43,8 +43,9 @@ tables without aggregate relationships.
 
 | Table | Purpose | Key constraints |
 |---|---|---|
-| `users` | Entra human identities (`tenant_id`, `object_id`). | `UNIQUE (tenant_id, object_id)`; `status` active/disabled. |
-| `integrations` | Registered machine consumers. | `UNIQUE slug`, `UNIQUE entra_client_id`; status consistency with `disabled_at`; CIDR allowlist. |
+| `users` | Entra human identities (`tenant_id`, `object_id`) plus the Files-managed `role` (`user`/`admin`/`auditor`). | `UNIQUE (tenant_id, object_id)`; `status` active/disabled; role check (ADR-0014). |
+| `integrations` | Registered machine consumers. | `UNIQUE slug`; status consistency with `disabled_at`; CIDR allowlist. `entra_client_id` is deprecated (nullable, historical). |
+| `integration_api_keys` | Files-issued API keys per integration (ADR-0014). | Unique `prefix`; SHA-256 `secret_hash` (32 bytes); scopes array; optional expiry; revocation. |
 | `integration_permissions` | Explicit permissions per integration. | PK (`integration_id`, `permission`); values `file.write`, `file.read`, `file.delete`. |
 | `integration_file_grants` | Explicit read-only cross-integration access. | Partial unique active (`file_id`, `integration_id`); only integration-owned files may be granted. |
 
@@ -66,8 +67,8 @@ tables without aggregate relationships.
 
 | Table | Purpose | Key constraints |
 |---|---|---|
-| `download_links` | Token hash, type, expiry, limits, counters, revocation, tenant-wide flag. New links get `expires_at` from `platform_settings.public_link_ttl_days` (15) or `private_link_ttl_days` (30); the owner cannot override. | Token hash unique; public ⇒ key hash + version; private ⇒ both absent; public cannot be `allow_all_tenant`; `successful + reserved ≤ max`. |
-| `download_link_acl` | Users/groups allowed on a private link. | PK/unique (`link_id`, `principal_type`, `principal_id`); `principal_type` user/group; index by principal. Private links use either ACL rows or `allow_all_tenant=true`. |
+| `download_links` | Token hash, type, expiry, limits, counters, revocation, tenant-wide flag. New links get `expires_at` from `platform_settings.public_link_ttl_days` (15); the owner cannot override. Private links are deferred (ADR-0014). | Token hash unique; public ⇒ key hash + version; public cannot be `allow_all_tenant`; `successful + reserved ≤ max`. |
+| `download_link_acl` | **Reserved (unused in v1).** Users/groups allowed on a private link; kept for a future release. | PK/unique (`link_id`, `principal_type`, `principal_id`); `principal_type` user/group. |
 | `download_grants` | Short-lived capability to stream one file. | Token hash unique; source/link consistency; state machine. |
 | `download_key_attempts` | Failed key attempts for throttling/forensics. | Indexes on (`link_id`, `ip_hash`, time) and (`link_id`, time). |
 | `abuse_lockouts` | Active link/IP lockouts. | `UNIQUE (scope_type, scope_key)`. |

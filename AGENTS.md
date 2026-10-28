@@ -67,15 +67,16 @@ milestone you are implementing. Check `git log` for what changed since the last 
 | Host size | ≥8 GiB / ≥2 vCPU (t3.large-class) for ClamAV + PostgreSQL + API/worker | D-35 |
 | Link token | 32 bytes base64url (43 chars), SHA-256 at rest | ADR-0005 |
 | Download key | Exactly 8 chars `[A-Za-z0-9]`, Argon2id verifier, versioned pepper, never logged | ADR-0005 |
-| Machine auth | Entra client credentials only; **no API keys** are issued or stored | ADR-0004 |
+| Machine auth | **Files-issued API keys** (256-bit, SHA-256 at rest, prefix + scopes + expiry + revocation); Entra is **human-only** | ADR-0014 |
 | Retention | `finite` ⇔ `expires_at` not null; human default 30 d, absolute max 365 d, note required above default; indefinite only integrations | ADR-0006 |
 | Integration files | Indefinite, `integration_only`, no public links, no portal visibility | Requirements §5.4 |
-| Admins | Manage metadata/policy/legal hold; **no content access** | D-19 |
+| Admins | Manage metadata/policy/legal hold/roles; **no content access** | D-19 / ADR-0014 |
+| User roles | `users.role` (`user`/`admin`/`auditor`) managed in Files; Entra app roles are not used | ADR-0014 |
 | Deletion | Logical first, physical async, tombstone retained; backups caveat | ADR-0008 |
 | Jobs | Quartz in-memory + PG advisory locks; transactional outbox | ADR-0007 |
 | Errors | RFC 9457, stable `code`, 404 for foreign link/file | ADR-0012 |
 | Frontend | Angular standalone + Bootstrap 5.3 + MSAL; Spanish/English selector (Spanish default) | ADR-0013 |
-| Links | Public 15 d / private 30 d (admin-defined, owner cannot change); private ACL by users/groups or all-tenant | ADR-0005 |
+| Links | **Public 15 d only** (admin-defined, owner cannot change); private links and Graph ACLs deferred | ADR-0005 / ADR-0014 |
 
 When a decision must change: add/update an ADR or `decisions.md`, update affected requirements,
 stories, tests, schema, and contract **in the same change**, and note it in `AGENTS.md`.
@@ -170,7 +171,9 @@ DB, S3, streaming, audit, and counts together.
 - ❌ Returning 403 for another user's file — use 404 to avoid existence oracles.
 - ❌ Letting portal search see integration files.
 - ❌ Giving admins content access "for support" without an ADR and audit design.
-- ❌ Issuing API keys or storing integration client secrets; machine auth is Entra-only.
+- ❌ Storing API keys in plaintext, logging them, or returning them after creation; hashes only, shown once.
+- ❌ Using Entra app roles or client credentials for authorization; roles live in Files, machines use API keys (ADR-0014).
+- ❌ Reintroducing private links or Microsoft Graph without an ADR (ADR-0014).
 - ❌ Letting a legal-hold file expire or be deleted.
 - ❌ Allowing a link owner to override the admin-defined public/private TTL.
 - ❌ Far-future timestamps for indefinite retention.

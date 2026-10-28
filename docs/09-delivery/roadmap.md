@@ -8,11 +8,11 @@ Progress is updated at the end of every work session (see [AGENTS.md](../../AGEN
 | ID | Milestone | Outcome | Exit criteria |
 |---|---|---|---|
 | M0 | Foundations | Buildable repo, local stack, CI, health, telemetry | `docker compose up` works; API/worker build; health endpoints; CI green; `make validate` passes. |
-| M1 | Identity, data, admin base | Schema, Entra auth, RBAC, integrations | Migrations applied; JIT user; `/me`; admin integration + Entra app binding; audit rows; auth tests green. |
+| M1 | Identity, data, admin base | Schema, Entra auth, RBAC, integrations | Migrations applied; JIT user; `/me`; admin integration + API keys; roles in Files; audit rows; auth tests green. |
 | M2 | Upload and storage | Chunked API upload, local staging, S3 commit, verification, cleanup | 5 GiB chunked upload works against LocalStack S3; staging/disk checks; stale sessions and multipart cleaned; tests. |
 | M3 | Portal MVP | Human file management | Sign-in, upload, list/search/tags, detail, download, delete; accessibility scan; E2E. |
-| M4 | Links and public access | Public/private links, keys, grants, abuse controls | Key shown once; grant flow; limits under concurrency; lockout; stats; tests. |
-| M5 | Integration API | Machine consumers end-to-end | Entra client credentials only; idempotency; upload/read/content/delete/availability; quotas; §15 flow demo. |
+| M4 | Links and public access | Public links, keys, grants, abuse controls (private links deferred) | Key shown once; public grant flow; limits under concurrency; lockout; stats; tests. |
+| M5 | Integration API | Machine consumers end-to-end | API keys only; idempotency; upload/read/content/delete/availability; quotas; §15 flow demo. |
 | M6 | Retention, notifications, deletion | Lifecycle automation | Policy versions; legal hold; M365 SMTP email; unique notifications; expiry/deletion jobs; ClamAV scan/commit; reconcile; admin UI/API. |
 | M7 | Hardening and launch | Production readiness | Pen test fixes; load/soak; DR drill; SLO dashboards/alerts; cost approved; runbooks; OQ blockers resolved. |
 
@@ -25,13 +25,14 @@ can run partly in parallel once their dependencies are met.
 |---|---|---|---|
 | S1 | M0 | Bootstrap the solution | `Files.slnx`/`Files.sln`, projects, `Directory.Build.props`, `global.json`, Angular workspace, compose, `/health`, config validation, CI, `make validate`. |
 | S2 | M1 | Database and persistence base | Flyway runner, EF DbContext + naming, repository seams, user/integration entities, audit writer, outbox writer, DB tests. |
-| S3 | M1 | Entra auth and admin base | JWT validation, policies, JIT users, `/me`, integration CRUD (Entra app binding, no API keys), admin audit. |
+| S3 | M1 | Entra auth and admin base | JWT validation, policies, JIT users, `/me`, integration CRUD (API keys), admin audit. |
+| S3b | M1/M5 | Identity realignment (ADR-0014) | `users.role` roles in Files; API-key issuance/verification + admin endpoints; remove Entra app roles and client credentials; drop private links/Graph from scope; apply `V3`. |
 | S4 | M2 | Storage adapter, staging, sessions | `IObjectStore` (S3; LocalStack locally), `IChunkStore` staging, create session, chunk endpoints, disk/quota checks. |
 | S5 | M2 | Completion, ClamAV scan/commit, cleanup | Verify chunks/size/checksum, scan before S3, server-side multipart/put, HeadObject, retry commit, abort/cleanup, integration tests. |
 | S6 | M3 | Portal shell and files UX | Angular app, MSAL, API client, file list/search/filters/pagination, detail, upload orchestration. |
 | S7 | M3 | Portal management | Rename/tags/retention, delete, owner download grant, E2E + accessibility, error UX. |
-| S8 | M4 | Links and public downloads | Link create/list/revoke, admin TTL, private ACL/directory, public/private metadata, key verify, grants, reservation concurrency, abuse controls, stats. |
-| S9 | M5 | Integration API | Integration auth handlers, idempotency filter, content/availability/delete, chunk upload, quotas, §15 demo, OpenAPI contract tests. |
+| S8 | M4 | Public links and downloads | Link create/list/revoke, admin TTL, public metadata, key verify, grants, reservation concurrency, abuse controls, stats (private links deferred). |
+| S9 | M5 | Integration API | API-key auth handlers, idempotency filter, content/availability/delete, chunk upload, quotas, §15 demo, OpenAPI contract tests. |
 | S10 | M6 | Retention, legal hold, notifications | Policy versioning (30/365 + note), legal hold, scheduler, templates/renderer, M365 SMTP sender, retries, admin endpoints/UI. |
 | S11 | M6 | Expiration and deletion | Expiration/deletion jobs (skip legal hold), tombstones, reconciliation, retention purge, metrics/alerts. |
 | S12 | M7 | Test hardening and security | IDOR/auth matrices, upload tampering, ZAP, dependency/IaC scans, pen-test fixes, load/soak. |
@@ -41,23 +42,24 @@ can run partly in parallel once their dependencies are met.
 Dependency graph (critical path):
 
 ```
-S1 → S2 → S3 → S4 → S5 → S9 → S11 → S12 → S13 → S14
-                 ↘ S6 → S7 → S8 → S10 ↗
+S1 → S2 → S3 → S3b → S4 → S5 → S9 → S11 → S12 → S13 → S14
+                         ↘ S6 → S7 → S8 → S10 ↗
 ```
 
-S6/S7 (portal) can start once S4 exposes upload endpoints; S8 depends on S5 and S6. S10 depends on
-S5 and S9. S11 depends on S10.
+S3b (identity realignment) must land before S6/S9 so the portal and integrations use Files-managed
+roles and API keys. S6/S7 (portal) can start once S4 exposes upload endpoints; S8 depends on S5 and
+S6. S10 depends on S5 and S9. S11 depends on S10.
 
 ## 3. Progress
 
 | Milestone | Design | Implementation | Notes |
 |---|---|---|---|
 | M0 | ✅ | ✅ | S1 done: .NET 10 solution, Angular workspace, health/config endpoints, OTel, Dockerfiles, local compose. |
-| M1 | ✅ | ✅ | S1–S3 done: foundations, EF mapping + repositories, audit/outbox writers, Entra JWT auth (user + integration), JIT users, role policies, `/me`, integration admin CRUD + Entra app binding, admin audit. |
+| M1 | ✅ | ✅ | S1–S3 done: foundations, EF mapping + repositories, audit/outbox writers, Entra JWT auth (human-only per ADR-0014), JIT users, roles in Files, `/me`, integration admin CRUD, API keys, admin audit. |
 | M2 | ✅ | ⬜ | Upload/download design finalized. |
 | M3 | ✅ | ⬜ | Frontend design finalized. |
-| M4 | ✅ | ⬜ | Link/key/grant design finalized. |
-| M5 | ✅ | ⬜ | OpenAPI contract and integration flow documented. |
+| M4 | ✅ | ⬜ | Public link/key design finalized; private links and Graph deferred (ADR-0014). |
+| M5 | ✅ | ⬜ | API-key flow designed (ADR-0014); OpenAPI contract update pending S3b/S9. |
 | M6 | ✅ | ⬜ | Background jobs and notifications designed. |
 | M7 | ✅ | ⬜ | SLOs, runbooks, cost model, threat model ready. |
 
@@ -96,9 +98,12 @@ Legend: ✅ complete · 🟡 in progress · ⬜ not started.
 | Key brute force incident | Security | Throttling + monitoring designed; rehearse runbook. |
 | Backup erasure expectations | Legal | ADR-0008 wording; legal sign-off. |
 
-## 6. Next session (S4) checklist
+## 6. Next session (S3b, then S4) checklist
 
 1. Read `AGENTS.md`, this roadmap, and the [session log](session-log.md).
-2. `IObjectStore` (S3; LocalStack locally) and `IChunkStore` staging with free-space reserve.
-3. Chunk upload-session endpoints (portal + integration), disk/quota checks, and cleanup.
-4. Keep `make validate` green and update the progress table + session log.
+2. **S3b (ADR-0014):** apply `V3`; move roles to `users.role`; add API-key issuance/verification and
+   admin endpoints; drop Entra app roles and client credentials from the auth path; remove
+   private-link/Graph scope from the contract.
+3. **S4:** `IObjectStore` (S3; LocalStack locally) and `IChunkStore` staging with free-space reserve.
+4. Chunk upload-session endpoints (portal + integration), disk/quota checks, and cleanup.
+5. Keep `make validate` green and update the progress table + session log.

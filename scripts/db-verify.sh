@@ -33,13 +33,11 @@ if [ "$ready" -ne 1 ]; then
   exit 1
 fi
 
-echo "Applying V1 ..."
-docker exec -i "$NAME" psql -U postgres -d files -v ON_ERROR_STOP=1 -q \
-  < db/migrations/V1__initial_schema.sql
-
-echo "Applying V2 ..."
-docker exec -i "$NAME" psql -U postgres -d files -v ON_ERROR_STOP=1 -q \
-  < db/migrations/V2__seed_reference_data.sql
+for migration in $(ls db/migrations/V*.sql | sort -t_ -k1.2n); do
+  echo "Applying $(basename "$migration") ..."
+  docker exec -i "$NAME" psql -U postgres -d files -v ON_ERROR_STOP=1 -q \
+    < "$migration"
+done
 
 query() {
   docker exec "$NAME" psql -U postgres -d files -tAc "$1" | tr -d '[:space:]'
@@ -52,10 +50,18 @@ settings=$(query "select count(*) from platform_settings")
 
 echo "tables=$tables active_retention_policies=$policies templates=$templates settings=$settings"
 
-[[ "$tables" -ge 27 ]] || { echo "expected at least 27 tables, got $tables" >&2; exit 1; }
+[[ "$tables" -ge 28 ]] || { echo "expected at least 28 tables, got $tables" >&2; exit 1; }
 [[ "$policies" -eq 1 ]] || { echo "expected 1 active retention policy, got $policies" >&2; exit 1; }
 [[ "$templates" -eq 2 ]] || { echo "expected 2 email templates, got $templates" >&2; exit 1; }
 [[ "$settings" -ge 8 ]] || { echo "expected at least 8 settings, got $settings" >&2; exit 1; }
+
+# V3 — identity realignment (ADR-0014).
+role_column=$(query "select count(*) from information_schema.columns
+  where table_name='users' and column_name='role'")
+api_keys_table=$(query "select count(*) from information_schema.tables
+  where table_schema='public' and table_name='integration_api_keys'")
+[[ "$role_column" -eq 1 ]] || { echo "V3: users.role missing" >&2; exit 1; }
+[[ "$api_keys_table" -eq 1 ]] || { echo "V3: integration_api_keys missing" >&2; exit 1; }
 
 # Seed one user/file so the link constraint is reachable.
 docker exec -i "$NAME" psql -U postgres -d files -v ON_ERROR_STOP=1 -q <<'SQL'

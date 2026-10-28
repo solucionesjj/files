@@ -1,8 +1,14 @@
 # ADR-0004 — Identity: Entra ID for humans and machines (no API keys)
 
-- **Status:** Accepted (OQ-03 and OQ-11 resolved)
+- **Status:** Superseded by ADR-0014 (2026-10-27: Entra authenticates humans only; roles and API
+  keys live in Files; private links deferred)
 - **Date:** 2026-10-23
 - **Deciders:** Security, Architecture
+
+> **Superseded.** Kept for history. The owner later narrowed the scope: Entra ID is used only to
+> authenticate tenant humans; user roles are stored in Files; integrations use Files-issued API
+> keys; private links and Graph directory access are out of scope for v1. See
+> [ADR-0014](ADR-0014-entra-human-auth-only.md).
 
 ## Context
 
