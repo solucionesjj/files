@@ -29,6 +29,17 @@ public static class ConfigurationValidator
         ValidateHttpEndpointIfPresent(configuration, "OTEL_EXPORTER_OTLP_ENDPOINT", errors);
         ValidatePositiveLongIfPresent(configuration, "Storage__MaxFileSizeBytes", errors);
         ValidatePositiveLongIfPresent(configuration, "Storage__ChunkSizeBytes", errors);
+        ValidatePositiveLongIfPresent(configuration, "Storage__S3PartSizeBytes", errors);
+        ValidatePositiveLongIfPresent(configuration, "Storage__S3SinglePutThresholdBytes", errors);
+        ValidatePositiveLongIfPresent(configuration, "Storage__StagingReserveBytes", errors);
+        ValidatePositiveIntIfPresent(configuration, "Storage__MaxChunkCount", errors);
+        ValidatePositiveIntIfPresent(configuration, "Storage__MaxConcurrentSessions", errors);
+        ValidatePositiveIntIfPresent(configuration, "Storage__UploadSessionTtlMinutes", errors);
+        ValidatePositiveIntIfPresent(configuration, "Storage__AbortIncompleteAfterHours", errors);
+        ValidatePositiveIntIfPresent(configuration, "Storage__GrantTtlSeconds", errors);
+
+        ValidatePositiveIntIfPresent(configuration, "ClamAV__Port", errors);
+        ValidatePositiveIntIfPresent(configuration, "ClamAV__ScanTimeoutSeconds", errors);
 
         return errors;
     }

@@ -38,6 +38,9 @@ try
     // Persistence: EF Core maps the Flyway-owned schema (no auto-migration on startup, ADR-0002).
     builder.Services.AddFilesPersistence(builder.Configuration);
 
+    // Object store (S3), staging store, and the upload service (ADR-0003).
+    builder.Services.AddFilesStorage(builder.Configuration);
+
     // Entra ID JWT validation (BearerUser + BearerIntegration) and authorization policies.
     builder.Services.AddFilesAuthentication(builder.Configuration);
 
@@ -102,6 +105,9 @@ try
     app.MapAdminApiKeyEndpoints();
     app.MapAdminUserEndpoints();
     app.MapIntegrationEndpoints();
+    app.MapUploadEndpoints();
+    app.MapPortalFilesEndpoints();
+    app.MapDownloadGrantEndpoints();
 
     app.MapFallback((HttpContext context) =>
     {

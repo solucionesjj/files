@@ -26,6 +26,9 @@ public static class AuthenticationSetup
     public const string AuditorPolicy = "Auditor";
     public const string IntegrationPolicy = "Integration";
 
+    /// <summary>Machine caller must hold the <c>file.write</c> scope (upload operations).</summary>
+    public const string IntegrationWritePolicy = "IntegrationWrite";
+
     private const string AuthFailureCodeKey = "Files.Auth.FailureCode";
     private const string FailureTenantNotAllowed = "tenant_not_allowed";
 
@@ -67,6 +70,10 @@ public static class AuthenticationSetup
             options.AddPolicy(IntegrationPolicy, policy => policy
                 .AddAuthenticationSchemes(ApiKeyAuthenticationHandler.SchemeName)
                 .AddRequirements(new IntegrationRequirement()));
+
+            options.AddPolicy(IntegrationWritePolicy, policy => policy
+                .AddAuthenticationSchemes(ApiKeyAuthenticationHandler.SchemeName)
+                .AddRequirements(new IntegrationRequirement(IntegrationPermissions.FileWrite)));
         });
 
         services.AddScoped<IAuthorizationHandler, PortalRoleRequirementHandler>();

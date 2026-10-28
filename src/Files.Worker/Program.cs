@@ -1,3 +1,5 @@
+using Files.Application.Configuration;
+using Files.Infrastructure.DependencyInjection;
 using Files.Worker;
 using Microsoft.Extensions.Configuration;
 using OpenTelemetry;
@@ -18,7 +20,13 @@ try
 {
     var builder = Host.CreateApplicationBuilder(args);
 
+    ConfigurationValidator.ThrowIfInvalid(builder.Configuration);
+
     builder.Services.AddHostedService<Worker>();
+    builder.Services.AddFilesPersistence(builder.Configuration);
+    builder.Services.AddFilesStorage(builder.Configuration);
+    builder.Services.AddHostedService<UploadCleanupJob>();
+    builder.Services.AddHostedService<UploadScanCommitJob>();
 
     var otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
 

@@ -91,6 +91,12 @@ public sealed class ApiKeyAuthenticationHandler(
         return AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme.Name));
     }
 
+    protected override Task HandleChallengeAsync(AuthenticationProperties properties) =>
+        Problems.WriteAsync(Context, StatusCodes.Status401Unauthorized, "invalid_token", "Invalid or missing API key");
+
+    protected override Task HandleForbiddenAsync(AuthenticationProperties properties) =>
+        Problems.WriteAsync(Context, StatusCodes.Status403Forbidden, "insufficient_permission", "The integration lacks the required permission");
+
     private static bool IsAllowed(Integration integration, IPAddress? remote)
     {
         if (integration.AllowedIpCidrs.Length == 0)

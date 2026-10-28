@@ -28,6 +28,8 @@ public sealed class FilesDbContext : DbContext
 
     public DbSet<UploadSession> UploadSessions => Set<UploadSession>();
 
+    public DbSet<UploadChunk> UploadChunks => Set<UploadChunk>();
+
     public DbSet<DownloadLink> DownloadLinks => Set<DownloadLink>();
 
     public DbSet<DownloadLinkAcl> DownloadLinkAcls => Set<DownloadLinkAcl>();
@@ -35,6 +37,8 @@ public sealed class FilesDbContext : DbContext
     public DbSet<DownloadGrant> DownloadGrants => Set<DownloadGrant>();
 
     public DbSet<Tag> Tags => Set<Tag>();
+
+    public DbSet<FileTag> FileTags => Set<FileTag>();
 
     public DbSet<RetentionPolicy> RetentionPolicies => Set<RetentionPolicy>();
 
