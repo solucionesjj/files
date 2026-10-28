@@ -8,8 +8,7 @@ public sealed record CreateIntegrationRequest(
     string Name,
     string? Description,
     IReadOnlyList<string> Permissions,
-    IReadOnlyList<string>? AllowedIpCidrs,
-    Guid? EntraClientId);
+    IReadOnlyList<string>? AllowedIpCidrs);
 
 public sealed record SetPermissionsRequest(IReadOnlyList<string> Permissions);
 
@@ -21,7 +20,6 @@ public sealed record IntegrationResponse(
     string Status,
     IReadOnlyList<string> Permissions,
     IReadOnlyList<string> AllowedIpCidrs,
-    Guid? EntraClientId,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     DateTimeOffset? DisabledAt,
@@ -40,6 +38,33 @@ public sealed record MeResponse(
     IReadOnlyList<string> Roles,
     IReadOnlyList<string> Permissions);
 
+public sealed record UserResponse(
+    Guid Id,
+    string? Email,
+    string DisplayName,
+    string Role,
+    string Status,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? LastLoginAt);
+
+public sealed record UpdateUserRoleRequest(string Role, string? Reason);
+
+public sealed record CreateApiKeyRequest(
+    string Name,
+    IReadOnlyList<string> Scopes,
+    DateTimeOffset? ExpiresAt);
+
+public sealed record ApiKeyResponse(
+    Guid Id,
+    string Name,
+    string Prefix,
+    string? ApiKey,
+    IReadOnlyList<string> Scopes,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? LastUsedAt,
+    DateTimeOffset? ExpiresAt,
+    DateTimeOffset? RevokedAt);
+
 public static class IntegrationMapper
 {
     public static IntegrationResponse ToResponse(Integration integration) => new(
@@ -50,7 +75,6 @@ public static class IntegrationMapper
         integration.Status == IntegrationStatus.Active ? "active" : "disabled",
         integration.Permissions.Select(p => p.Permission).OrderBy(p => p, StringComparer.Ordinal).ToArray(),
         integration.AllowedIpCidrs.Select(cidr => cidr.ToString()).ToArray(),
-        integration.EntraClientId,
         integration.CreatedAt,
         integration.UpdatedAt,
         integration.DisabledAt,

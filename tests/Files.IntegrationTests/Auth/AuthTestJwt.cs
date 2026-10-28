@@ -1,7 +1,6 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
-using Files.Domain.Identity;
 using Microsoft.IdentityModel.Tokens;
 
 namespace Files.IntegrationTests.Auth;
@@ -26,8 +25,7 @@ public static class AuthTestJwt
     public static string CreateUserToken(
         Guid objectId,
         string? name = null,
-        string? email = null,
-        params string[] roles)
+        string? email = null)
     {
         var claims = new List<Claim>
         {
@@ -37,12 +35,8 @@ public static class AuthTestJwt
             new("email", email ?? "test@example.com"),
             new("scp", "Files.Access"),
         };
-        claims.AddRange(roles.Select(r => new Claim("roles", r)));
         return Create(claims);
     }
-
-    public static string CreateAdminToken(Guid objectId) =>
-        CreateUserToken(objectId, name: "Files Admin", roles: [PortalRoles.Admin]);
 
     public static string CreateAppToken(Guid clientId, params string[] roles)
     {

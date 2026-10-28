@@ -20,6 +20,8 @@ public sealed class FilesDbContext : DbContext
 
     public DbSet<Integration> Integrations => Set<Integration>();
 
+    public DbSet<IntegrationApiKey> IntegrationApiKeys => Set<IntegrationApiKey>();
+
     public DbSet<IntegrationPermissionEntry> IntegrationPermissions => Set<IntegrationPermissionEntry>();
 
     public DbSet<FileEntity> Files => Set<FileEntity>();

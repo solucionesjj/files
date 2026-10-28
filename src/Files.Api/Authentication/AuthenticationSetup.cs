@@ -41,9 +41,10 @@ public static class AuthenticationSetup
         services
             .AddAuthentication()
             .AddJwtBearer(BearerUser, options =>
-                ConfigureScheme(options, tokenValidationParameters, entra, forUser: true))
-            .AddJwtBearer(BearerIntegration, options =>
-                ConfigureScheme(options, tokenValidationParameters, entra, forUser: false));
+                ConfigureScheme(options, tokenValidationParameters, entra))
+            .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(
+                ApiKeyAuthenticationHandler.SchemeName,
+                null);
 
         services.AddAuthorization(options =>
         {
@@ -64,12 +65,12 @@ public static class AuthenticationSetup
                 .AddRequirements(new PortalRoleRequirement(PortalRoles.Auditor)));
 
             options.AddPolicy(IntegrationPolicy, policy => policy
-                .AddAuthenticationSchemes(BearerIntegration)
+                .AddAuthenticationSchemes(ApiKeyAuthenticationHandler.SchemeName)
                 .AddRequirements(new IntegrationRequirement()));
         });
 
-        services.AddSingleton<IAuthorizationHandler, PortalRoleRequirementHandler>();
-        services.AddScoped<IAuthorizationHandler, IntegrationRequirementHandler>();
+        services.AddScoped<IAuthorizationHandler, PortalRoleRequirementHandler>();
+        services.AddSingleton<IAuthorizationHandler, IntegrationRequirementHandler>();
 
         return services;
     }
@@ -77,8 +78,7 @@ public static class AuthenticationSetup
     private static void ConfigureScheme(
         JwtBearerOptions options,
         TokenValidationParameters tokenValidationParameters,
-        EntraOptions entra,
-        bool forUser)
+        EntraOptions entra)
     {
         options.TokenValidationParameters = tokenValidationParameters;
         options.MapInboundClaims = false;
@@ -96,23 +96,15 @@ public static class AuthenticationSetup
             {
                 var principal = context.Principal!;
 
-                if (forUser)
+                if (TokenClaims.IsAppOnly(principal))
                 {
-                    if (TokenClaims.IsAppOnly(principal))
-                    {
-                        return Fail(context, "App-only tokens are not valid on user endpoints.");
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(entra.RequiredScope)
-                        && !TokenClaims.HasScope(principal, entra.RequiredScope))
-                    {
-                        return Fail(context, "The token is missing the required delegated scope.");
-                    }
+                    return Fail(context, "App-only tokens are not valid on user endpoints.");
                 }
-                else if (!TokenClaims.IsAppOnly(principal)
-                         || !TokenClaims.GetRoles(principal).Contains(PortalRoles.Integration, StringComparer.Ordinal))
+
+                if (!string.IsNullOrWhiteSpace(entra.RequiredScope)
+                    && !TokenClaims.HasScope(principal, entra.RequiredScope))
                 {
-                    return Fail(context, "A client-credentials token with the integration role is required.");
+                    return Fail(context, "The token is missing the required delegated scope.");
                 }
 
                 if (entra.RequireTenantMatch && !TenantMatches(principal, entra.TenantId))

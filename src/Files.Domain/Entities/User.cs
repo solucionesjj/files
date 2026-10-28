@@ -18,6 +18,9 @@ public sealed class User : IVersionedEntity
 
     public UserStatus Status { get; set; } = UserStatus.Active;
 
+    /// <summary>Files-managed portal role (ADR-0014); Entra app roles are not used.</summary>
+    public UserRole Role { get; set; } = UserRole.User;
+
     public DateTimeOffset? LastLoginAt { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; }

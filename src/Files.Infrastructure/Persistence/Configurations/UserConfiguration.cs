@@ -19,6 +19,7 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(x => x.Email).HasColumnType("citext");
         builder.Property(x => x.DisplayName).IsRequired();
         builder.Property(x => x.Status).HasConversion(EnumConversion.SnakeCase<UserStatus>());
+        builder.Property(x => x.Role).HasConversion(EnumConversion.SnakeCase<UserRole>());
         builder.Property(x => x.LastLoginAt);
 
         builder.Property(x => x.CreatedAt).HasDefaultValueSql("now()").ValueGeneratedOnAdd();

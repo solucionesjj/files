@@ -31,9 +31,9 @@ public class FilesDbContextMappingTests
             .ToList();
 
         // The DbContext maps the 12 aggregate tables plus the integration_permissions join table
-        // (part of the integration aggregate); operational tables (outbox, idempotency, usage,
-        // admin audit, ...) are accessed with Dapper, not EF.
-        mapped.Should().HaveCount(13);
+        // (part of the integration aggregate) and the integration_api_keys table (ADR-0014);
+        // operational tables (outbox, idempotency, usage, admin audit, ...) are Dapper-only.
+        mapped.Should().HaveCount(14);
 
         var missing = new List<string>();
         await using var connection = new NpgsqlConnection(_fixture.ConnectionString);

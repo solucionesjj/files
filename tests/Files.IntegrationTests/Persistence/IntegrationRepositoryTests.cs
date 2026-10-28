@@ -13,21 +13,15 @@ public class IntegrationRepositoryTests
     public IntegrationRepositoryTests(PostgresDatabaseFixture fixture) => _fixture = fixture;
 
     [Fact]
-    public async Task Add_then_lookup_by_entra_client_id_and_slug()
+    public async Task Add_then_lookup_by_slug()
     {
         await using var db = new FilesDbContext(PersistenceTestHelpers.CreateOptions(_fixture.ConnectionString));
         var repository = new IntegrationRepository(db);
 
-        var clientId = Guid.NewGuid();
         var integration = Integration.Create("acme-pipeline", "Acme Pipeline", "CI uploads");
-        integration.EntraClientId = clientId;
 
         repository.Add(integration);
         await db.SaveChangesAsync();
-
-        var byClient = await repository.GetByEntraClientIdAsync(clientId);
-        byClient.Should().NotBeNull();
-        byClient!.Slug.Should().Be("acme-pipeline");
 
         var bySlug = await repository.GetBySlugAsync("acme-pipeline");
         bySlug.Should().NotBeNull();

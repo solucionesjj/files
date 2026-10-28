@@ -4,19 +4,18 @@ using Microsoft.AspNetCore.Authorization;
 
 namespace Files.Api.Authorization;
 
-/// <summary>Evaluates a <see cref="PortalRoleRequirement"/> from the validated token's roles claim.</summary>
-public sealed class PortalRoleRequirementHandler : AuthorizationHandler<PortalRoleRequirement>
+/// <summary>Evaluates a <see cref="PortalRoleRequirement"/> from the Files-managed role (ADR-0014).</summary>
+public sealed class PortalRoleRequirementHandler(IIdentityService identityService)
+    : AuthorizationHandler<PortalRoleRequirement>
 {
-    protected override Task HandleRequirementAsync(
+    protected override async Task HandleRequirementAsync(
         AuthorizationHandlerContext context,
         PortalRoleRequirement requirement)
     {
-        var roles = TokenClaims.GetRoles(context.User);
-        if (RolePolicy.Satisfies(requirement.RequiredRole, roles))
+        var actor = await identityService.ResolveAsync();
+        if (actor.IsAuthenticated && RolePolicy.Satisfies(requirement.RequiredRole, actor.Roles))
         {
             context.Succeed(requirement);
         }
-
-        return Task.CompletedTask;
     }
 }

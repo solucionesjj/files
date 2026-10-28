@@ -135,14 +135,7 @@ public static class AdminIntegrationEndpoints
             return Problems.Response(context, StatusCodes.Status409Conflict, "integration_slug_taken", "Slug is already in use");
         }
 
-        if (request.EntraClientId is not null
-            && await integrations.GetByEntraClientIdAsync(request.EntraClientId.Value, ct) is not null)
-        {
-            return Problems.Response(context, StatusCodes.Status409Conflict, "conflict", "Entra client id is already bound to another integration");
-        }
-
         var integration = Integration.Create(request.Slug, request.Name, request.Description);
-        integration.EntraClientId = request.EntraClientId;
         integration.AllowedIpCidrs = cidrs;
         integration.CreatedBy = actor.Id;
         foreach (var permission in permissions)
@@ -247,30 +240,6 @@ public static class AdminIntegrationEndpoints
             }
 
             integration.AllowedIpCidrs = cidrs;
-        }
-
-        if (body.TryGetProperty("entraClientId", out var clientIdElement))
-        {
-            var clientId = clientIdElement.ValueKind == JsonValueKind.Null
-                ? (Guid?)null
-                : clientIdElement.GetGuid();
-
-            if (clientId != integration.EntraClientId)
-            {
-                if (clientId is not null && await integrations.GetByEntraClientIdAsync(clientId.Value, ct) is not null)
-                {
-                    await unitOfWork.RollbackAsync(ct);
-                    return Problems.Response(context, StatusCodes.Status409Conflict, "conflict", "Entra client id is already bound to another integration");
-                }
-
-                if (clientId is null && string.IsNullOrWhiteSpace(reason))
-                {
-                    await unitOfWork.RollbackAsync(ct);
-                    return Problems.Response(context, StatusCodes.Status422UnprocessableEntity, "reason_required", "Clearing the Entra client id requires a reason");
-                }
-
-                integration.EntraClientId = clientId;
-            }
         }
 
         var disabling = false;

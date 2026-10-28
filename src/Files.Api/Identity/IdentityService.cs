@@ -1,5 +1,5 @@
 using System.Security.Claims;
-using Files.Application.Abstractions.Repositories;
+using Files.Api.Authentication;
 using Files.Application.Identity;
 using Files.Domain.Enums;
 using Files.Domain.Identity;
@@ -7,14 +7,13 @@ using Files.Domain.Identity;
 namespace Files.Api.Identity;
 
 /// <summary>
-/// Resolves the current authenticated actor from the validated token. Human tokens are provisioned
-/// JIT (via <see cref="IUserProvisioner"/>); machine tokens resolve to their integration and its DB
-/// permissions. The result is cached for the lifetime of the request.
+/// Resolves the current authenticated actor. Human tokens are provisioned JIT and their role is
+/// read from <c>users.role</c> (ADR-0014); integration requests are authenticated by API key and
+/// resolve to their integration id and scopes from the key claims. The result is cached per request.
 /// </summary>
 public sealed class IdentityService(
     IHttpContextAccessor httpContextAccessor,
-    IUserProvisioner userProvisioner,
-    IIntegrationRepository integrationRepository) : IIdentityService
+    IUserProvisioner userProvisioner) : IIdentityService
 {
     private ResolvedActor? _resolved;
 
@@ -31,11 +30,18 @@ public sealed class IdentityService(
             return _resolved = ResolvedActor.System;
         }
 
-        _resolved = TokenClaims.IsAppOnly(principal)
-            ? await ResolveIntegrationAsync(principal, ct)
-            : await ResolveUserAsync(principal, ct);
+        if (string.Equals(principal.Identity.AuthenticationType, ApiKeyAuthenticationHandler.SchemeName, StringComparison.Ordinal))
+        {
+            return _resolved = ResolveApiKey(principal);
+        }
 
-        return _resolved;
+        // App-only (client-credentials) tokens are not valid anywhere now (ADR-0014).
+        if (TokenClaims.IsAppOnly(principal))
+        {
+            return _resolved = ResolvedActor.System;
+        }
+
+        return _resolved = await ResolveUserAsync(principal, ct);
     }
 
     private async Task<ResolvedActor> ResolveUserAsync(ClaimsPrincipal principal, CancellationToken ct)
@@ -47,7 +53,6 @@ public sealed class IdentityService(
             return ResolvedActor.System;
         }
 
-        var roles = TokenClaims.GetRoles(principal);
         var user = await userProvisioner.EnsureUserAsync(
             tenantId.Value,
             objectId.Value,
@@ -55,23 +60,21 @@ public sealed class IdentityService(
             TokenClaims.GetEmail(principal),
             ct);
 
+        var roles = new[] { RolePolicy.ForRole(user.Role) };
         var type = RolePolicy.ResolveActorType(roles);
         return new ResolvedActor(type, user.Id, true, user, null, roles, new HashSet<string>(StringComparer.Ordinal));
     }
 
-    private async Task<ResolvedActor> ResolveIntegrationAsync(ClaimsPrincipal principal, CancellationToken ct)
+    private static ResolvedActor ResolveApiKey(ClaimsPrincipal principal)
     {
-        var clientId = TokenClaims.GetClientId(principal);
-        var integration = clientId is null
-            ? null
-            : await integrationRepository.GetByEntraClientIdAsync(clientId.Value, ct);
+        var integrationId = Guid.TryParse(principal.FindFirst(ApiKeyClaims.IntegrationId)?.Value, out var id)
+            ? id
+            : (Guid?)null;
 
-        var roles = TokenClaims.GetRoles(principal);
-        var permissions = integration?.Permissions
-            .Select(p => p.Permission)
-            .ToHashSet(StringComparer.Ordinal)
-            ?? new HashSet<string>(StringComparer.Ordinal);
+        var scopes = principal.FindAll(ApiKeyClaims.Scope)
+            .Select(claim => claim.Value)
+            .ToHashSet(StringComparer.Ordinal);
 
-        return new ResolvedActor(ActorType.Integration, integration?.Id, true, null, integration, roles, permissions);
+        return new ResolvedActor(ActorType.Integration, integrationId, true, null, null, [], scopes);
     }
 }

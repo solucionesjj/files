@@ -51,7 +51,7 @@ try
         builder.Services.AddCors(options => options.AddPolicy(CorsPolicyName, policy => policy
             .WithOrigins(allowedOrigins)
             .WithMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
-            .WithHeaders("Authorization", "Content-Type", "Idempotency-Key", "If-Match", "X-Request-Id", "Range", "X-Chunk-SHA256")
+            .WithHeaders("Authorization", "Content-Type", "Idempotency-Key", "If-Match", "X-Request-Id", "Range", "X-Chunk-SHA256", "X-Api-Key")
             .WithExposedHeaders("X-Request-Id", "RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset", "Retry-After", "ETag")));
     }
 
@@ -99,6 +99,9 @@ try
     app.MapConfigEndpoint(builder.Configuration, app.Environment);
     app.MapMeEndpoint();
     app.MapAdminIntegrationEndpoints();
+    app.MapAdminApiKeyEndpoints();
+    app.MapAdminUserEndpoints();
+    app.MapIntegrationEndpoints();
 
     app.MapFallback((HttpContext context) =>
     {

@@ -3,13 +3,10 @@ using Files.Domain.Enums;
 
 namespace Files.Application.Abstractions.Repositories;
 
-/// <summary>Persistence for machine consumers. Lookups are keyed on machine-identity claims.</summary>
+/// <summary>Persistence for machine consumers. Lookups are keyed on the admin-facing slug and id.</summary>
 public interface IIntegrationRepository
 {
     void Add(Integration integration);
-
-    /// <summary>Resolves an integration (with its DB permissions) by its Entra client-id claim.</summary>
-    Task<Integration?> GetByEntraClientIdAsync(Guid clientId, CancellationToken ct = default);
 
     /// <summary>Resolves an integration by its admin-facing slug.</summary>
     Task<Integration?> GetBySlugAsync(string slug, CancellationToken ct = default);

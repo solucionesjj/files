@@ -30,6 +30,7 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<IUnitOfWork, FilesUnitOfWork>();
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IIntegrationRepository, IntegrationRepository>();
+        services.AddScoped<IIntegrationApiKeyRepository, IntegrationApiKeyRepository>();
         services.AddScoped<IFileRepository, FileRepository>();
         services.AddScoped<IOutboxWriter, OutboxWriter>();
         services.AddScoped<IAuditWriter, AuditWriter>();

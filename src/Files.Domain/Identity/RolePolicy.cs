@@ -12,6 +12,14 @@ public static class RolePolicy
     public static ActorType ResolveActorType(IReadOnlyCollection<string> roles) =>
         roles.Contains(PortalRoles.Admin, StringComparer.Ordinal) ? ActorType.Admin : ActorType.User;
 
+    /// <summary>Maps a Files-managed <see cref="UserRole"/> to its portal role name (ADR-0014).</summary>
+    public static string ForRole(UserRole role) => role switch
+    {
+        UserRole.Admin => PortalRoles.Admin,
+        UserRole.Auditor => PortalRoles.Auditor,
+        _ => PortalRoles.User,
+    };
+
     /// <summary>
     /// Whether <paramref name="roles"/> satisfies <paramref name="requiredRole"/>. A user policy is
     /// satisfied by <c>Files.Admin</c> as well (admins inherit user capabilities); the auditor role

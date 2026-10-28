@@ -9,10 +9,6 @@ public sealed class IntegrationRepository(FilesDbContext db) : IIntegrationRepos
 {
     public void Add(Integration integration) => db.Integrations.Add(integration);
 
-    public Task<Integration?> GetByEntraClientIdAsync(Guid clientId, CancellationToken ct = default) =>
-        WithPermissions()
-            .SingleOrDefaultAsync(i => i.EntraClientId == clientId, ct);
-
     public Task<Integration?> GetBySlugAsync(string slug, CancellationToken ct = default) =>
         db.Integrations
             .AsNoTracking()

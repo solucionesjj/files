@@ -1,46 +1,29 @@
-using Files.Application.Abstractions.Repositories;
-using Files.Application.Identity;
-using Files.Domain.Enums;
-using Files.Domain.Identity;
+using Files.Api.Authentication;
 using Microsoft.AspNetCore.Authorization;
 
 namespace Files.Api.Authorization;
 
 /// <summary>
-/// Enforces the integration authorization rule: <c>Files.Integration</c> role + active integration
-/// bound to the token's <c>azp</c>/<c>appid</c> + the required permissions granted in the database.
+/// Enforces an integration authorization rule from the scope claims emitted by
+/// <see cref="ApiKeyAuthenticationHandler"/> (key scopes ∩ integration permissions). No database
+/// access is needed here: the authentication handler already resolved and scoped the key.
 /// </summary>
-public sealed class IntegrationRequirementHandler(IIntegrationRepository integrations)
-    : AuthorizationHandler<IntegrationRequirement>
+public sealed class IntegrationRequirementHandler : AuthorizationHandler<IntegrationRequirement>
 {
-    protected override async Task HandleRequirementAsync(
+    protected override Task HandleRequirementAsync(
         AuthorizationHandlerContext context,
         IntegrationRequirement requirement)
     {
-        var roles = TokenClaims.GetRoles(context.User);
-        if (!roles.Contains(PortalRoles.Integration, StringComparer.Ordinal))
+        var scopes = context.User
+            .FindAll(ApiKeyClaims.Scope)
+            .Select(claim => claim.Value)
+            .ToHashSet(StringComparer.Ordinal);
+
+        if (requirement.RequiredPermissions.IsSubsetOf(scopes))
         {
-            return;
+            context.Succeed(requirement);
         }
 
-        var clientId = TokenClaims.GetClientId(context.User);
-        if (clientId is null)
-        {
-            return;
-        }
-
-        var integration = await integrations.GetByEntraClientIdAsync(clientId.Value);
-        if (integration is null || integration.Status != IntegrationStatus.Active)
-        {
-            return;
-        }
-
-        var granted = integration.Permissions.Select(p => p.Permission).ToHashSet(StringComparer.Ordinal);
-        if (!requirement.RequiredPermissions.IsSubsetOf(granted))
-        {
-            return;
-        }
-
-        context.Succeed(requirement);
+        return Task.CompletedTask;
     }
 }
