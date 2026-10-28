@@ -79,7 +79,7 @@ Authorization is evaluated additionally:
 
 - **Portal owner:** `owner_user_id = current user`.
 - **Integration:** `owner_integration_id = current integration` OR active grant, plus `file.read`.
-- **Public/private link:** active link, valid key (public), link limits, then file predicate.
+- **Public link:** active link, valid key, link limits, then file predicate.
 
 The predicate is evaluated at grant issuance **and** again at stream time, so a file that expires
 between the two is not served. A link's validity never overrides the file predicate.

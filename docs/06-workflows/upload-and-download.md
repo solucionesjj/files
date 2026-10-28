@@ -133,9 +133,8 @@ until `complete` verifies and commits to S3.
 | Source | Authentication | Checks before grant/stream |
 |---|---|---|
 | Owner | Entra user token | `owner_user_id = user`, file downloadable. |
-| Private link | Entra user token | Link active/not expired/limits, tenant match, file downloadable. |
 | Public link | None | Token + key, abuse limits, link limits, file downloadable. |
-| Integration | Entra app token only | `file.read` + owner or active grant, file downloadable. |
+| Integration | Files-issued API key | `file.read` + owner or active grant, file downloadable. |
 
 ### Grant flow (owner/private/public)
 
@@ -151,9 +150,8 @@ until `complete` verifies and commits to S3.
 A grant is a bearer capability (browser navigation needs no Authorization header), 256-bit,
 single-use, 120 s, `no-store`, `no-referrer`, never logged.
 
-New links get a server-assigned expiry: public **15 days**, private **30 days** (admin-configurable;
-owner cannot change). Private links also enforce their ACL: specific Entra users/groups or
-`allow_all_tenant`; a user outside the ACL receives the generic `404 link_not_found`.
+New links get a server-assigned expiry: public **15 days** (admin-configurable; owner cannot
+change). Private links are not offered in v1 (ADR-0014).
 
 ### Integration download
 

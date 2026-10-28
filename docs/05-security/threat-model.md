@@ -49,7 +49,6 @@ business authorization, end-user devices, and Microsoft's own infrastructure.
 8. Operator ↔ host via SSH (restricted by the externally managed firewall; key auth).
 9. CI/CD ↔ host (SSH deploy user; no AWS keys in CI).
 10. Public visitor ↔ API (token + key + throttling).
-11. API ↔ Microsoft Graph (443; app-only directory permissions, no writes).
 
 ## 5. STRIDE analysis
 
@@ -60,8 +59,8 @@ Likelihood/impact: L/M/H. Status is the v1 control; verification is how we prove
 | ID | Threat | L/I | Mitigation | Verification |
 |---|---|---|---|---|
 | S-01 | Forged/self-signed JWT or `alg=none` | L/H | Strict signature, `alg`, issuer, audience, lifetime validation; JWKS from Entra; tenant check. | Integration tests with tampered tokens; pen test. |
-| S-02 | Stolen Entra client secret/certificate used by attacker | M/H | Consumer-owned secret rotation, integration IP allowlist, rate limits, instant disable in Files, token audit. | Auth tests; credential-leak tabletop. |
-| S-03 | Forged integration identity via a different Entra app | L/H | `azp` must match an active integration; `Files.Integration` role required; DB permissions authoritative. | Token tests with unregistered app. |
+| S-02 | Stolen integration API key used by attacker | M/H | Keys are hashed, scoped, revocable, and optional IP-restricted; instant revoke/disable in Files; rate limits; access audit. | Auth tests; credential-leak tabletop. |
+| S-03 | Replayed or forged integration identity | L/H | API key must match an active integration; effective scopes = key ∩ integration permissions; revocation is immediate. | Auth tests; key-replay tests. |
 | S-04 | Session/token theft via XSS | M/H | MSAL `sessionStorage`, no `innerHTML` for filenames, CSP, framework escaping, short token lifetime. | ZAP baseline; XSS tests; CSP review. |
 | S-05 | Phishing with a lookalike public link | M/M | Fixed domain, TLS, clear link landing page, no credential prompt on `/d/*`, user training. | UX review; domain monitoring. |
 
@@ -73,8 +72,8 @@ Likelihood/impact: L/M/H. Status is the v1 control; verification is how we prove
 | T-02 | Chunk replay or cross-session write | M/M | Chunk endpoint requires session ownership + chunk number/offset; idempotent only for same size/hash; sessions expire; staging paths are random and `0600`. | Cross-session and duplicate-chunk tests. |
 | T-03 | SQL injection | L/H | Parameterized EF/Dapper, no string concatenation, integration tests. | SAST/DAST; code review. |
 | T-04 | Audit tampering or early purge | L/H | Append-only API, no UPDATE/DELETE grants for the app role on audit tables, transactional writes, 60-month retention; purge job requires the system role. | DB permission tests; purge test; review. |
-| T-08 | Private-link ACL bypass (forged user/group or stale cache) | M/H | ACL stores Entra object IDs; authorization checks the authenticated `oid` and group membership (claim + Graph fallback); generic 404; every denial audited. | ACL matrix tests, group-membership tests, IDOR suite. |
-| T-09 | Legal hold removed or ignored | L/H | Only `Files.Admin` can set/release with a reason; expiration/deletion jobs check `legal_hold`; every action audited; release requires confirmation. | Job tests, admin matrix, audit test. |
+| T-08 | Private-link ACL bypass (deferred) | — | Not in v1 (ADR-0014): no private links, ACL, or Graph directory access. Re-evaluate when the feature is reintroduced. | n/a (revisit on reintroduction). |
+| T-09 | Legal hold removed or ignored | L/H | Only the `admin` role can set/release with a reason; expiration/deletion jobs check `legal_hold`; every action audited; release requires confirmation. | Job tests, admin matrix, audit test. |
 | T-10 | Retention extended beyond policy | M/M | Absolute 365-day cap enforced in DB and API; mandatory note above default; every change audited. | Boundary tests, audit tests. |
 | T-05 | Filename/header injection (CRLF, path traversal) | M/M | Sanitizer, length limit, `Content-Disposition` RFC 5987 + ASCII fallback, `nosniff`, no filesystem paths. | Property-based tests; E2E download. |
 | T-06 | Link counter manipulation | L/M | Atomic SQL reservations, state predicates, unique grant tokens. | Concurrency tests (parallel grants). |

@@ -59,8 +59,8 @@ bootstrap del host + despliegue con Compose en `deploy/`.
 7. **Aislamiento:** un archivo de integración no aparece en búsquedas del portal; el acceso entre
    integraciones requiere una concesión explícita de solo lectura. Los administradores gestionan
    metadatos y políticas, pero **no** acceden al contenido por defecto.
-8. **Identidad:** Entra ID (OIDC + PKCE) para personas; *client credentials* para máquinas; API
-   sin API keys: solo Entra client credentials.
+8. **Identidad:** Entra ID (OIDC + PKCE) **solo para personas**; las integraciones usan
+   **API keys emitidas por Files**; los roles de usuario viven en Files.
 9. **Procesos en segundo plano:** outbox transaccional + Quartz en memoria + *advisory locks* de
    PostgreSQL; jobs idempotentes para notificar, vencer, borrar y reconciliar.
 10. **Correo:** buzón Microsoft 365; POP solo para recibir, **SMTP AUTH 587** para enviar (Graph

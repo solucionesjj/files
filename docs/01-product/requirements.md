@@ -29,7 +29,7 @@ stable ID used by stories, tests, and the backlog.
 
 - File content preview/editing (PDF, Office, images) — metadata and download only.
 - Folder hierarchies — flat file list with tags (see `OQ-12`).
-- API keys for machines — Entra client credentials only (see `OQ-11`).
+- Entra client credentials for machines — integrations use Files-issued API keys (see `OQ-11`, ADR-0014).
 - Administrator access to file content — metadata/policy/legal hold only (see `OQ-05`).
 - Desktop sync clients, mobile apps.
 - Multi-tenant SaaS operation — one Entra tenant per deployment.
@@ -42,11 +42,11 @@ stable ID used by stories, tests, and the backlog.
 
 | Actor | Type | Description |
 |---|---|---|
-| Portal User | Human (Entra) | Tenant member with the `Files.User` app role (default for all tenant users). Owns files. |
-| Portal Admin | Human (Entra) | `Files.Admin` app role. Global policy, integrations, overrides, deletion. |
-| Auditor | Human (Entra) | `Files.Auditor` app role. Read-only access to audit and statistics. No file content. |
+| Portal User | Human (Entra) | Tenant member with the `user` role in Files (JIT default). Owns files. |
+| Portal Admin | Human (Entra) | `admin` role in Files. Global policy, integrations, API keys, overrides, deletion. |
+| Auditor | Human (Entra) | `auditor` role in Files. Read-only access to audit and statistics. No file content. |
 | Public Link Visitor | Anonymous | Possesses a public link token and its download key. |
-| Integration | Machine (Entra client credentials only) | Registered enterprise application with explicit permissions and ownership boundary. |
+| Integration | Machine (Files-issued API key) | Registered integration with explicit permissions and ownership boundary. |
 | Scheduler | System | Background jobs for notifications, expiration, deletion, reconciliation. |
 
 Detailed authorization rules: [rbac-and-personas.md](rbac-and-personas.md).
@@ -68,11 +68,11 @@ Priority: **M** = must (v1 release blocker), **S** = should (v1 unless schedule 
 | FR-ID-004 | Users MUST be provisioned automatically on first authenticated request (just-in-time) from token claims (`tid`, `oid`, `preferred_username`, `name`). | M | §4.1 | US-001 |
 | FR-ID-005 | Authorization MUST be enforced server-side for every portal operation; UI hiding is not authorization. | M | §4.1 | US-001 |
 | FR-ID-006 | A user MUST only list, read metadata of, modify, or download files they own, unless explicitly authorized through a valid link or an admin policy. | M | §4.1 | US-004, US-006 |
-| FR-ID-007 | A private link MUST require a valid Entra token from the configured tenant and MUST additionally validate link status, file state, and any link restrictions. Tenant membership alone MUST NOT grant access to arbitrary files. | M | §4.1, §5.3 | US-021 |
+| FR-ID-007 | Link redemption MUST validate link status, file state, expiry, download limits, and (for public links) the download key; a link token alone MUST NOT grant access to file content. | M | §4.1, §5.3 | US-021 |
 | FR-ID-008 | Users MUST be able to sign out of the Portal, clearing local session state. | S | §4.1 | US-001 |
 | FR-ID-009 | The API MUST expose the caller's effective identity, roles, and permissions at `GET /v1/me`. | M | §4.1 | US-001 |
-| FR-ID-010 | Roles MUST be assigned through Entra app roles/groups and re-evaluated on every request; the system MUST NOT allow self-assigned roles. | M | §4.1 | US-002 |
-| FR-ID-011 | The Portal MUST support an admin route guarded by `Files.Admin`; unauthorized users receive 403 and no data leakage. | M | §4.1, §3.3 | US-030 |
+| FR-ID-010 | Roles MUST be stored in Files (`users.role`), assigned by administrators, and re-evaluated on every request; the system MUST NOT allow self-assigned roles. | M | §4.1 | US-002 |
+| FR-ID-011 | The Portal MUST support an admin route guarded by the `admin` role; unauthorized users receive 403 and no data leakage. | M | §4.1, §3.3 | US-030 |
 
 ### 2.2 Machine identity and authorization (FR-M2M)
 
@@ -80,17 +80,17 @@ Priority: **M** = must (v1 release blocker), **S** = should (v1 unless schedule 
 |---|---|---|---|---|
 | FR-M2M-001 | Each consuming application MUST be registered as an integration with a unique ID, slug, name, status, permissions, and credential metadata. | M | §4.2 | US-010 |
 | FR-M2M-002 | Machine authentication MUST NOT depend on an interactive user session. | M | §3.2, §4.3 | US-011 |
-| FR-M2M-003 | The preferred machine authentication MUST be Entra ID OAuth 2.0 client credentials, validated against the integration's registered Entra application identity. | M | §4.3 | US-011 |
-| FR-M2M-004 | Files MUST NOT issue API keys in v1. Machine identities MUST authenticate exclusively with Microsoft Entra ID client credentials (application identity); no shared symmetric secret is stored by Files. | M | §4.3 | US-011 |
-| FR-M2M-005 | Each integration MUST be bound to an Entra application (client) ID; tokens whose `azp`/`appid` is not an active registered integration MUST be rejected. | M | §4.3 | US-010, US-011 |
-| FR-M2M-006 | Tokens, client secrets/certificates, and authorization headers MUST never appear in URLs, logs, error messages, traces, or analytics. | M | §4.3 | US-011 |
+| FR-M2M-003 | Machine authentication MUST use Files-issued API keys, verified against the stored hash and the integration's active state. | M | §4.3 | US-011 |
+| FR-M2M-004 | Files MUST issue API keys for machines and MUST store only a hash of each key (never the secret in plaintext); each key MUST have scopes, an optional expiry, and revocation. | M | §4.3 | US-011 |
+| FR-M2M-005 | Each API key MUST belong to exactly one integration; keys that are unknown, revoked, or expired MUST be rejected. | M | §4.3 | US-010, US-011 |
+| FR-M2M-006 | API keys and authorization headers MUST never appear in URLs, logs, error messages, traces, or analytics. | M | §4.3 | US-011 |
 | FR-M2M-007 | An integration MUST only access files it owns or for which an explicit file-level grant exists. | M | §4.2 | US-011, US-016 |
 | FR-M2M-008 | Integration permissions MUST be explicit (`file.write`, `file.read`, `file.delete`) and checked on every request. | M | §4.2 | US-011 |
 | FR-M2M-009 | A disabled integration MUST be rejected immediately, including for otherwise valid credentials. | M | §4.2 | US-010 |
 | FR-M2M-010 | Integrations MAY be restricted by IP allowlist (CIDR); requests outside it MUST be rejected. | S | §4.2 | US-010 |
 | FR-M2M-011 | Integration-owned files MUST default to integration-only access, indefinite retention, no public link, and no human visibility. | M | §5.4 | US-016 |
 | FR-M2M-012 | Every authorized retrieval and every rejected access attempt by an integration MUST be audited. | M | §5.4 | US-016 |
-| FR-M2M-013 | An integration's authority MUST be limited to its registered permissions and ownership/grants, independent of any token scope; a leaked token MUST NOT grant another integration's data. | M | §4.3 | US-011, US-016 |
+| FR-M2M-013 | An integration's authority MUST be limited to its key scopes and ownership/grants; a leaked key MUST NOT grant another integration's data. | M | §4.3 | US-011, US-016 |
 | FR-M2M-014 | General and credential-specific rate limits MUST apply to integration traffic. | M | §4.3 | US-013 |
 
 ### 2.3 File upload and storage (FR-UP)
@@ -142,7 +142,7 @@ Priority: **M** = must (v1 release blocker), **S** = should (v1 unless schedule 
 | FR-LINK-004 | The key MUST NOT be embedded in the URL, MUST NOT be logged, and MUST be stored as a secure verifier (Argon2id). | M | §6 | US-020 |
 | FR-LINK-005 | The link token MUST NOT appear in logs in full; log only a hashed/truncated fingerprint. | M | §6 | US-020 |
 | FR-LINK-006 | The key MUST be replaceable by revoking the link and creating a new one; the old key MUST stop working immediately. | M | §6 | US-022 |
-| FR-LINK-007 | Link redemption MUST validate: link exists and is active, file is available, expiry, download limits, key (public), private-link ACL (user/group/all-tenant), rate limits, and authorization — before any bytes are served. | M | §6 | US-021 |
+| FR-LINK-007 | Link redemption MUST validate: link exists and is active, file is available, expiry, download limits, the download key, rate limits, and authorization — before any bytes are served. | M | §6 | US-021 |
 | FR-LINK-008 | Error responses MUST NOT reveal whether the token, key, file, or limit was the failing factor. | M | §6 | US-021 |
 | FR-LINK-009 | Failed key attempts MUST be throttled with progressive delays and temporary lockouts, and monitored. | M | §6 | US-023 |
 | FR-LINK-010 | A link MUST never permit downloading an expired, deleted, quarantined, or unavailable file, regardless of link validity. | M | §12 | US-021 |
@@ -151,8 +151,8 @@ Priority: **M** = must (v1 release blocker), **S** = should (v1 unless schedule 
 | FR-LINK-013 | Users MUST be able to view and revoke links for files they own; revoked links fail immediately. | M | §5.1 | US-022 |
 | FR-LINK-014 | Users MUST be able to see per-link and per-file download statistics (count, last download, recent attempts). | S | §3.1 | US-024 |
 | FR-LINK-015 | Admin-configurable policy MUST govern whether public links are allowed for user files. | S | §5.2 | US-030 |
-| FR-LINK-016 | Private links MUST support an ACL: the owner selects specific tenant users and/or groups, or enables “all authenticated tenant users”; the server MUST enforce the ACL on redemption. | M | §5.3 | US-020, US-021 |
-| FR-LINK-017 | New links MUST expire at the admin-configured lifetime (public default 15 days; private default 30 days). The owner MUST NOT override the lifetime; existing links keep their expiry. | M | §12 | US-020, US-030 |
+| FR-LINK-016 | **Deferred (ADR-0014):** private-link ACLs are out of scope for v1; only public links are offered. | C | §5.3 | — |
+| FR-LINK-017 | New links MUST expire at the admin-configured lifetime (public default 15 days). The owner MUST NOT override the lifetime; existing links keep their expiry. | M | §12 | US-020, US-030 |
 
 ### 2.6 Retention and expiration (FR-RET)
 
@@ -286,19 +286,18 @@ These are enforced in the database where possible and in domain services otherwi
    `not_scanned` (when scanning disabled) AND (`expires_at IS NULL` OR `expires_at > now()`)
    AND its owner/integration/link authorization passes. A legal hold blocks deletion/expiry, not
    a normally available, unexpired file.
-5. A public link requires a non-null `download_key_hash`; a private link must not have one.
+5. A public link requires a non-null `download_key_hash`; only public links are offered in v1.
 6. `download_links.status` transitions `active → revoked` or `active → expired`; terminal
    states never return to `active`. Expiry is evaluated lazily even if the status column lags.
 7. `successful_downloads ≤ max_downloads` when a maximum is set; reserved grants count toward
    the maximum until released.
-8. New links always have `expires_at` set from the admin TTL; private links have either
-   `allow_all_tenant = true` or at least one ACL entry.
+8. New links always have `expires_at` set from the admin TTL.
 9. File lifecycle transitions follow [file-lifecycle.md](../06-workflows/file-lifecycle.md);
    `deleted` is terminal (metadata tombstone retained per audit policy).
 10. `storage_key` is unique and immutable for the lifetime of the object.
 11. An integration cannot be granted access to a file it does not own when either party is
     disabled, and grants are always read-only (`file.read`).
-12. A user's tenant (`tid`) must match the configured tenant for portal and private-link access.
+12. A user's tenant (`tid`) must match the configured tenant for portal access.
 13. Deletion is logical first, physical second; a deleted file never re-enters `available`.
 
 ---

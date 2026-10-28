@@ -17,7 +17,7 @@ which condition failed. Specific reasons are recorded only in audit events and m
 | `ip_not_allowed` | 403 | Source IP outside the integration allowlist. | No | Use the approved network. |
 | `forbidden` | 403 | Authenticated but lacking the role/permission. | No | Request access. |
 | `insufficient_permission` | 403 | Integration lacks the required permission for this operation. | No | Request the permission. |
-| `public_links_disabled` | 403 | Public links are disabled by policy. | No | Use a private link. |
+| `public_links_disabled` | 403 | Public links are disabled by policy. | No | Contact an administrator. |
 | `rate_limited` | 429 | Rate limit exceeded. | Yes | Honor `Retry-After`. |
 | `quota_exceeded` | 429 | Daily/integration quota exhausted. | Yes (later) | Wait for the next day or request a quota increase. |
 | `too_many_attempts` | 429 | Link key attempts locked out. | Yes | Wait for `Retry-After`. |
@@ -61,8 +61,8 @@ which condition failed. Specific reasons are recorded only in audit events and m
 |---|---|---|---|---|
 | `link_not_found` | 404 | Invalid token, revoked, expired, file unavailable, wrong key, or limit reached. | No | Check link/key; request a new link. |
 | `link_key_required` | 400 | Public link redeemed without `key`. | No | Supply the key. |
-| `link_acl_required` | 422 | Private link created without an ACL or all-tenant flag. | No | Select users/groups or allow all tenant. |
-| `link_acl_invalid` | 422 | ACL principal is not a valid tenant user/group. | No | Re-select the principal. |
+| `link_acl_required` | 422 | _(Deferred — private links are out of scope in v1, ADR-0014.)_ | — | — |
+| `link_acl_invalid` | 422 | _(Deferred — private links are out of scope in v1, ADR-0014.)_ | — | — |
 | `grant_not_found` | 404 | Unknown, expired, consumed, or invalidated grant. | No | Request a new grant. |
 | `grant_expired` | 410 | Grant TTL passed. | No | Request a new grant. |
 | `grant_consumed` | 409 | Grant already used. | No | Request a new grant. |

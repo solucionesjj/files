@@ -5,24 +5,22 @@ perform, but hiding is never the control. Denials return `403 forbidden` or `404
 depending on whether the existence of the resource itself is sensitive (see
 [error-catalog.md](../04-api/error-catalog.md)).
 
-## 1. Human roles (Entra app roles)
+## 1. Human roles (Files-managed)
 
-| Role | Claim value | Granted to | Purpose |
+| Role | `users.role` value | Granted to | Purpose |
 |---|---|---|---|
-| User | `Files.User` | All tenant employees (default assignment) | Manage and share own files. |
-| Administrator | `Files.Admin` | Platform administrators | Global policy, integrations (Entra app binding), legal hold, retention changes, deletion. |
-| Auditor | `Files.Auditor` | Security/compliance | Read-only audit events, download events, aggregate usage. No content. |
+| User | `user` | Every provisioned tenant employee (JIT default) | Manage and share own files. |
+| Administrator | `admin` | Platform administrators (assigned in Files; first admin bootstrapped by SQL) | Global policy, integrations and API keys, legal hold, retention changes, deletion. |
+| Auditor | `auditor` | Security/compliance | Read-only audit events, download events, aggregate usage. No content. |
 
 Rules:
 
-- Roles come from the validated JWT `roles` claim (app roles) and are re-evaluated per request.
-- `Files.Admin` implies all `Files.User` permissions. `Files.Auditor` does **not** imply user
-  file access, but every authenticated tenant member also has `Files.User` unless assigned
-  otherwise; an auditor who is also a user sees only their own files.
+- Roles are stored in `users.role` in Files and re-evaluated on every request; Entra app roles are
+  not used (ADR-0014).
+- `admin` implies all `user` permissions. `auditor` does **not** imply user file access.
 - No role grants access to another user's file content (D-19). Content access is via ownership,
   explicit link, or integration grant.
-- A user with zero recognized roles is denied portal features but may still sign in and see an
-  "access not configured" page.
+- A newly provisioned user is `user` until an administrator changes the role.
 
 ## 2. Integration permissions
 
@@ -59,7 +57,7 @@ Legend: ✅ allowed · 🔸 allowed with conditions · ❌ denied.
 | Override retention / bulk migration | ❌ | ✅ (reason required) | ❌ |
 | Delete any file | ❌ | ✅ (reason required) | ❌ |
 | Manage integrations/permissions | ❌ | ✅ | ❌ |
-| Bind/change an integration's Entra app ID | ❌ | ✅ | ❌ |
+| Issue/revoke an integration API key | ❌ | ✅ | ❌ |
 | Place/release legal hold | ❌ | ✅ | ❌ |
 | Manage retention/notification policy | ❌ | ✅ | ❌ |
 | View audit events | ❌ (own file events only, limited) | ✅ | ✅ |
@@ -71,7 +69,7 @@ Conditional rules:
 - Owner access is always required for metadata changes; admins change retention/deletion but
   not content.
 - Public link creation requires `platform_settings.public_links_enabled = true` and a
-  per-file enabled policy. Private links are always available to owners.
+  per-file enabled policy. Private links are not offered in v1 (ADR-0014).
 - Auditors can see audit records that contain file IDs and metadata (filenames) but never
   object keys, tokens, keys, or content.
 
@@ -91,27 +89,17 @@ No Entra token is involved. The visitor needs the link **and** the key; neither 
 
 ### Private link
 
-1. Token resolves to an `active` link with `access_mode = private`.
-2. Caller has a valid Entra token from the configured tenant (`tid` match). Before sign-in, the
-   public metadata endpoint reveals only that authentication is required; filename/size are shown
-   after authentication via `GET /v1/download-links/{token}`.
-3. User is provisioned/active in `users`.
-4. File state is downloadable; link limits/expiry are valid.
-5. Optional future restriction (`allowed_object_ids`, not in v1) would be evaluated here.
-6. A grant is issued, attributed to the user for audit; download completion is audited with the
-   user ID.
-
-Tenant membership alone is never sufficient: the link must be active, the file available, and
-(for a restricted private link) the user must be in the ACL or a member of an allowed group.
+**Not offered in v1** (ADR-0014): only public links exist, so there is no private-link ACL,
+`allow_all_tenant`, or Graph directory access. The `download_link_acl`/`allow_all_tenant` columns
+are reserved for a future release.
 
 ### Grant redemption
 
 Grants are bearer capability tokens (the link/job is the capability), 256-bit random, unguessable,
-hashed at rest, single-use, valid for 120 s, and bound to the link, file, and (for private links)
-the issuing user for audit. Redemption does not require the Entra token because the browser must
-be able to navigate to the download URL without an `Authorization` header; the short TTL and
-single use limit exposure. A grant never contains S3 credentials, and the response sets
-`Cache-Control: no-store` and `Referrer-Policy: no-referrer`.
+hashed at rest, single-use, valid for 120 s, and bound to the link and file. Redemption does not
+require an Entra token because the browser must be able to navigate to the download URL without an
+`Authorization` header; the short TTL and single use limit exposure. A grant never contains S3
+credentials, and the response sets `Cache-Control: no-store` and `Referrer-Policy: no-referrer`.
 
 ## 5. Ownership and access resolution (pseudo-code)
 
@@ -136,7 +124,7 @@ Search and listing apply the same predicate in SQL, never post-filtering in memo
 ## 6. Administrative boundaries
 
 - Admins manage integrations across the deployment but cannot read their file content.
-- Admins define the public/private link TTLs; owners cannot override them.
+- Admins define the public link TTL; owners cannot override it.
 - Admin actions require a `reason` (≥10 chars) for: retention change, bulk migration, legal hold,
   file deletion, and integration disable.
 - Admin actions are audited with actor, reason, before/after, and trace ID.

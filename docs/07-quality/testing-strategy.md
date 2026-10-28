@@ -67,7 +67,7 @@ invalid input, rate limit (where applicable), and OpenAPI shape.
 | Portal files | List filters/sort/pagination, detail, rename/tag/retention, If-Match conflict, delete. |
 | Links | Create public/private, admin TTL (15/30), no owner override, specific/all-tenant ACL, key shown once, list, revoke, stats, limits, policy disabled. |
 | Public links | Metadata, wrong/right key, lockout, revoked/expired, concurrency with max=1, grant reuse. |
-| Private links | Auth required, tenant mismatch, inactive user, valid flow. |
+| API keys | Issue/use/revoke, expired key, scope subset, IP allowlist, disabled integration. |
 | Grants | Stream, expiry, single-use, file expires between grant and stream, disconnect. |
 | Integration auth | Entra token mapping, disabled integration, missing permission, IP allowlist, app registration. |
 | Integration files | Create (idempotent), complete, metadata, availability, content (range), delete, grants, cross-integration denial. |
@@ -110,8 +110,7 @@ Scenarios (against API + LocalStack S3 + mocked Entra or test tenant):
 4. Download own file; verify count increments only after completion.
 5. Create public link, copy URL/key (shown once), redeem in a new context with a wrong then
    correct key, download.
-6. Private link: unauthenticated redirect, then successful download; other tenant rejected.
-7. Revoke link → old key fails.
+6. Revoke link → old key fails.
 8. Delete file → disappears, links fail.
 9. Admin: create integration, bind Entra app ID, change policy, set legal hold, view audit/usage.
 10. Accessibility (axe) on `/files`, `/files/:id`, `/d/:token`, `/admin/*`.

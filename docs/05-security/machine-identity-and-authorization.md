@@ -1,59 +1,55 @@
 # Machine Identity and Authorization
 
-**Decisions:** ADR-0004, ADR-0011 · **Requirements:** FR-M2M-001..014, FR-INT-001..011
+**Decisions:** ADR-0014, ADR-0011 · **Requirements:** FR-M2M-001..014, FR-INT-001..011
 
-Machine authentication is **Entra ID client credentials only**. Files does not issue API keys,
-store client secrets, or accept shared symmetric credentials.
+Machine authentication uses **Files-issued API keys**. Files does not use Entra client credentials,
+does not store client secrets, and does not accept shared symmetric credentials other than its own
+hashed keys.
 
 ## 1. Registration model
 
-An integration is created in two coordinated steps:
+An integration is created in one step by an administrator:
 
-1. **Entra:** the consumer's app registration gets the application permission/role
-   `Files.Integration` (admin consent). Record its **client ID** (`appId`).
-2. **Files:** an administrator calls `POST /v1/admin/integrations` with `slug`, `name`,
-   permissions, optional `entraClientId`, and optional IP allowlist.
+1. `POST /v1/admin/integrations` with `slug`, `name`, permissions, and an optional IP allowlist.
+2. Then `POST /v1/admin/integrations/{id}/api-keys` issues a key; the secret is returned exactly
+   once and never again.
 
 The integration row stores:
 
 - `status` (`active`/`disabled`); disabling is immediate.
 - Permissions (`file.write`, `file.read`, `file.delete`), admin-managed and audited.
-- `entra_client_id` — unique; matched against the token's `azp`/`appid`.
-- `allowed_ip_cidrs` — optional; empty means any source (a valid token is still required).
+- `allowed_ip_cidrs` — optional; empty means any source (a valid key is still required).
 - Disable/enable metadata with reason and actor.
 
-## 2. Client-credentials flow
+Each API key (`integration_api_keys`) stores:
 
-The API/worker is the only S3 client (D-30); integration credentials authorize API calls, never
-S3 calls.
+- `name`, `prefix` (for lookup), `secret_hash` (SHA-256 of the full key), `scopes`, optional
+  `expires_at`, `last_used_at`, and revocation fields. The secret itself is never stored or logged.
+
+## 2. API-key flow
 
 ```mermaid
 sequenceDiagram
   participant C as Consumer backend
-  participant E as Entra ID
   participant A as Files API
   participant D as PostgreSQL
 
-  C->>E: POST /token (grant_type=client_credentials, scope=api://files-api/.default)
-  E-->>C: app access_token (roles: Files.Integration)
-  C->>A: POST /v1/integrations/upload-sessions (Bearer token)
-  A->>A: validate JWT (signature, iss, aud, tid, idtyp=app)
-  A->>D: find integration by azp (active)
-  A->>D: verify required permission + IP allowlist
+  C->>A: POST /v1/integrations/upload-sessions (X-Api-Key: fsk_...secret)
+  A->>D: find key by prefix; verify hash (constant time)
+  A->>D: check integration active, key not revoked/expired, IP allowlist
+  A->>D: effective scopes = key scopes ∩ integration permissions
   A->>D: create session/file metadata
   A-->>C: 201 UploadSession
 ```
 
 Rules:
 
-- Tokens are cached by the consumer until near expiry; Files never issues its own JWTs.
-- `azp`/`appid` must map to exactly one active integration. Unregistered clients get
-  `401 invalid_token`; disabled integrations get `401 integration_disabled`.
-- The `Files.Integration` role proves the app was granted the API permission; **permissions are
-  always read from the Files database**.
-- Client secrets/certificates stay in the consumer's secret store; they never reach Files.
-  Consumers should use certificates or managed identity where possible.
-- No API keys, basic-auth credentials, or shared secrets are accepted.
+- The key is looked up by its public prefix and verified in constant time against the SHA-256 hash.
+- A key whose integration is disabled, or that is revoked/expired, is rejected
+  (`401 invalid_api_key`).
+- The `scopes` on a key are a subset of the integration's permissions; the effective capability is
+  the intersection of the two.
+- No presigned URLs, basic-auth credentials, or Entra client-credentials tokens are accepted.
 
 ## 3. Authorization and file access
 
@@ -79,7 +75,7 @@ Rules:
 | Concurrent upload sessions | 3 | `platform_settings` / integration |
 | Daily ingress bytes | 50 GiB | `daily_usage` |
 | Requests per minute | 600 | rate limiter |
-| API keys | **not supported** | — |
+| API keys per integration | configurable | `platform_settings` |
 
 Quota and staging-capacity checks happen **before** creating a session or accepting any chunk,
 and are enforced atomically with `daily_usage` upserts. `429 quota_exceeded` includes
@@ -99,32 +95,33 @@ and are enforced atomically with `daily_usage` upserts. `429 quota_exceeded` inc
 | Event | Data |
 |---|---|
 | Integration created/updated/disabled | Admin actor, reason, before/after. |
-| Entra client ID bound/changed | Admin actor, old/new client ID, reason. |
+| API key created/revoked | Admin actor, key id + prefix (never the secret), reason. |
 | Upload session created/completed | Integration, file ID, size, IP hash. |
 | Metadata/content access | Integration, file ID, result, IP hash, trace ID. |
 | Access denied | Reason code (`no_grant`, `disabled`, `ip_not_allowed`, `unavailable`). |
 | File deleted | Integration actor, prior state, result. |
 
-## 7. Credential rotation (consumer-owned)
+## 7. Key rotation and revocation
 
-1. In Entra, add a new client secret/certificate to the consumer's app registration.
-2. Deploy the new credential to the consumer; confirm calls succeed.
-3. Remove the old secret/certificate in Entra.
-4. No Files change is required because the integration is keyed by `azp`/`client ID`.
+1. Admin issues a new key (`POST .../api-keys`), copies the secret once, and hands it to the
+   consumer out of band.
+2. The consumer deploys the new key; calls succeed.
+3. Admin revokes the old key (`DELETE .../api-keys/{keyId}` with a reason); it stops working
+   immediately.
 
-If an Entra credential leaks: disable the integration in Files immediately (blocks all tokens),
-revoke the app secret in Entra, review `download_events`/`file_audit_events`, then re-enable with a
-new credential.
+If a key leaks: revoke it in Files immediately (blocks that key), review `download_events`/
+`file_audit_events`, and issue a replacement. Disabling the integration blocks all of its keys at
+once.
 
 ## 8. Error behavior
 
 | Situation | Status/code |
 |---|---|
-| Missing header | 401 `invalid_token` |
-| Invalid/expired token | 401 `invalid_token` / `token_expired` |
-| Unregistered `azp` | 401 `invalid_token` |
-| Disabled integration | 401 `integration_disabled` |
-| Valid token, missing permission | 403 `insufficient_permission` |
+| Missing header | 401 `invalid_api_key` |
+| Unknown/invalid key | 401 `invalid_api_key` |
+| Revoked or expired key | 401 `invalid_api_key` |
+| Disabled integration | 401 `invalid_api_key` |
+| Valid key, missing scope/permission | 403 `insufficient_permission` |
 | IP outside allowlist | 403 `ip_not_allowed` |
 | File not owned/no grant | 404 `file_not_found` |
 | File expired/quarantined | 404 `file_unavailable` |
@@ -132,8 +129,8 @@ new credential.
 
 ## 9. Consumer obligations
 
-- Store the Entra secret/certificate in a secret manager; never in source or a browser.
-- Use client credentials only from the backend.
+- Store the API key in a secret manager; never in source, a browser, or logs.
+- Send it only from the backend, in the `X-Api-Key` header, over HTTPS.
 - Send an `Idempotency-Key` on create operations and retry with the same key.
 - Treat 404 as "not accessible"; never retry 4xx except 429.
 - Validate the user's business authorization **before** requesting a file; Files enforces only

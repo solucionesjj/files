@@ -135,9 +135,9 @@ Clients must tolerate unknown values in read models that may evolve (additive po
 | No owner/integration drift | owner columns + service layer |
 
 `files.access_mode` is derived: recomputed as `public_link` if any active public link exists,
-otherwise `private_link` if any active private link exists, otherwise `owner_only` (integration
-files stay `integration_only`). It is recomputed on link creation, revocation, expiry, file expiry,
-and deletion.
+otherwise `owner_only` (integration files stay `integration_only`). The `private_link` value is
+reserved for a future release (ADR-0014). It is recomputed on link creation, revocation, expiry,
+file expiry, and deletion.
 
 Application-level invariants (state machine, ownership checks, audit) are enforced in
 `Files.Domain`/`Files.Application` and covered by tests.

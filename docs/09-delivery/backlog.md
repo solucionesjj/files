@@ -11,7 +11,7 @@ IDs match [requirements.md](../01-product/requirements.md).
 | E1 Identity and access | Entra sign-in, roles, tenant isolation | M1 |
 | E2 Human file management | Upload, list, search, tags, retention edits, download | M2/M3 |
 | E3 Integrations | Machine identity, uploads, retrieval, deletion, quotas | M1/M5 |
-| E4 Links and downloads | Public/private links, keys, grants, abuse controls, stats | M4 |
+| E4 Links and downloads | Public links, keys, grants, abuse controls, stats | M4 |
 | E5 Lifecycle | Notifications, expiration, deletion, reconciliation | M6 |
 | E6 Administration and audit | Policies, integrations, Entra app binding, legal hold, audit, usage | M1/M6 |
 | E7 Operations | IaC, CI/CD, observability, DR, cost | M0/M7 |
@@ -80,7 +80,7 @@ IDs match [requirements.md](../01-product/requirements.md).
 | T-21 | PostgreSQL backup/restore script and drill | M | M7 | `pg_dump` to S3, `_latest` marker, restore test, retention. |
 | T-22 | ClamAV scan/commit job + clamd container | M | M6 | Scan before S3, quarantine, timeouts/retries, EICAR test, signature refresh. |
 | T-23 | Legal hold admin API/UI + job guards | M | M6 | Set/release with reason, review date, expiry/deletion skip, audit, tests. |
-| T-24 | Private-link ACL + Graph directory search | M | M4 | ACL table, directory endpoint, group membership/cache, ACL enforcement tests. |
+| T-24 | ~~Private-link ACL + Graph directory search~~ (deferred, ADR-0014) | M | — | Reintroduce only with an ADR; not in v1. |
 | T-19 | Existing-file backfill tooling + reconciliation | L | M7 | Mapping table, exporter, checksum verification, dual-run/cutover; see [migration plan](../06-workflows/existing-product-migration.md). |
 
 ## Suggested first vertical slice (S1–S5)

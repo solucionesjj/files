@@ -115,14 +115,6 @@ SELECT * FROM outbox_messages WHERE state='dead' ORDER BY created_at DESC LIMIT 
 5. Expiration/deletion continue regardless. SMTP acceptance is not inbox delivery (no automatic
    delayed-bounce handling in v1).
 
-## Directory (Graph) failures
-
-1. Symptoms: private-link directory search returns `503 directory_unavailable`; new ACL edits fail.
-2. Check Graph app permissions/consent (`User.ReadBasic.All`, `Group.ReadBasic.All`,
-   `GroupMember.Read.All`), client secret expiry, and outbound 443.
-3. Existing user-ID ACLs still work; group checks fail closed. Do not widen access to compensate.
-4. Restore Graph access, clear the directory cache if needed, and verify with a user/group search.
-
 ## Download abuse
 
 1. Dashboard: failures/lockouts by link, hashed IPs, grant rate.
@@ -182,11 +174,11 @@ aws s3 ls "s3://$S3__Bucket/backups/postgres/" | tail
 
 ## Credential issues
 
-- Entra 401s: audience/tenant/issuer, app registration, secret/cert expiry, clock skew.
-- Integration 401s: unregistered/disabled app, wrong `azp`, expired token; verify the Entra app and integration status.
-- Leaked Entra secret/certificate: disable the integration, revoke the app secret in Entra,
-  review audit/download events, then re-enable. For a leaked link key, revoke the link and create
-  a new one.
+- Entra 401s: audience/tenant/issuer, app registration, clock skew.
+- Integration 401s: unknown/revoked/expired API key, disabled integration; verify the key and integration status.
+- Leaked API key: revoke it in Files (`DELETE /v1/admin/integrations/{id}/api-keys/{keyId}`),
+  review audit/download events, then issue a replacement. For a leaked link key, revoke the link
+  and create a new one.
 - Verify: `/v1/me` (user) or a metadata call (integration) succeeds.
 
 ## Reconciliation

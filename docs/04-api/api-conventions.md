@@ -18,11 +18,11 @@
 | Caller | Scheme | Header | Token |
 |---|---|---|---|
 | Portal user | Entra delegated JWT | `Authorization: Bearer <jwt>` | Audience `api://<api-client-id>`, scope `Files.Access`, `tid` = configured tenant. |
-| Integration | Entra client credentials | `Authorization: Bearer <jwt>` | App token whose `azp`/`appid` matches the integration and `roles` include `Files.Integration`; permissions come from Files. |
+| Integration | Files-issued API key | `X-Api-Key: <key>` | Key looked up by prefix and verified; scopes = key ∩ integration permissions. |
 | Public link visitor | — | — | Link token in path + download key in body. |
 | Grant redemption | — | — | 256-bit grant token in path (capability, 120 s, single use). |
 
-- No cookies and no query-string credentials. API keys are not issued; credentials in URLs are rejected.
+- No cookies and no query-string credentials. API keys are sent only in the `X-Api-Key` header; credentials in URLs are rejected.
 - `GET /v1/me` returns the caller identity, roles, and effective permissions.
 - 401 means unauthenticated/invalid credential; 403 means authenticated but not permitted.
   Resource existence is hidden with 404 where revealing it would help an attacker.
@@ -123,19 +123,15 @@ Notes:
 ## 8. Download protocol
 ## 8. Download protocol
 
-### 8.1 Owner / private link / public link (browser-safe)
+### 8.1 Owner / public link (browser-safe)
 
 1. Obtain a grant:
    - Owner: `POST /v1/portal/files/{fileId}/downloads` (Bearer).
-   - Private link: `POST /v1/download-links/{token}/downloads` (Bearer).
    - Public link: `POST /v1/public/download-links/{token}/downloads` with `{ "key": "Ab3xY9Qz" }`.
 2. Response `201`: `{ "grantToken": "...", "expiresAt": "...", "downloadUrl": "/v1/download-grants/..." }`.
 3. `GET /v1/download-grants/{grantToken}` streams the file (no auth header; browser navigation).
 4. The grant is single-use and expires in 120 s. A second use returns `404 grant_not_found`.
-   Private links enforce their ACL (specific users/groups or all-tenant) at issuance.
 5. The successful download count increments only when the stream completes.
-6. The public endpoint rejects private links and the authenticated endpoint rejects public links,
-   both with the generic `404 link_not_found` (no link-type oracle).
 
 ### 8.2 Integration
 
@@ -149,16 +145,12 @@ Notes:
 - Range requests on the integration content endpoint count once per completed response.
 - Grant downloads are one stream per grant, so one count per grant.
 
-### 8.4 Link lifetime and private ACL
+### 8.4 Link lifetime
 
-- New public links expire after the admin-configured public TTL (default 15 days); new private
-  links after the private TTL (default 30 days). The client cannot set or change `expiresAt`.
+- New public links expire after the admin-configured public TTL (default 15 days). The client
+  cannot set or change `expiresAt`.
 - Public links require the key and have no ACL.
-- Private links either set `allowAllTenant=true` or provide `allowedPrincipals` (Entra users/
-  groups). The API enforces the ACL on redemption; users can search principals via
-  `/v1/portal/directory/principals`.
-- Directory search and group membership use a read-only Graph application permission; if Graph is
-  unavailable, new ACL edits fail closed while existing user-ID ACLs continue to work.
+- Private links are not offered in v1 (ADR-0014).
 
 ## 9. Rate limits
 
@@ -227,16 +219,13 @@ too_many_attempts` once locked (documented compromise: the lockout itself is not
 | DELETE | `/v1/portal/files/{fileId}` | user | Delete file. |
 | POST | `/v1/portal/files/{fileId}/downloads` | user | Issue owner download grant. |
 | GET | `/v1/portal/files/{fileId}/links` | user | List links for a file. |
-| POST | `/v1/portal/files/{fileId}/links` | user | Create link (+key for public; ACL/TTL server-defined). |
+| POST | `/v1/portal/files/{fileId}/links` | user | Create public link (+key; TTL server-defined). |
 | GET | `/v1/portal/links` | user | List my links. |
 | DELETE | `/v1/portal/links/{linkId}` | user | Revoke link. |
 | GET | `/v1/portal/links/{linkId}/stats` | user | Link statistics. |
 | GET | `/v1/portal/tags` | user | Tag suggestions. |
-| GET | `/v1/portal/directory/principals` | user | Search tenant users/groups for a private-link ACL. |
-| GET | `/v1/public/download-links/{token}` | public | Link landing metadata (private links expose only that auth is required). |
-| GET | `/v1/download-links/{token}` | user | Full metadata for a private link after sign-in. |
+| GET | `/v1/public/download-links/{token}` | public | Link landing metadata. |
 | POST | `/v1/public/download-links/{token}/downloads` | public | Verify key, issue grant. |
-| POST | `/v1/download-links/{token}/downloads` | user | Private link grant. |
 | GET | `/v1/download-grants/{grantToken}` | public | Stream file via grant. |
 | POST | `/v1/integrations/upload-sessions` | integration | Create upload session. |
 | PUT | `/v1/integrations/upload-sessions/{id}/chunks/{chunkNumber}` | integration | Upload one chunk. |

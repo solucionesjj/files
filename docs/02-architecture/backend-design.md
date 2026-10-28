@@ -166,8 +166,7 @@ Environment variables use `__` separators. Full template in `.env.example`.
 | `Smtp__UseStartTls` | `true` | Certificate validation required. |
 | `Smtp__Username` | mailbox address | |
 | `Smtp__Password` | secret | App password/password; never logged. |
-| `Graph__TenantId` / `Graph__ClientId` / `Graph__ClientSecret` | GUID/secret | Directory search + optional Graph mail fallback. |
-| `Graph__DirectoryEnabled` | `true` | Enables private-link directory search/membership. |
+| `Graph__*` | — | Deferred (ADR-0014): no Graph directory or mail fallback in v1. |
 | `ClamAV__Host` / `ClamAV__Port` | `clamav` / `3310` | Internal Docker network. |
 | `ClamAV__ScanTimeoutSeconds` | `900` | 5 GiB may take minutes. |
 | `Features__MalwareScanning` | `true` | Scan before S3 commit. |
@@ -200,13 +199,11 @@ logged; `Program.cs` logs only key names and non-sensitive values.
 ## 7. Security implementation notes
 
 - JWT validation: signature, `iss`, `aud`, `exp`, `nbf`, `tid` (must equal configured tenant),
-  token type; clock skew ≤2 min. `oid`/`sub` mapped to `users.object_id`; `roles` mapped to
-  policies. Reject tokens without a role that maps to the endpoint.
-- Entra app auth: validate the JWT and map `azp`/`appid` to an active integration; reject disabled
-  integrations; update `last_used_at` at most once per minute; never log the token or secret.
-- Integration token auth: `azp`/`appid` must match `integrations.entra_client_id`; the role claim
-  must include `Files.Integration`; the actual permission is read from Files; the service
-  principal `oid` is stored for audit.
+  token type; clock skew ≤2 min. `oid`/`sub` mapped to `users.object_id`; the role is read from
+  `users.role` (never from the token).
+- API-key auth: look up the key by its prefix, verify the SHA-256 hash in constant time, then
+  check integration status, expiry, revocation, IP allowlist, and scopes; update `last_used_at` at
+  most once per minute; never log the key or secret.
 - Link key verification: load verifier by link token; Argon2id verify; on failure record attempt
   and apply throttling; on success issue grant. Verification happens even for invalid keys
   (unless locked out) to avoid timing oracles; generic 404 on any failure.

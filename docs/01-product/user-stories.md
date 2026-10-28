@@ -36,18 +36,18 @@ Scenario: Expired or tampered token is rejected
 ```
 
 ### US-002 — Role-based administration
-**As** a Files administrator **I want** admin pages protected by my Entra role **so that** regular
+**As** a Files administrator **I want** admin pages protected by my Files role **so that** regular
 users cannot change global policy.
 **Priority** M · **Milestone** M1 · **Requirements** FR-ID-010, 011, FR-ADM-001..005
 
 ```gherkin
 Scenario: Admin role grants administration
-  Given my Entra token contains the "Files.Admin" app role
+  Given my user has the "admin" role in Files
   When I open /admin
-  Then I can see integrations, policies, and audit sections
+  Then I can see integrations, API keys, policies, and audit sections
 
 Scenario: Regular user is denied
-  Given my token only has "Files.User"
+  Given my user has the "user" role in Files
   When I call GET /v1/admin/integrations
   Then the response is 403 with code "forbidden"
   And the response does not include integration data
@@ -269,13 +269,13 @@ Scenario: Create an integration
   Given I am an administrator
   When I create integration "crm-prod" with permissions "file.write,file.read"
   Then the integration exists with status "active"
-  And its Entra application ID can be bound
+  And I can issue an API key for it
 
 Scenario: Disabled integration is rejected immediately
   Given integration "crm-prod" is disabled
-  And it has a non-expired credential
+  And it has a non-revoked API key
   When it calls GET /v1/integrations/files/{id}
-  Then the response is 401 with code "integration_disabled"
+  Then the response is 401 with code "invalid_api_key"
 
 Scenario: IP allowlist enforcement
   Given the integration allowlist is "10.0.0.0/8"
@@ -283,15 +283,15 @@ Scenario: IP allowlist enforcement
   Then the response is 403 with code "ip_not_allowed"
 ```
 
-### US-011 — Authenticate with Entra client credentials and read metadata
-**As** an enterprise system **I want** to obtain a token with my application identity **so that** I
-can retrieve file metadata without a user session.
+### US-011 — Authenticate with an API key and read metadata
+**As** an enterprise system **I want** to call Files with an API key **so that** I can retrieve file
+metadata without a user session.
 **Priority** M · **Milestone** M5 · **Requirements** FR-M2M-002/003/007/008, FR-INT-001/003/005/006
 
 ```gherkin
-Scenario: Valid client credentials retrieve metadata
-  Given my Entra app is registered as integration "crm-prod" with file.read
-  When I call GET /v1/integrations/files/{fileId} with a valid app token
+Scenario: Valid API key retrieves metadata
+  Given I hold an API key for integration "crm-prod" scoped to file.read
+  When I call GET /v1/integrations/files/{fileId} with the key in the X-Api-Key header
   Then I receive metadata for a file I own
   And no S3 key, bucket, or credential is present in the response
 
@@ -302,27 +302,22 @@ Scenario: Unauthorized file is indistinguishable from missing
   And no metadata is returned
 ```
 
-### US-012 — Bind an integration to its Entra application
-**As** an administrator **I want** to bind an integration to its Entra app identity **so that**
-Files trusts only that application and never stores a shared secret.
+### US-012 — Issue and revoke an integration API key
+**As** an administrator **I want** to issue and revoke integration API keys **so that** I control
+machine access without a shared secret.
 **Priority** M · **Milestone** M1/M5 · **Requirements** FR-M2M-004/005/006/013, FR-ADM-002
 
 ```gherkin
-Scenario: Bind the Entra application ID
-  Given the consumer has an Entra app registration with the Files.Integration role
-  When I set its client ID on integration "crm-prod"
-  Then app tokens whose azp matches that client ID are accepted
-  And no client secret is stored by Files
+Scenario: Issue a key (secret shown once)
+  Given integration "crm-prod" exists with permission "file.read"
+  When I create an API key with scopes "file.read"
+  Then the response includes the full key exactly once
+  And subsequent listing shows only the key's name and prefix, never the secret
 
-Scenario: No API keys are issued
-  When I inspect the integration administration API
-  Then there is no endpoint to issue or rotate API keys
-  And the documentation states that only Entra client credentials are supported
-
-Scenario: Unregistered application is rejected
-  Given a valid Entra token from an application not registered in Files
-  When it calls the integration API
-  Then the response is 401 with code "invalid_token"
+Scenario: Revoke a key
+  Given an API key is revoked
+  When the consumer calls the integration API with it
+  Then the response is 401 with code "invalid_api_key"
 ```
 
 ### US-013 — Rate limits and quotas
@@ -497,7 +492,7 @@ Scenario: Browser cannot bypass business authorization
 ## Epic E4 — Download links
 
 ### US-020 — Create a link with the admin-defined lifetime
-**As** a file owner **I want** to create a public or private link **so that** I can share a file
+**As** a file owner **I want** to create a public link **so that** I can share a file
 without choosing an unsafe lifetime.
 **Priority** M · **Milestone** M4 · **Requirements** FR-LINK-001..004, 015..017
 
@@ -510,25 +505,16 @@ Scenario: Public link uses the administrator's lifetime
   And there is no field for me to change the expiry
   And the key is not present in the URL and is stored only as an Argon2id verifier
 
-Scenario: Private link for specific people
-  Given I create a private link and select user Ana and group Legal
-  Then the link stores those principals as its ACL
-  And only Ana or members of Legal can redeem it
-
-Scenario: Private link for the whole tenant
-  Given I create a private link and enable "any authenticated tenant user"
-  Then any active user in the tenant with the link can redeem it
-
 Scenario: Public link disabled by policy
   Given the administrator disabled public links
   When I request a public link
   Then the response is 403 with code "public_links_disabled"
 ```
 
-### US-021 — Redeem a public or private link
+### US-021 — Redeem a public link
 **As** a link visitor **I want** to enter the key and download the file **so that** I can retrieve
 what was shared with me.
-**Priority** M · **Milestone** M4 · **Requirements** FR-LINK-002/007..012/016, FR-ID-007, FR-GEN-002
+**Priority** M · **Milestone** M4 · **Requirements** FR-LINK-002/007..012, FR-ID-007, FR-GEN-002
 
 ```gherkin
 Scenario: Correct key issues a short-lived grant and download succeeds
@@ -550,22 +536,6 @@ Scenario: Grant is single-use and short-lived
   Given I used a grant once
   When I reuse it after completion or after 120 seconds
   Then the response is 404 with code "grant_not_found"
-
-Scenario: Private link ACL is enforced
-  Given a private link restricted to user Ana and group Legal
-  When an unauthenticated visitor requests the download
-  Then the response is 401
-  When Ana (or a member of Legal) authenticates and requests it
-  Then the download is authorized and audited
-  When another tenant user outside the ACL requests it
-  Then the response is 404 with code "link_not_found"
-  And the denied attempt is audited
-
-Scenario: Private link open to the tenant
-  Given a private link with "any authenticated tenant user"
-  When an active tenant user authenticates and requests it
-  Then the download is authorized
-  And a user from another tenant is rejected
 
 Scenario: Download limit is enforced under concurrency
   Given a link with max_downloads = 1

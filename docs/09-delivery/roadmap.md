@@ -98,12 +98,9 @@ Legend: ✅ complete · 🟡 in progress · ⬜ not started.
 | Key brute force incident | Security | Throttling + monitoring designed; rehearse runbook. |
 | Backup erasure expectations | Legal | ADR-0008 wording; legal sign-off. |
 
-## 6. Next session (S3b, then S4) checklist
+## 6. Next session (S4) checklist
 
 1. Read `AGENTS.md`, this roadmap, and the [session log](session-log.md).
-2. **S3b (ADR-0014):** apply `V3`; move roles to `users.role`; add API-key issuance/verification and
-   admin endpoints; drop Entra app roles and client credentials from the auth path; remove
-   private-link/Graph scope from the contract.
-3. **S4:** `IObjectStore` (S3; LocalStack locally) and `IChunkStore` staging with free-space reserve.
-4. Chunk upload-session endpoints (portal + integration), disk/quota checks, and cleanup.
-5. Keep `make validate` green and update the progress table + session log.
+2. **S4:** `IObjectStore` (S3; LocalStack locally) and `IChunkStore` staging with free-space reserve.
+3. Chunk upload-session endpoints (portal + integration), disk/quota checks, and cleanup.
+4. Keep `make validate` green and update the progress table + session log.

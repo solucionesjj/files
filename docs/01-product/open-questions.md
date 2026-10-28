@@ -56,7 +56,7 @@ affected requirement, ADR, schema, and tests in the same change.
 - Links: **public 15 days / private 30 days**, server-defined; private ACL by users/groups or
   all-tenant.
 - Access: admins **cannot** read content; one tenant; no folders, no preview, no download emails.
-- Machines: **Entra client credentials only**.
+- Machines: **Files-issued API keys** (ADR-0014).
 - Audit: **60 months** for audit, **24 months** for downloads.
 - UI: **Spanish + English**.
 - Operations: restore-based DR; single-node exit on capacity/HA/RPO triggers.

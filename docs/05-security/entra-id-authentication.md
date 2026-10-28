@@ -1,32 +1,28 @@
 # Microsoft Entra ID Authentication Design
 
-**Decisions:** ADR-0004 · **Requirements:** FR-ID-001..011 · **Open items:** OQ-01 (mail credential delivery only; tenant confirmed single on 2026-10-24)
+**Decisions:** ADR-0014 · **Requirements:** FR-ID-001..011 · **Open items:** OQ-01 (mail credential delivery only; tenant confirmed single on 2026-10-24)
 
-## 1. App registrations
+Microsoft Entra ID is used **only to authenticate tenant employees**. It is not used for machine
+identity, directory lookups, or application roles: user roles live in `users.role` (Files), and
+integrations use Files-issued API keys (ADR-0014).
+
+## 1. App registration
+
+One registration is enough (SPA + exposed API); two (client + resource) remain supported.
 
 | Registration | Platform | Purpose | Secrets |
 |---|---|---|---|
-| `files-api` | Web API (expose an API) | Resource/audience for all tokens. Defines scope and app roles. | Optional client secret only for local tooling; not used by the API. |
+| `files-api` | Web API (expose an API) | Resource/audience for all human tokens. Defines the `Files.Access` scope. | None for runtime validation. |
 | `files-portal` | Single-page application | Angular SPA. Redirect URIs per environment. | **None** (public client, PKCE). |
-| `files-integration-<name>` | Web (confidential) or none | One per consuming application, for client credentials. | Client secret or certificate held by the consumer. |
 
 ### `files-api` configuration
 
 - **Application ID URI:** `api://<files-api-client-id>` (or verified domain form).
 - **Exposed scope:** `Files.Access` — "Access Files API as the signed-in user", admin consent
   granted, enabled.
-- **App roles** (Enterprise Application → App roles):
-
-| Display name | Value | Allowed member types | Purpose |
-|---|---|---|---|
-| Files User | `Files.User` | Users/Groups | Portal access. Assigned by default to a security group containing all employees. |
-| Files Admin | `Files.Admin` | Users/Groups | Administration. |
-| Files Auditor | `Files.Auditor` | Users/Groups | Read-only audit/usage. |
-| Files Integration | `Files.Integration` | Applications | Proves the caller is a registered machine app; per-integration permissions live in Files. |
-
-- **Optional claims:** `email`, `upn` (if available), and optionally `groups` (used as a fast path for private-link group checks; Graph is the fallback for overage/dynamic groups).
-- **Microsoft Graph application permissions (admin consent):** `User.ReadBasic.All`, `Group.ReadBasic.All`, and `GroupMember.Read.All`. Used only for the portal directory picker and private-link ACL membership checks; no tenant data is stored beyond the ACL object IDs.
-- **Token configuration:** v2 access tokens; `roles` included for app roles.
+- **No app roles** — roles live in `users.role` in Files, assigned by administrators.
+- **Optional claims:** `email`, `upn` (if available).
+- **Token configuration:** v2 access tokens.
 - **Redirect URIs** belong to `files-portal`, not `files-api`.
 
 ### `files-portal` configuration
@@ -37,16 +33,6 @@
 - Front-channel logout URL: `https://files.sacservices.cloud/auth/logout` (optional).
 - API permissions: `Files.Access` (delegated), `openid`, `profile`, `email`; admin consent granted.
 - No client secret, no certificates, no `.default` scope.
-
-### Integration registration
-
-- For each consumer: app registration with **no redirect URI**, client credentials enabled.
-- API permission: `Files.Integration` (application permission, admin consent).
-- The consumer obtains tokens from `https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token`
-  with `scope=api://<files-api-client-id>/.default`.
-- Files stores `entra_client_id` on `integrations` (unique). The token's `azp`/`appid` is matched
-  to that row; unregistered clients are rejected even with a valid signature.
-- Client secrets/certificates are managed by the consumer; Files never stores them.
 
 ## 2. Human sign-in flow
 
@@ -63,8 +49,8 @@ sequenceDiagram
   E-->>B: access_token (1 h), id_token
   B->>A: GET /v1/me (Bearer access_token)
   A->>A: validate signature, iss, aud, exp, tid
-  A->>D: upsert users(tid, oid), update last_login_at
-  A-->>B: identity + roles + permissions
+  A->>D: upsert users(tid, oid) as role 'user', update last_login_at
+  A-->>B: identity + role (from users.role)
 ```
 
 - MSAL stores tokens in `sessionStorage`; the SPA never handles refresh tokens.
@@ -75,8 +61,6 @@ sequenceDiagram
 
 ## 3. Token validation
 
-Use `Microsoft.Identity.Web` (preferred) or `JwtBearer` configured as follows:
-
 | Check | Value |
 |---|---|
 | Authority | `https://login.microsoftonline.com/{tenantId}/v2.0` |
@@ -86,22 +70,13 @@ Use `Microsoft.Identity.Web` (preferred) or `JwtBearer` configured as follows:
 | Signing | RS256; keys from JWKS; `RequireSignedTokens = true` |
 | Lifetime | `exp`/`nbf` with ≤2 min clock skew |
 | Tenant | `tid` claim must equal `Entra:TenantId` (defense in depth beyond issuer) |
-| Token type | Delegated: `scp` contains `Files.Access`. App-only: `idtyp = app` and `roles` contains `Files.Integration`. |
+| Token type | Delegated only: `scp` contains `Files.Access` and `idtyp != app`. |
 | Algorithms | Reject `none`, HS*, and unexpected `alg` values. |
 
 Failures return `401 invalid_token`, `401 tenant_not_allowed`, or `401 token_expired`; details are
 logged without the token.
 
-### Actor classification
-
-```
-if token has scp containing Files.Access and idtyp != app  -> human
-else if idtyp == app and roles contains Files.Integration  -> integration
-else -> reject
-```
-
-Human endpoints reject app-only tokens even if they carry `Files.Admin` (app role assignments to
-applications are not user roles). Integration endpoints reject delegated tokens.
+App-only (client-credentials) tokens are rejected on all human endpoints.
 
 ## 4. Claims mapping
 
@@ -111,11 +86,7 @@ applications are not user roles). Integration endpoints reject delegated tokens.
 | `oid` | Immutable user object ID; stored on `users.object_id` (identity key). |
 | `preferred_username` / `upn` / `email` | Notification recipient; stored as `users.email` (prefer `preferred_username` if it contains `@`). |
 | `name` | Display name. |
-| `roles` | Portal role evaluation (`Files.User`, `Files.Admin`, `Files.Auditor`). |
-| `azp` / `appid` | Integration lookup for app-only tokens. |
-| `oid` of app token | Service principal object ID (stored for audit if configured). |
-| `scp` | Proves delegated scope. |
-| `idtyp` | Distinguishes app-only tokens. |
+| `scp` | Proves the delegated scope. |
 
 **Email change:** updated from the token on each login. Notifications always use the latest value.
 If no email claim exists, provisioning succeeds with `email = NULL`; notifications fail
@@ -123,43 +94,25 @@ permanently with `no_recipient` (visible in notification events).
 
 ## 5. Authorization
 
-- Portal role policies are evaluated from the `roles` claim on every request; roles are never
-  cached in the database.
-- `Files.Admin` implies user capabilities. `Files.Auditor` grants only audit/usage endpoints.
+- The role is read from `users.role` (`user`, `admin`, `auditor`) on every request; it is **never**
+  derived from the token.
+- `admin` implies user capabilities. `auditor` grants only audit/usage endpoints.
 - No role grants access to another user's file content (D-19).
 - Resource authorization (ownership, link validity, integration grants) happens in the
   application layer, after authentication.
-- Admin API endpoints require `Files.Admin`; audit/usage endpoints require `Files.Admin` or
-  `Files.Auditor`.
+- Admin API endpoints require `admin`; audit/usage endpoints require `admin` or `auditor`.
+- The first admin is bootstrapped by SQL after their first sign-in (see the deployment runbook).
 
-## 6. Private links
-
-- A private link URL (`/d/{token}`) is a portal route. If there is no session, MSAL redirects to
-  Entra with a `returnUrl` (validated against an allowlist).
-- After login, the SPA calls `POST /v1/download-links/{token}/downloads` with the bearer token.
-- The API verifies: valid tenant token, active user, active link, file downloadable, link limits,
-  and the link ACL.
-- The private link has either `allow_all_tenant = true` (any active tenant member) or an ACL of
-  Entra user/group object IDs selected by the owner (OQ-04). A user outside the ACL gets the
-  generic `404 link_not_found`.
-- Group membership is checked from the `groups` token claim when present; otherwise (or for
-  dynamic/large groups) the API calls Graph with a cached result. Graph failure fails closed for
-  the check.
-- A user from another tenant is rejected (`401 tenant_not_allowed`), even if the link is valid.
-- Guest/B2B accounts: not supported in v1 because `tid` may reflect the home tenant. If guests
-  must be supported, add an explicit tenant-membership check (OQ-03/OQ-04).
-
-## 7. Conditional Access, MFA, and session controls
+## 6. Conditional Access, MFA, and session controls
 
 - Entra Conditional Access (MFA, compliant device, location) applies at token issuance; Files
   inherits it without extra code.
-- Recommended policies: require MFA for all users, block legacy auth, require compliant device
-  for `Files.Admin`.
+- Recommended policies: require MFA for all users, block legacy auth.
 - Access token lifetime 1 h (default); the API does not extend it. Long-running downloads already
   authorized by a grant are unaffected.
 - Sign-in risk and Identity Protection are handled by Entra; Files logs the `oid` and `tid`.
 
-## 8. Configuration
+## 7. Configuration
 
 ```json
 {
@@ -179,21 +132,22 @@ permanently with `no_recipient` (visible in notification events).
 The SPA receives only `tenantId`, `clientId`, `apiScope`, and `apiBaseUrl` via
 `/assets/config.json`. No secrets.
 
-## 9. Failure modes
+## 8. Failure modes
 
 | Condition | Result |
 |---|---|
 | Entra unavailable | New logins fail; existing tokens valid until expiry; API keeps serving metadata. |
 | JWKS fetch failure | Tokens cannot be validated → 401; alert. Keys are cached; outage tolerated for hours. |
 | Misconfigured audience | All tokens 401; startup validation checks configuration shape, not Entra. |
-| Clock skew | ≤2 min tolerated; NTP/chrony required on the EC2 host. |
+| Clock skew | ≤2 min tolerated; NTP/chrony required on the host. |
 | User disabled in Entra | New tokens fail; existing token may work up to 1 h. `users.status` is not synced in v1. |
 | Tenant mismatch | 401; logged as a security event. |
 
-## 10. Test plan
+## 9. Test plan
 
-- Unit: claim mapping, role evaluation, actor classification, tenant mismatch.
-- Integration: signed test JWTs (generated with a test key) for valid/invalid cases; WireMock for
-  JWKS; contract tests for 401 shapes.
-- E2E: real test tenant (recommended before release) for portal sign-in, private link, admin.
-- Security: token replay from another tenant, `alg=none`, expired token, app token on user route.
+- Unit: claim mapping, scope/token-type checks, tenant mismatch.
+- Integration: signed test JWTs (generated with a test key) for valid/invalid cases; role reads
+  from `users.role`; API-key path tested separately (see machine identity doc).
+- E2E: real test tenant (recommended before release) for portal sign-in and admin.
+- Security: token replay from another tenant, `alg=none`, expired token, app-only token on a user
+  route.

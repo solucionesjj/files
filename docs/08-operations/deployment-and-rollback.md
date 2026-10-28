@@ -105,7 +105,7 @@ maintenance windows; Caddy keeps the SPA available while the API restarts.
 - `GET /v1/config` → 200.
 - Synthesized integration: create a 1 KiB upload session → put one chunk → complete → metadata
   `available` → download content → verify bytes → delete.
-- Private link create → grant → stream (test user).
+- Public link create → grant → stream (test user).
 - Admin usage endpoint → 200 (test admin).
 - Disk free > reserve; no container restart loop in the last 5 minutes.
 - External TLS certificate valid and HTTP redirects to HTTPS.

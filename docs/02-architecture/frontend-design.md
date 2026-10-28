@@ -90,7 +90,7 @@ Lazy-load every feature route. Preload the shell only.
 - Empty state explains drag-and-drop upload.
 - Retention editor: shows the 30-day default and 365-day maximum; extending above the
   default requires a note; the server rejects violations.
-- Row actions: download, copy private link, manage links, edit, delete (confirm + type-to-confirm
+- Row actions: download, copy public link, manage links, edit, delete (confirm + type-to-confirm
   for files with downloads).
 
 ### Upload
@@ -103,8 +103,7 @@ Lazy-load every feature route. Preload the shell only.
   explains that the upload must restart.
 
 ### Links
-- Create link dialog: type (private/public), optional max downloads; for private links choose
-  **specific users/groups** (directory search) or **any authenticated tenant user**. The expiry is
+- Create link dialog: public link only, optional max downloads. The expiry is
   shown read-only from the admin TTL; the owner cannot change it. Public links require policy.
 - The dialog shows the effective lifetime (“expires in 15 days” / “30 days”).
 - After creation, show **once**: link URL and the 8-character key, with copy buttons and a
@@ -122,8 +121,8 @@ Lazy-load every feature route. Preload the shell only.
   ID**; disable with confirmation. There is no API-key issuance screen.
 - Legal hold: on the file detail (admin), set/release with a mandatory reason and optional review
   date; show a badge and block deletion/expiry.
-- Policies: retention form (default 30, max 365, user override with note), public/private link
-  TTLs, notification intervals (chips, ordered), templates with preview, public links toggle, quotas.
+- Policies: retention form (default 30, max 365, user override with note), public link
+  TTL, notification intervals (chips, ordered), templates with preview, public links toggle, quotas.
 - Audit: filter by actor, file, action, date range; detail drawer with metadata; no content.
 - Usage: storage by owner type, downloads by day, top files, quota consumption.
 

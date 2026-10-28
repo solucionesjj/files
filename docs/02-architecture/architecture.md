@@ -25,7 +25,6 @@ flowchart LR
   consumer["Existing enterprise product<br/>(backend integration)"]
   entra["Microsoft Entra ID"]
   mail["Microsoft 365 mailbox<br/>(SMTP AUTH 587)"]
-  graph["Microsoft Graph<br/>(directory)"]
   signoz["SigNoz (self-hosted or external)<br/>OTLP"]
 
   subgraph aws["AWS account (construction phase)"]
@@ -52,16 +51,14 @@ flowchart LR
   worker -->|delete / reconcile| s3
   api -.->|OIDC validate| entra
   human -->|OIDC PKCE| entra
-  consumer -->|client credentials| entra
+  consumer -->|X-Api-Key| api
   worker -->|SMTP AUTH / TLS| mail
-  api -->|Graph directory| graph
   api -.->|OTLP| signoz
   worker -.->|OTLP| signoz
 ```
 
-External dependencies: Microsoft Entra ID (human/machine identity), the Microsoft 365 mailbox
-(SMTP AUTH for email; POP is inbound only), Microsoft Graph (directory search/group membership
-for private-link ACLs), Amazon S3 (blobs), and SigNoz (telemetry).
+External dependencies: Microsoft Entra ID (human identity only), the Microsoft 365 mailbox
+(SMTP AUTH for email; POP is inbound only), Amazon S3 (blobs), and SigNoz (telemetry).
 
 ## 3. Container view (C4 level 2)
 
@@ -334,7 +331,6 @@ flowchart TB
 | API/Worker ↔ PostgreSQL | Docker network | Strong password, no host port, least-privilege DB role. |
 | API/Worker ↔ S3 | Static access key | Key in `/opt/files/.env`; existing bucket policy restricts access to the host; TLS. |
 | Worker ↔ Microsoft 365 SMTP | Outbound TLS 587 | Mailbox credentials in `.env`; STARTTLS; no POP for sending. |
-| API ↔ Microsoft Graph | Outbound HTTPS 443 | App-only `User.ReadBasic.All`, `Group.ReadBasic.All`, `GroupMember.Read.All`; no directory data persisted beyond ACL IDs. |
 | Host ↔ operator | SSH | Restricted by the externally managed firewall, key auth, no password login. |
 | Public visitor ↔ API | Untrusted | Token + key + throttling; generic errors. |
 
@@ -352,7 +348,7 @@ flowchart TB
 | Host | Ubuntu 24.04 + Docker (pre-existing; static public IP) | Ubuntu 24.04 LTS. |
 | Auth | Microsoft.Identity.Web / JwtBearer; MSAL Angular | Latest stable compatible. |
 | Jobs | Quartz.NET, in-memory scheduler + PG advisory locks | 3.x. |
-| Email | Microsoft 365 SMTP AUTH (MailKit); Graph SDK optional | Latest stable. |
+| Email | Microsoft 365 SMTP AUTH (MailKit) | Latest stable. |
 | Telemetry | OpenTelemetry .NET → OTLP → SigNoz (optional self-hosted) | Latest stable. |
 | Malware | ClamAV `clamd` container, signatures via freshclam | 1.4+/stable. |
 | Provisioning | None (host + bucket pre-exist) | Bootstrap via `deploy/host-bootstrap.sh`; deploy via Compose. |
