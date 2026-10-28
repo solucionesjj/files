@@ -1,0 +1,53 @@
+<div class="modal d-block" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="delete-title">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title h5 text-danger" id="delete-title" i18n="@@delete.title">Eliminar archivo</h2>
+        <button
+          type="button"
+          class="btn-close"
+          aria-label="Cancelar"
+          i18n-aria-label="@@delete.cancel"
+          (click)="cancelled.emit()"
+        ></button>
+      </div>
+      <div class="modal-body">
+        @if (error()) {
+          <div class="alert alert-danger py-2" role="alert">{{ error() }}</div>
+        }
+
+        <p class="text-break" i18n="@@delete.confirm">
+          Esto quita el archivo de tu portal y revoca sus enlaces. Esta acción no se puede deshacer.
+        </p>
+        <p class="mb-1 fw-semibold text-break">{{ file.fileName }}</p>
+
+        @if (requiresTyping) {
+          <div class="mt-3">
+            <label for="delete-confirmName" class="form-label" i18n="@@delete.typeToConfirm">
+              Este archivo se ha descargado. Escribe su nombre para confirmar la eliminación.
+            </label>
+            <input id="delete-confirmName" type="text" class="form-control" [(ngModel)]="confirmName" />
+          </div>
+        }
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" (click)="cancelled.emit()" i18n="@@delete.cancel">
+          Cancelar
+        </button>
+        <button
+          type="button"
+          class="btn btn-danger"
+          [disabled]="deleting() || !canConfirm"
+          (click)="confirm()"
+        >
+          @if (deleting()) {
+            <span i18n="@@delete.deleting">Eliminando…</span>
+          } @else {
+            <span i18n="@@delete.confirmButton">Eliminar</span>
+          }
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal-backdrop show"></div>

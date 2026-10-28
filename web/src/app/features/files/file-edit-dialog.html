@@ -1,0 +1,79 @@
+<div class="modal d-block" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="edit-title">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title h5" id="edit-title" i18n="@@edit.title">Editar archivo</h2>
+        <button
+          type="button"
+          class="btn-close"
+          aria-label="Cancelar"
+          i18n-aria-label="@@edit.cancel"
+          (click)="cancelled.emit()"
+        ></button>
+      </div>
+      <div class="modal-body">
+        @if (error()) {
+          <div class="alert alert-danger py-2" role="alert">{{ error() }}</div>
+        }
+
+        <div class="mb-3">
+          <label for="edit-fileName" class="form-label" i18n="@@edit.fileName">Nombre</label>
+          <input id="edit-fileName" type="text" class="form-control" [(ngModel)]="fileName" maxlength="512" />
+        </div>
+
+        <div class="mb-3">
+          <label for="edit-tags" class="form-label" i18n="@@edit.tags">Etiquetas</label>
+          <input
+            id="edit-tags"
+            type="text"
+            class="form-control"
+            [(ngModel)]="tags"
+            aria-describedby="edit-tags-hint"
+          />
+          <div id="edit-tags-hint" class="form-text" i18n="@@edit.tagsHint">
+            Separadas por comas (máx. 20).
+          </div>
+        </div>
+
+        <div class="mb-2">
+          <label for="edit-days" class="form-label" i18n="@@edit.retention">Retención (días)</label>
+          <div class="input-group" style="max-width: 12rem">
+            <input id="edit-days" type="number" class="form-control" min="1" max="365" [(ngModel)]="days" />
+            <button type="button" class="btn btn-outline-secondary" (click)="days = 30">30</button>
+            <button type="button" class="btn btn-outline-secondary" (click)="days = 365">365</button>
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label for="edit-note" class="form-label" i18n="@@edit.retentionNote">
+            Motivo para ampliar la retención
+          </label>
+          <textarea
+            id="edit-note"
+            class="form-control"
+            rows="2"
+            [(ngModel)]="note"
+            [attr.required]="noteRequired ? '' : null"
+            aria-describedby="edit-note-hint"
+          ></textarea>
+          <div id="edit-note-hint" class="form-text" i18n="@@edit.retentionNoteHint">
+            Obligatorio (10+ caracteres) al ampliar por encima de 30 días.
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" (click)="cancelled.emit()" i18n="@@edit.cancel">
+          Cancelar
+        </button>
+        <button type="button" class="btn btn-primary" [disabled]="saving()" (click)="save()">
+          @if (saving()) {
+            <span i18n="@@edit.saving">Guardando…</span>
+          } @else {
+            <span i18n="@@edit.save">Guardar</span>
+          }
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal-backdrop show"></div>
