@@ -1,0 +1,95 @@
+<div class="mb-3">
+  <a routerLink="/files" class="text-decoration-none" i18n="@@detail.back">← Volver a archivos</a>
+</div>
+
+@if (loading()) {
+  <div class="text-center py-5">
+    <div class="spinner-border text-primary" role="status">
+      <span class="visually-hidden" i18n="@@list.loading">Cargando…</span>
+    </div>
+  </div>
+} @else if (file(); as file) {
+  <div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center gap-2">
+      <h1 class="h5 mb-0 text-break">{{ file.fileName }}</h1>
+      <span class="badge" [class]="file.status | fileStatusBadge">{{ file.status | fileStatusLabel }}</span>
+    </div>
+    <div class="card-body">
+      <dl class="row mb-0">
+        <dt class="col-sm-3" i18n="@@detail.fileName">Nombre</dt>
+        <dd class="col-sm-9 text-break">{{ file.fileName }}</dd>
+
+        <dt class="col-sm-3" i18n="@@detail.size">Tamaño</dt>
+        <dd class="col-sm-9">{{ sizeLabel(file.sizeBytes) }}</dd>
+
+        <dt class="col-sm-3" i18n="@@detail.contentType">Tipo</dt>
+        <dd class="col-sm-9">{{ file.contentType || '—' }}</dd>
+
+        <dt class="col-sm-3" i18n="@@detail.tags">Etiquetas</dt>
+        <dd class="col-sm-9">
+          @if (file.tags.length) {
+            @for (tag of file.tags; track tag) {
+              <span class="badge text-bg-light border me-1">{{ tag }}</span>
+            }
+          } @else {
+            <span class="text-muted" i18n="@@detail.noTags">Sin etiquetas</span>
+          }
+        </dd>
+
+        <dt class="col-sm-3" i18n="@@detail.scanStatus">Escaneo</dt>
+        <dd class="col-sm-9">{{ scanLabel(file.scanStatus) }}</dd>
+
+        <dt class="col-sm-3" i18n="@@detail.retention">Retención</dt>
+        <dd class="col-sm-9">
+          @if (file.retention.expiresAt) {
+            {{ file.retention.expiresAt | date: 'mediumDate' }}
+          } @else {
+            <span i18n="@@list.indefinite">Indefinido</span>
+          }
+          @if (file.retention.reason) {
+            <div class="small text-muted mt-1">{{ file.retention.reason }}</div>
+          }
+        </dd>
+
+        <dt class="col-sm-3" i18n="@@detail.legalHold">Retención legal</dt>
+        <dd class="col-sm-9">
+          @if (file.legalHold) {
+            <span i18n="@@detail.yes">Sí</span>
+          } @else {
+            <span i18n="@@detail.no">No</span>
+          }
+        </dd>
+
+        <dt class="col-sm-3" i18n="@@detail.downloads">Descargas</dt>
+        <dd class="col-sm-9">{{ file.downloads.count }}</dd>
+
+        <dt class="col-sm-3" i18n="@@detail.created">Creado</dt>
+        <dd class="col-sm-9">{{ file.createdAt | date: 'medium' }}</dd>
+
+        <dt class="col-sm-3" i18n="@@detail.version">Versión</dt>
+        <dd class="col-sm-9">{{ file.version }}</dd>
+      </dl>
+    </div>
+    <div class="card-footer d-flex flex-wrap gap-2">
+      <button type="button" class="btn btn-primary btn-sm" [hidden]="!isDownloadable(file)" (click)="download()" i18n="@@actions.download">
+        Descargar
+      </button>
+      <button type="button" class="btn btn-outline-secondary btn-sm" (click)="editing.set(true)" i18n="@@actions.edit">
+        Editar
+      </button>
+      <button type="button" class="btn btn-outline-danger btn-sm" (click)="deleting.set(true)" i18n="@@actions.delete">
+        Eliminar
+      </button>
+      <button type="button" class="btn btn-outline-secondary btn-sm ms-auto" (click)="load()" i18n="@@detail.refresh">
+        Actualizar
+      </button>
+    </div>
+  </div>
+}
+
+@if (editing() && file(); as file) {
+  <app-file-edit-dialog [file]="file" (saved)="onSaved($event)" (cancelled)="editing.set(false)"></app-file-edit-dialog>
+}
+@if (deleting() && file(); as file) {
+  <app-file-delete-dialog [file]="file" (deleted)="onDeleted()" (cancelled)="deleting.set(false)"></app-file-delete-dialog>
+}

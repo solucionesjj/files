@@ -1,16 +1,16 @@
 namespace Files.Domain.Identity;
 
 /// <summary>
-/// Entra ID app-role claim values. Roles are evaluated per request from the validated JWT
-/// <c>roles</c> claim and are never persisted (ADR-0004).
+/// Files-managed portal role names (ADR-0014). The role is read from <c>users.role</c>
+/// (<c>user</c>/<c>admin</c>/<c>auditor</c>) on every request; Entra app roles are not used.
 /// </summary>
 public static class PortalRoles
 {
-    public const string User = "Files.User";
+    public const string User = "user";
 
-    public const string Admin = "Files.Admin";
+    public const string Admin = "admin";
 
-    public const string Auditor = "Files.Auditor";
+    public const string Auditor = "auditor";
 
     /// <summary>The application role that proves a caller is a registered machine app.</summary>
     public const string Integration = "Files.Integration";

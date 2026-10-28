@@ -1,2 +1,14 @@
 // Global styles. Bootstrap 5.3 is imported via angular.json (styles array); this file holds
 // app-level overrides.
+
+// Bootstrap's outline button text (#0d6efd / #6c757d) falls below WCAG 2 AA contrast on light
+// backgrounds at small sizes; darken it so the portal's small action buttons are readable.
+.btn-outline-primary {
+  --bs-btn-color: #0a58ca;
+}
+.btn-outline-secondary {
+  --bs-btn-color: #495057;
+}
+.btn-outline-danger {
+  --bs-btn-color: #b02a37;
+}

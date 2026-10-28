@@ -3,8 +3,8 @@ using Files.Domain.Enums;
 namespace Files.Domain.Identity;
 
 /// <summary>
-/// Pure portal-role policy mapping (RBAC). Roles come from the validated JWT <c>roles</c> claim and
-/// are re-evaluated per request; the database never stores roles (ADR-0004).
+/// Pure portal-role policy mapping (RBAC). Roles come from <c>users.role</c> and are re-evaluated
+/// per request (ADR-0014); Entra app roles and the token's <c>roles</c> claim are ignored.
 /// </summary>
 public static class RolePolicy
 {
@@ -22,7 +22,7 @@ public static class RolePolicy
 
     /// <summary>
     /// Whether <paramref name="roles"/> satisfies <paramref name="requiredRole"/>. A user policy is
-    /// satisfied by <c>Files.Admin</c> as well (admins inherit user capabilities); the auditor role
+    /// satisfied by <c>admin</c> as well (admins inherit user capabilities); the auditor role
     /// is independent and never implies user access.
     /// </summary>
     public static bool Satisfies(string requiredRole, IReadOnlyCollection<string> roles)

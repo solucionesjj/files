@@ -18,7 +18,7 @@ public class FileRepositoryOwnerPredicateTests
     public async Task Get_owned_file_returns_only_the_owners_file_and_hides_foreign_files()
     {
         await using var db = new FilesDbContext(PersistenceTestHelpers.CreateOptions(_fixture.ConnectionString));
-        var repository = new FileRepository(db);
+        var repository = new FileRepository(db, TimeProvider.System);
 
         // Referential integrity: owners must exist before their files reference them.
         var ownerA = User.Create(Guid.NewGuid(), Guid.NewGuid(), "Owner A");
@@ -55,7 +55,7 @@ public class FileRepositoryOwnerPredicateTests
     public async Task Get_owned_integration_file_returns_only_the_integrations_file()
     {
         await using var db = new FilesDbContext(PersistenceTestHelpers.CreateOptions(_fixture.ConnectionString));
-        var repository = new FileRepository(db);
+        var repository = new FileRepository(db, TimeProvider.System);
 
         var owner = Integration.Create("acme-owner", "Acme Owner");
         var other = Integration.Create("acme-other", "Acme Other");

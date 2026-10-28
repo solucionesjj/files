@@ -29,7 +29,15 @@ const FALLBACK_CONFIG: RuntimeConfig = {
 export class RuntimeConfigService {
   readonly config = signal<RuntimeConfig>(FALLBACK_CONFIG);
 
-  async load(): Promise<RuntimeConfig> {
+  private loadPromise: Promise<RuntimeConfig> | null = null;
+
+  /** Loads (and memoizes) the runtime config; safe to await from multiple callers. */
+  load(): Promise<RuntimeConfig> {
+    this.loadPromise ??= this.doLoad();
+    return this.loadPromise;
+  }
+
+  private async doLoad(): Promise<RuntimeConfig> {
     try {
       const response = await fetch('/assets/config.json', { cache: 'no-store' });
       if (response.ok) {

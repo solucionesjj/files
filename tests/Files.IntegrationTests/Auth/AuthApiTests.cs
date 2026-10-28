@@ -39,7 +39,7 @@ public class AuthApiTests(PostgresDatabaseFixture fixture)
         me.GetProperty("tenantId").GetGuid().Should().Be(AuthTestJwt.TenantId);
         me.GetProperty("displayName").GetString().Should().Be("Jane JIT");
         // Role comes from users.role (JIT creates "user"), never from the token.
-        me.GetProperty("roles").EnumerateArray().Select(r => r.GetString()).Should().Contain("Files.User");
+        me.GetProperty("roles").EnumerateArray().Select(r => r.GetString()).Should().Contain("user");
 
         (await PersistenceTestHelpers.CountWhereAsync(fixture.ConnectionString, "users", "object_id", objectId))
             .Should().Be(1);
@@ -59,7 +59,7 @@ public class AuthApiTests(PostgresDatabaseFixture fixture)
             var me = await client.GetAsync("/v1/me");
             me.StatusCode.Should().Be(HttpStatusCode.OK);
             (await me.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("roles").EnumerateArray()
-                .Select(r => r.GetString()).Should().Contain("Files.Admin");
+                .Select(r => r.GetString()).Should().Contain("admin");
         }
         finally
         {

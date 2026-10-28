@@ -1,9 +1,25 @@
 <nav class="navbar navbar-expand bg-body-tertiary border-bottom">
   <div class="container-fluid">
-    <span class="navbar-brand fw-semibold">Files</span>
+    <a class="navbar-brand fw-semibold" routerLink="/files">Files</a>
+
+    <ul class="navbar-nav me-auto">
+      @if (auth.activeAccount()) {
+        <li class="nav-item">
+          <a class="nav-link" routerLink="/files" routerLinkActive="active" i18n="@@nav.files">Archivos</a>
+        </li>
+      }
+    </ul>
+
     <div class="d-flex align-items-center gap-2">
       <app-language-selector></app-language-selector>
-      @if (auth.isConfigured()) {
+
+      @if (auth.activeAccount()) {
+        <span class="badge text-bg-light border">{{ roleLabel() }}</span>
+        <span class="small text-muted d-none d-sm-inline">{{ displayName() }}</span>
+        <button type="button" class="btn btn-outline-secondary btn-sm" (click)="logout()" i18n="@@app.signOut">
+          Cerrar sesión
+        </button>
+      } @else if (auth.isConfigured()) {
         <button type="button" class="btn btn-primary btn-sm" (click)="auth.login()" i18n="@@app.signIn">
           Iniciar sesión
         </button>
@@ -14,16 +30,8 @@
   </div>
 </nav>
 
-<main class="container py-5">
-  <div class="p-5 text-center bg-body-tertiary rounded-3">
-    <h1 class="display-5 fw-bold">Files</h1>
-    <p class="lead" i18n="@@app.tagline">
-      Plataforma segura de almacenamiento, transferencia e integración de archivos
-    </p>
-    @if (!auth.isConfigured()) {
-      <p class="text-muted small" i18n="@@app.authNotConfigured">
-        Autenticación aún no configurada (credenciales de Entra provisionales).
-      </p>
-    }
-  </div>
+<main class="container-fluid py-4">
+  <router-outlet></router-outlet>
 </main>
+
+<app-toasts></app-toasts>

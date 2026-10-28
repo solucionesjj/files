@@ -1,0 +1,142 @@
+<div class="d-flex flex-column gap-3">
+  <h1 class="visually-hidden" i18n="@@list.heading">Archivos</h1>
+
+  <!-- Toolbar -->
+  <div class="row g-2 align-items-center">
+    <div class="col-12 col-md-5">
+      <div class="input-group">
+        <span class="input-group-text" aria-hidden="true">🔍</span>
+        <input
+          type="search"
+          class="form-control"
+          placeholder="Buscar archivos…"
+          i18n-placeholder="@@list.searchPlaceholder"
+          aria-label="Buscar archivos"
+          i18n-aria-label="@@list.searchLabel"
+          [ngModel]="q()"
+          (ngModelChange)="onSearch($event)"
+        />
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <select
+        class="form-select"
+        aria-label="Ordenar por"
+        i18n-aria-label="@@list.sortLabel"
+        [ngModel]="sort()"
+        (ngModelChange)="changeSort($event)"
+      >
+        @for (option of sortOptions; track option.value) {
+          <option [value]="option.value">{{ option.label }}</option>
+        }
+      </select>
+    </div>
+    <div class="col-6 col-md-4 d-flex flex-wrap gap-1">
+      @for (status of allStatuses; track status) {
+        <button
+          type="button"
+          class="btn btn-sm"
+          [class.btn-primary]="statuses().includes(status)"
+          [class.btn-outline-secondary]="!statuses().includes(status)"
+          (click)="toggleStatus(status)"
+        >
+          {{ status | fileStatusLabel }}
+        </button>
+      }
+    </div>
+  </div>
+
+  <!-- Uploads -->
+  @if (upload.items().length) {
+    <app-upload-queue></app-upload-queue>
+  }
+  <app-upload-dropzone></app-upload-dropzone>
+
+  <!-- List / empty state -->
+  @if (loading()) {
+    <div class="text-center py-5">
+      <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden" i18n="@@list.loading">Cargando…</span>
+      </div>
+    </div>
+  } @else if (!items().length) {
+    <div class="text-center py-5 text-muted" i18n="@@list.empty">
+      No hay archivos todavía. Arrastra archivos aquí para subir el primero.
+    </div>
+  } @else {
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead>
+          <tr>
+            <th scope="col" i18n="@@list.colName">Nombre</th>
+            <th scope="col" i18n="@@list.colSize">Tamaño</th>
+            <th scope="col" i18n="@@list.colStatus">Estado</th>
+            <th scope="col" i18n="@@list.colExpiry">Vence</th>
+            <th scope="col" class="text-end" i18n="@@list.colDownloads">Descargas</th>
+            <th scope="col" i18n="@@list.colCreated">Creado</th>
+            <th scope="col" class="text-end"><span class="visually-hidden" i18n="@@list.colActions">Acciones</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (file of items(); track file.id) {
+            <tr>
+              <td>
+                <a [routerLink]="['/files', file.id]" class="text-decoration-none">{{ file.fileName }}</a>
+              </td>
+              <td class="text-nowrap">{{ sizeLabel(file.sizeBytes) }}</td>
+              <td>
+                <span class="badge" [class]="file.status | fileStatusBadge">{{ file.status | fileStatusLabel }}</span>
+              </td>
+              <td class="text-nowrap">{{ expiryLabel(file) }}</td>
+              <td class="text-end">{{ file.downloads.count }}</td>
+              <td class="text-nowrap">{{ file.createdAt | date: 'mediumDate' }}</td>
+              <td class="text-end">
+                <div class="btn-group btn-group-sm d-none d-md-inline-flex" role="group" [attr.aria-label]="file.fileName">
+                  <button type="button" class="btn btn-outline-primary" [hidden]="!isDownloadable(file)" (click)="download(file)" i18n="@@actions.download">
+                    Descargar
+                  </button>
+                  <button type="button" class="btn btn-outline-secondary" (click)="openEdit(file)" i18n="@@actions.edit">
+                    Editar
+                  </button>
+                  <button type="button" class="btn btn-outline-danger" (click)="openDelete(file)" i18n="@@actions.delete">
+                    Eliminar
+                  </button>
+                </div>
+
+                <details class="d-md-none text-start">
+                  <summary class="btn btn-sm btn-outline-secondary" i18n="@@actions.more">Más acciones</summary>
+                  <div class="list-group mt-1">
+                    <button type="button" class="list-group-item list-group-item-action" [hidden]="!isDownloadable(file)" (click)="download(file)" i18n="@@actions.download">
+                      Descargar
+                    </button>
+                    <button type="button" class="list-group-item list-group-item-action" (click)="openEdit(file)" i18n="@@actions.edit">
+                      Editar
+                    </button>
+                    <button type="button" class="list-group-item list-group-item-action text-danger" (click)="openDelete(file)" i18n="@@actions.delete">
+                      Eliminar
+                    </button>
+                  </div>
+                </details>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <nav aria-label="Paginación" i18n-aria-label="@@list.pagination">
+      <ul class="pagination justify-content-center">
+        <li class="page-item" [class.disabled]="!hasMore()">
+          <button type="button" class="page-link" (click)="nextPage()" i18n="@@list.next">Siguiente</button>
+        </li>
+      </ul>
+    </nav>
+  }
+</div>
+
+@if (editingFile(); as file) {
+  <app-file-edit-dialog [file]="file" (saved)="onSaved($event)" (cancelled)="editingFile.set(null)"></app-file-edit-dialog>
+}
+@if (deletingFile(); as file) {
+  <app-file-delete-dialog [file]="file" (deleted)="onDeleted(file)" (cancelled)="deletingFile.set(null)"></app-file-delete-dialog>
+}
