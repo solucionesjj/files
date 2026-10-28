@@ -44,7 +44,7 @@ targets for the implementation; when a suite is created, link its path.
 | NFR-016 accessibility | axe-core E2E on core routes |
 | NFR-017 browsers | Playwright full matrix nightly |
 | NFR-018 cost visibility | cost tags, budgets, monthly review |
-| NFR-019 data residency | S3 bucket and host in the same approved AWS region (default `us-east-1`); no cross-region without approval |
+| NFR-019 data residency | S3 bucket and host in the same approved AWS region (default `us-east-2`); no cross-region without approval |
 | NFR-020 limits | quota and staging reserve tests; 429/507 codes |
 | NFR-021 host capacity | disk/CPU/memory alerts; 80/90% thresholds |
 

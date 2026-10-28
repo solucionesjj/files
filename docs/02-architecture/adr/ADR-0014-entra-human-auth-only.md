@@ -38,8 +38,8 @@ app-role administration, at the cost of Files owning a credential lifecycle and 
 
 - `users.role` is `user`, `admin`, or `auditor`; admins change it in the portal, and every change is
   audited. Admins inherit user capabilities; the auditor role is independent.
-- The first admin is bootstrapped by SQL during deployment (documented in the runbook); there is no
-  self-promotion path.
+- The first admin is promoted on first sign-in via `Auth__BootstrapAdminEmail` (a configured email,
+  SQL fallback documented in `V3`); there is no self-promotion path.
 - The API re-reads the role from Files on every request, so a revoked/demoted user loses access on
   the next request (a token alone no longer grants a role).
 

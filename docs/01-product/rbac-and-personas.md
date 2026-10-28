@@ -10,7 +10,7 @@ depending on whether the existence of the resource itself is sensitive (see
 | Role | `users.role` value | Granted to | Purpose |
 |---|---|---|---|
 | User | `user` | Every provisioned tenant employee (JIT default) | Manage and share own files. |
-| Administrator | `admin` | Platform administrators (assigned in Files; first admin bootstrapped by SQL) | Global policy, integrations and API keys, legal hold, retention changes, deletion. |
+| Administrator | `admin` | Platform administrators (assigned in Files; first admin promoted via `Auth__BootstrapAdminEmail`) | Global policy, integrations and API keys, legal hold, retention changes, deletion. |
 | Auditor | `auditor` | Security/compliance | Read-only audit events, download events, aggregate usage. No content. |
 
 Rules:

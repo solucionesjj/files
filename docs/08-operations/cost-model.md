@@ -1,6 +1,6 @@
 # Cost Model (Single host + S3 + ClamAV)
 
-**Currency:** USD · **Region:** us-east-1 · **Basis:** AWS public on-demand prices, October 2026.
+**Currency:** USD · **Region:** us-east-2 · **Basis:** AWS public on-demand prices, October 2026.
 Verify with the AWS Pricing Calculator; excludes taxes, support, domain registration, and
 engineering time. Initial phase: one host (pre-existing), one data volume, one S3 bucket, one
 public IP, ClamAV in a container.

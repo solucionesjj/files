@@ -8,7 +8,7 @@ affected requirement, ADR, schema, and tests in the same change.
 | ID | Question | Resolution | Impact | Owner |
 |---|---|---|---|---|
 | OQ-01 | Sending mailbox and mechanism; POP cannot send. | Microsoft 365 mailbox **`notificationsagent@ecs-la.com`**; POP for receiving, **SMTP AUTH** `smtp.office365.com:587` (STARTTLS) for sending. Password/app password is configured in `/opt/files/.env`; SMTP AUTH must be enabled. Graph `Mail.Send` is the fallback. | Notifications (M6). | Platform/Identity |
-| OQ-02 | Cloud, region, network. | AWS **`us-east-1`**; one **pre-existing** Ubuntu 24.04 host (public IP, SSH) + one existing S3 bucket, managed outside the repo. | Deployment, latency, cost. | Architecture |
+| OQ-02 | Cloud, region, network. | AWS **`us-east-2`**; one **pre-existing** Ubuntu 24.04 host (public IP, SSH) + one existing S3 bucket, managed outside the repo. | Deployment, latency, cost. | Architecture |
 | OQ-03 | One or multiple Entra tenants? | **One tenant per deployment.** | No `tenant_id` on every table; isolation by deployment. | Product |
 | OQ-04 | Who can redeem a private link? | **Out of scope for v1 (re-resolved 2026-10-27):** only public links are offered; no private ACL, no Graph directory access. `download_link_acl`/`allow_all_tenant` remain reserved for a future release. | No link ACL table use, no directory search, no Graph. | Product/Security |
 | OQ-05 | May admins download content? | **No.** Admins manage metadata, retention, legal hold, and deletion only. | No break-glass content path in v1. | Security/Legal |
@@ -69,7 +69,7 @@ they unblock S13–S14.
 
 | Topic | Confirmation | Still needed |
 |---|---|---|
-| AWS / S3 | Existing host (Ubuntu 24.04, public IP, SSH) and an **existing S3 bucket**, both managed outside this repo; **no Terraform**. The host authenticates to S3 with a **static access key**. `us-east-1`. | Bucket name + `S3__AccessKeyId`/`S3__SecretAccessKey`; the bucket policy already restricts access to the host (not modified by Files). |
+| AWS / S3 | Existing host (Ubuntu 24.04, public IP, SSH) and an **existing S3 bucket**, both managed outside this repo; **no Terraform**. The host authenticates to S3 with a **static access key**. `us-east-2`. | Bucket name + `S3__AccessKeyId`/`S3__SecretAccessKey`; the bucket policy already restricts access to the host (not modified by Files). |
 | Host access | Administration over **SSH via the public IP**; the firewall/security group is already configured and left untouched. | Nothing (SSH key delivered by the infra team). |
 | Entra ID | Tenant and app registrations already exist. | `Entra__TenantId`, `Entra__ApiClientId`, `Entra__PortalClientId`. |
 | Graph ACL | `User.ReadBasic.All`, `Group.ReadBasic.All`, `GroupMember.Read.All` will be granted with admin consent. | Confirm consent before M4. |

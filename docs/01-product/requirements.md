@@ -267,7 +267,7 @@ Targets are measurable and become SLOs in [observability-and-slos.md](../08-oper
 | NFR-016 | Accessibility | WCAG 2.1 AA on upload, list, detail, link management, and admin core flows. | S |
 | NFR-017 | Browsers | Latest 2 versions of Edge, Chrome, Firefox, Safari; no IE. | S |
 | NFR-018 | Cost visibility | AWS cost allocation tags per environment/service; monthly cost report with storage/egress/request breakdown. | S |
-| NFR-019 | Data residency | Host disk and S3 bucket in the same approved AWS region (default `us-east-1`); no cross-region copies without approval. | S |
+| NFR-019 | Data residency | Host disk and S3 bucket in the same approved AWS region (default `us-east-2`); no cross-region copies without approval. | S |
 | NFR-020 | Limits | Per-integration/global quotas and staging-disk quotas enforced; 429/507 responses include a stable code. | M |
 | NFR-021 | Host capacity | The single EC2 MUST be monitored for CPU, memory, disk (staging and PostgreSQL), and network; alerts fire before disk exhaustion. | M |
 

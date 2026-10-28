@@ -101,7 +101,8 @@ permanently with `no_recipient` (visible in notification events).
 - Resource authorization (ownership, link validity, integration grants) happens in the
   application layer, after authentication.
 - Admin API endpoints require `admin`; audit/usage endpoints require `admin` or `auditor`.
-- The first admin is bootstrapped by SQL after their first sign-in (see the deployment runbook).
+- The first admin is promoted on their first sign-in via `Auth__BootstrapAdminEmail` (SQL fallback
+  documented in the `V3` migration).
 
 ## 6. Conditional Access, MFA, and session controls
 

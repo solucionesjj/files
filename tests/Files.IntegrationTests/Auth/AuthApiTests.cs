@@ -46,6 +46,28 @@ public class AuthApiTests(PostgresDatabaseFixture fixture)
     }
 
     [Fact]
+    public async Task Bootstrap_admin_email_promotes_the_first_admin()
+    {
+        Environment.SetEnvironmentVariable("Auth__BootstrapAdminEmail", "firstadmin@example.com");
+        try
+        {
+            await using var factory = CreateFactory();
+            using var client = factory.CreateClient();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer",
+                AuthTestJwt.CreateUserToken(Guid.NewGuid(), name: "First Admin", email: "firstadmin@example.com"));
+
+            var me = await client.GetAsync("/v1/me");
+            me.StatusCode.Should().Be(HttpStatusCode.OK);
+            (await me.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("roles").EnumerateArray()
+                .Select(r => r.GetString()).Should().Contain("Files.Admin");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("Auth__BootstrapAdminEmail", null);
+        }
+    }
+
+    [Fact]
     public async Task Admin_endpoint_returns_403_for_a_user_and_200_for_an_admin()
     {
         await using var factory = CreateFactory();

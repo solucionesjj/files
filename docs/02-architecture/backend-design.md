@@ -139,7 +139,7 @@ Environment variables use `__` separators. Full template in `.env.example`.
 | `Entra__PortalClientId` | GUID | SPA app registration (used for CORS/known clients). |
 | `Entra__RequiredScope` | `Files.Access` | Delegated scope for user tokens. |
 | `Auth__LinkKeyPepper` | 32+ random bytes base64 | Rotatable; see runbook. |
-| `S3__Region` | `us-east-1` | |
+| `S3__Region` | `us-east-2` | |
 | `S3__Bucket` | `files-prod-...` | Required. |
 | `S3__ServiceUrl` | empty | Set for LocalStack S3. |
 | `S3__ForcePathStyle` | `true` (local) / `false` (AWS) | |
