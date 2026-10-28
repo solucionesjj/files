@@ -716,7 +716,7 @@ Scenario: Access and changes are recorded
   And no file content or download key is present
 
 Scenario: Auditor cannot download content
-  Given I have the "Files.Auditor" role
+  Given I have the "auditor" role
   When I request file content or a download grant
   Then the response is 403
 

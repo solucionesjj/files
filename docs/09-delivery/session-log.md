@@ -6,6 +6,203 @@ entry.
 
 ---
 
+## 2026-10-28 — S7/M3 implemented: portal file management + download grants
+
+**Delivered (code + tests green: backend 70 integration / 145 unit, Angular 25 unit, Playwright 7 E2E + axe)**
+
+- **Portal file management (contract-first from OpenAPI):** `PATCH /v1/portal/files/{fileId}`
+  (`updateMyFile`) — If-Match → 412 `stale_version`, owner-scoped 404, rename (`invalid_filename`),
+  retag (user-scoped `citext` get-or-create + whole-set replacement via `ITagRepository`), and
+  retention (finite-only, ≤365, ≥10-char note above default, `legal_hold_active`). `DELETE
+  /v1/portal/files/{fileId}` (`deleteMyFile`) — logical delete (`pending_deletion` +
+  `deletion_requested_by*` + `next_deletion_at`), revokes active links and recomputes `access_mode`
+  via `IDownloadLinkRepository`; `legal_hold_active` blocks. Both write `file.updated` /
+  `file.deletion_requested` audit + outbox in one transaction.
+- **Owner download grant (ADR-0003/0005):** `POST /v1/portal/files/{fileId}/downloads` issues a
+  256-bit single-use 120 s grant (`source=owner`); `GET /v1/download-grants/{grantToken}` consumes it
+  atomically (`issued→redeemed` raw-SQL `UPDATE … WHERE state='issued' AND expires_at > now()`),
+  re-checks availability, streams from `IObjectStore` with RFC 5987 `Content-Disposition` +
+  `no-store`/`no-referrer`/`nosniff`, and counts **only on completion** (`redeemed→completed` +
+  `files.successful_downloads++` + `download_events` in one CTE). `NoSuchKey` → 404
+  `file_unavailable`; expired → 410 `grant_expired`; reuse → 409 `grant_consumed`. No presigned
+  URLs; no fetch-to-Blob.
+- `FileMetadataMapper` now returns the file's real tags; `MarkUpdated` bumps the file `version`
+  when only tags change so the ETag/If-Match stay consistent. New Application services
+  (`IFileManagementService`, `IDownloadGrantService`) + repositories (`ITagRepository`,
+  `IDownloadGrantRepository`, `IDownloadLinkRepository`) with Dapper SQL under
+  `Persistence/Sql/Download/*.sql`.
+- **Portal Angular:** list row actions (download/edit/delete + small-screen overflow menu),
+  detail management, reusable `FileEditDialog`/`FileDeleteDialog` (type-to-confirm when the file has
+  downloads), a two-step `DownloadService` (grant → `window.location.assign`), and error mapping for
+  `stale_version`/`legal_hold_active`/`retention_*`/`grant_*`. Fixed two latent auth bugs surfaced
+  by E2E: `AuthService.initialize()` now awaits the runtime config and calls MSAL v5's explicit
+  `instance.initialize()` (was throwing `uninitialized_public_client_application`); list
+  search/filter reload directly instead of relying on a no-op same-URL navigation.
+- **Tests:** `PortalFileManagementTests` + `DownloadGrantTests` (PostgreSQL 18 + LocalStack S3)
+  cover rename/tags/retention, If-Match 412, legal-hold 409, owner isolation 404, logical delete +
+  link revocation, and grant issue/consume/single-use/expiry/NoSuchKey/integration-404.
+  `RetentionRulesTests`/`GrantTokensTests` (unit); Angular `file-edit-dialog`/`file-delete-dialog`/
+  `download.service`/`problem` specs; Playwright `e2e/portal.spec.ts` with a **mocked Entra session**
+  (seeded MSAL v5 `sessionStorage` cache) + mocked API, plus `@axe-core/playwright` on `/files` and
+  `/files/:id` (0 violations).
+
+**Decisions / notes**
+
+- The Angular download/“Descargar” button renders with `[hidden]="!isDownloadable(file)"` instead of
+  `@if` because Angular 20.3's `@if` inside the list `@for` failed to render the button content in
+  the dev build (verified via `ng.getComponent`: the method returned `true`); the `[hidden]`
+  form is a safe, behavior-equivalent workaround.
+- Portal tags are **user-scoped** (`scope='user'`, `owner_user_id` = owner) per US-007 “in my scope”;
+  the S6 tag filter already matches by name and stays correct.
+- `S3ObjectStore.GetObjectAsync` now throws `ObjectMissingException` on `NoSuchKey` so the API layer
+  maps it to `file_unavailable` without referencing the AWS SDK.
+
+**Next**
+
+- S8: public links (8-char key, admin 15 d TTL) and visitor downloads.
+
+---
+
+## 2026-10-28 — S6/M3 implemented: portal shell and files UX
+
+**Delivered (backend + portal; tests green)**
+
+- **Backend portal files (contract-first):** `GET /v1/portal/files` (`listMyFiles`) and
+  `GET /v1/portal/files/{fileId}` (`getMyFile`) in `PortalFilesEndpoints`. The list supports
+  partial `ILIKE` filename search (`q`), tag filter (`file_tags` join), status filter, sort
+  (`created_at`/`-created_at`/`name`/`-name`/`downloads`/`-downloads`, default `-created_at`),
+  expiry range (`expiringWithinDays`/`expiresBefore`/`expiresAfter`), and keyset cursor pagination
+  (`created_at`/`name`/`downloads` + `id` tiebreaker). Both endpoints are **owner-scoped**: a
+  foreign or integration-owned file returns a uniform 404 `file_not_found` (no existence oracle,
+  ADR-0012); the list never returns integration files.
+- `IFileRepository.ListOwnedAsync` (EF Core LINQ) + `FileQueryParsing` (`FileSort`,
+  `FileListCursor`, sort/status mapping, opaque cursor codec) in `Files.Application`; a minimal
+  `FileTag` entity + `file_tags` EF mapping for the tag filter. `FileMetadataMapper` reused for the
+  response shape. `TimeProvider` used for `expiringWithinDays` (never `DateTime.UtcNow`).
+- **Role naming aligned to ADR-0014:** `PortalRoles` now emits `user`/`admin`/`auditor` (was
+  `Files.User`/`Files.Admin`/`Files.Auditor`); OpenAPI `Me.roles` enum, `AuthApiTests`, and the
+  `frontend-design.md` route matrix + §3 updated. The portal reads roles from `GET /v1/me`, never
+  from `idTokenClaims.roles`.
+- **Portal (Angular, standalone + Bootstrap 5.3):** lazy MSAL sign-in (guard + interceptor +
+  `/auth/callback`, `sessionStorage`, silent renew on 401), shell with user/role from `/v1/me` and
+  the es/en language selector, file list (300 ms debounced search, status badges, sort,
+  cursor-in-URL pagination, drag-and-drop empty state), read-only detail, and chunked upload
+  orchestration (XHR with progress, 2 chunks in flight, per-chunk retry/backoff, `X-Chunk-SHA256`,
+  resume via status, complete then poll until `available`/`quarantined`).
+- Runtime config now actually served from `/assets/config.json` (`src/assets` added to the
+  Angular asset list); config.json carries no secrets. Filenames are rendered only by interpolation.
+- Tests: `FileListQueryParsingTests` (unit) and `PortalFilesApiTests` (integration, PostgreSQL 18:
+  search/filter/sort/cursor/expiry/tag, owner isolation, foreign/integration 404) on the backend;
+  Angular unit tests for the upload orchestrator (mocked XHR), the auth interceptor, error mapping,
+  and status pipes (Karma `ChromeHeadlessNoSandbox`).
+
+**Decisions / notes**
+
+- The tag filter is implemented against the existing `file_tags` table but tagging is still not
+  persisted (arrives with S7), so it returns empty today and is forward-compatible.
+- The cursor is opaque base64url JSON carrying `(createdAt, name, downloads, id)` so a single
+  codec serves all sort orders; the `id` tiebreaker uses native PostgreSQL `uuid` comparison.
+- `Features__MalwareScanning=false` and the S4/S5 scan/commit worker are untouched; S4/S5 upload
+  endpoints and the portal/worker regression stay green.
+
+**Next**
+
+- S7: portal management (rename/tags/retention, delete, owner download grant), E2E Playwright +
+  accessibility.
+
+---
+
+## 2026-10-28 — S5/M2 implemented: ClamAV scan-before-commit worker
+
+**Delivered (code + tests green: 148 tests — 104 unit, 1 contract, 43 integration)**
+
+- `ClamAvScanner` + `ClamAvProtocol` (Files.Infrastructure/Storage): streams the staged file to
+  clamd over TCP `INSTREAM` (length-prefixed chunks, zero terminator) and maps `stream: OK` →
+  clean, `stream: <name> FOUND` → infected, error/timeout/socket → failed. Uses
+  `ClamAV__ScanTimeoutSeconds` (default 900) and never logs the filename. Unit-tested against a
+  fake TCP clamd (clean/infected/timeout/refused) and the pure parser (ClamAvProtocolTests).
+- `ClamAvOptions` (`ClamAV__Host/Port/ScanTimeoutSeconds`) + `ConfigurationValidator` validation;
+  `AddFilesStorage` registers `ClamAvScanner` only when `Features__MalwareScanning=true` **and**
+  `ClamAV__Host` is present, else `NullMalwareScanner` (fail-closed, D-35).
+- Extracted a shared `UploadCommitter` (`CommitAsync` single/multipart + `HeadObject`,
+  `FinalizeAsync`, `QuarantineAsync`, `MarkScanFailedAsync` with exponential `ScanBackoff`) so the
+  API (scanning-disabled path) and the worker (scanning-enabled path) share one retryable commit.
+- `UploadService.CompleteAsync`: with scanning enabled it marks `processing` +
+  `scan_status=pending` + `committing`, writes `file.upload.scan_pending` audit/outbox, and returns
+  `processing` without scanning/committing (worker model, ADR-0003); the disabled path still
+  commits immediately (S4 regression green).
+- `ScanCommitService` (claim one file via Dapper `FOR UPDATE SKIP LOCKED` + a lease, then scan →
+  commit/available, quarantine, or retry) and `UploadScanCommitJob` (BackgroundService +
+  PeriodicTimer, one scan at a time — clamd default). Worker `Program` now hosts it.
+- `V4__scan_commit_worker.sql`: `files.scan_attempts` + `files.scan_next_attempt_at` (claim lease +
+  backoff retry) + a `failed` retry index; validated from an empty PostgreSQL 18 (`scripts/db-verify.sh`).
+- Local `docker-compose.yml` gains a `clamav` service (image `clamav/clamav:1.4`, port 3310, the
+  `deploy/clamav/clamd.conf` with the 5 GiB limits, signatures volume); `.env.example` documents
+  `ClamAV__*` (dev defaults to scanning off).
+- Tests: `ClamAvProtocolTests`/`ClamAvScannerTests`/`ScanBackoffTests` (unit) and `ScanCommitTests`
+  (integration) with a real `ClamAvFixture` (Testcontainers) — clean → available + `HeadObject`,
+  EICAR → quarantined + absent from S3, scanner failure → `processing`/`scan_status=failed` then a
+  retry after the backoff window. The `clamav/clamav:1.4` image is amd64-only, so on Apple Silicon
+  (no emulation) the fixture reports `Available=false` and the ClamAV tests skip (`[Trait
+  Category=ClamAV]`, `FILES_CLAMAV_TESTS=0` opt-out); CI Linux runs them for real.
+
+**Decisions / notes**
+
+- Scan failures update only `files` (never `upload_sessions`), so the session `updated_at` keeps
+  pointing at completion and the S4 cleanup still fails the file after `AbortIncompleteAfterHours`
+  (24 h). The worker retries with exponential backoff (30 s base, 30 min cap).
+- A clean-but-failed S3 commit is treated like a scanner failure: `scan_status=failed` + backoff;
+  the retry re-scans (idempotent) and re-commits, bounded by the 24 h window.
+- `ScanWorkItem`/`IScanWorkClaimer` use Dapper with `FOR UPDATE SKIP LOCKED` and a lease stamp so
+  concurrent worker replicas never double-scan (no Quartz/advisory locks — ADR-0007 deferred).
+
+**Next**
+
+- S6 portal (Angular app, MSAL, file list/detail, upload orchestration).
+
+---
+
+**Delivered (code + tests green: 118 tests — 77 unit, 1 contract, 40 integration)**
+
+- `IObjectStore` port + AWS SDK v4 `S3ObjectStore` (single `PutObject`, multipart, `HeadObject`,
+  `GetObject`, abort). Region/`ServiceURL` are mutually exclusive in SDK v4, so LocalStack uses
+  `AuthenticationRegion` + `ServiceURL` (no instance role; static key from `S3__*`).
+- `IChunkStore` (`FileChunkStore`): `O_EXCL` + `0600` staging files, pwrite at offset + fsync,
+  free-space via `DriveInfo`. `StagingCapacity`/`UploadGeometry`/`Checksums`/`FileNamePolicy`/
+  `ContentTypePolicy` pure helpers.
+- `UploadChunk` entity + EF config + `DbSet`; `IUploadSessionRepository`/`IUploadChunkRepository`
+  (EF) and `IUploadChunkWriter` (Dapper idempotent insert + atomic `received_bytes` increment).
+- `UploadService` (create/chunk/status/complete/abort) enforcing the staging reserve, the 3-session
+  concurrency limit, chunk idempotency/conflict, whole-file verification, and a retryable S3 commit
+  (staging retained on `upload_commit_failed`). Malware seam `IMalwareScanner` + fail-closed
+  `NullMalwareScanner`; scanning disabled commits immediately (ClamAV arrives with S5).
+- Portal + integration endpoints (`MapUploadEndpoints`), `IntegrationWritePolicy` (`file.write`),
+  RFC 9457 `insufficient_permission` on 403 and `invalid_token` on 401 for the API-key scheme.
+- `UploadCleanupService` + worker `UploadCleanupJob` (expire sessions, abort stale multipart,
+  delete orphan staging).
+- `ConfigurationValidator` extended for the `Storage__*` limits; `AWSSDK.S3 4.0.104.7` added.
+- OpenAPI: `502 CommitFailed` on both `complete` endpoints; `413`/`507` on integration create.
+- Tests: unit (geometry, reserve, filename, content-type, checksums) + integration against real
+  PostgreSQL 18 + LocalStack S3 (single-put e2e, multipart e2e with `HeadObject`, idempotency/
+  conflict, checksum mismatch, incomplete, integration-without-`file.write` → 403, foreign session →
+  404, abort, concurrency limit, reserve breach, commit-retry without re-upload, and cleanup
+  expiry/orphan removal).
+
+**Decisions / notes**
+
+- "Max concurrent sessions" is host-wide and returns `507 staging_capacity_exceeded` (no dedicated
+  code exists in the catalog); the disk reserve also returns `507`.
+- `file_audit_events.file_id` FK means the file row must be flushed before the file-audit write.
+- SDK v4 defaults auto CRC checksums; `RequestChecksumCalculation`/`ResponseChecksumValidation`
+  are set to `WHEN_REQUIRED` so LocalStack multipart works (5 MiB minimum part size still enforced).
+- Portal `tags` are accepted but not persisted (tagging arrives with S6).
+
+**Next**
+
+- S5: ClamAV scan/commit worker; then S6 portal.
+
+---
+
 ## 2026-10-27 — S3b implemented: roles in Files + Files-issued API keys
 
 **Delivered (code, tests green)**

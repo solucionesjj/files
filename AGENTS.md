@@ -133,7 +133,7 @@ Local endpoints: API `http://localhost:8080`, Portal `http://localhost:4200`, Lo
 |---|---|
 | Product requirements, stories, RBAC | Done |
 | Architecture + ADRs | Done |
-| Data model + V1/V2/V3 migrations | Done, validated on PostgreSQL 18.6 |
+| Data model + V1/V2/V3/V4 migrations | Done, validated on PostgreSQL 18.6 |
 | OpenAPI contract | Done, Redocly-valid |
 | Security designs + threat model | Done |
 | Workflows (lifecycle/upload/download/retention) | Done |
@@ -141,7 +141,7 @@ Local endpoints: API `http://localhost:8080`, Portal `http://localhost:4200`, Lo
 | Infrastructure | Pre-existing host + S3 bucket, managed outside the repo; no Terraform; `deploy/host-bootstrap.sh` + Compose provided |
 | Local stack, CI, scripts | Done |
 | Deployment assets | Done: host-bootstrap, Compose, Caddy, backup/restore/smoke |
-| Application code | **S3b done** — EF Core mapping, domain entities, repositories, audit/outbox writers, Entra JWT auth (humans only), JIT users, roles in `users.role` (admin endpoints), Files-issued API keys (auth + admin endpoints), `/me`, `/v1/integrations/me`; S4+ pending |
+| Application code | **S7 done** — S6 portal shell/files UX plus portal management: `PATCH /v1/portal/files/{id}` (rename/retag/retention, If-Match 412), `DELETE /v1/portal/files/{id}` (logical delete + link revocation), owner download grant (`POST /v1/portal/files/{id}/downloads` → `GET /v1/download-grants/{token}` 256-bit single-use 120 s API stream, counted on completion), portal UI actions/dialogs/download, and Playwright E2E + axe-core accessibility; S8 public links next |
 
 ## 7. Next steps (in order)
 
@@ -150,9 +150,18 @@ Local endpoints: API `http://localhost:8080`, Portal `http://localhost:4200`, Lo
 2. ✅ **S2 / M1 (done):** EF Core mapping + repositories + audit/outbox writers; user/integration persistence.
 3. ✅ **S3 / M1 (done):** Entra JWT validation (humans only), JIT provisioning, role policies, `/me`, integration admin CRUD, admin audit.
 4. ✅ **S3b / M1+M5 (done):** roles in `users.role` (Entra app roles removed), Files-issued API keys (auth + admin endpoints), private links/Graph removed from scope.
-5. **S4–S5 / M2:** `IObjectStore`, `IChunkStore` staging, chunk endpoints, server-side S3 commit,
-   completion verification, disk reserve, cleanup; integration tests with LocalStack S3.
-6. **S6–S8:** portal, then public links/downloads.
+5. ✅ **S4–S5 / M2 (done):** `IObjectStore`, `IChunkStore` staging, chunk endpoints, server-side S3
+   commit, completion verification, disk reserve, ClamAV scan/commit worker, cleanup; integration
+   tests with LocalStack S3.
+6. ✅ **S6 / M3 (done):** portal shell and files UX — Angular app + MSAL sign-in (roles from
+   `/v1/me`), owner-scoped `GET /v1/portal/files` list/search/filter/sort/cursor and
+   `GET /v1/portal/files/{fileId}` detail, and chunked upload orchestration (XHR, retry/backoff,
+   resume, scan polling).
+7. ✅ **S7 / M3 (done):** portal management — rename/tags/retention, logical delete, owner download
+   grant (256-bit single-use 120 s API stream, counted on completion), If-Match 412 / legal-hold
+   409, Playwright E2E + axe-core accessibility.
+8. **S8 / M4:** public links and downloads — link create/list/revoke, admin TTL (15 d), 8-char key
+   shown once, grant redemption, reservation concurrency, abuse controls, stats.
 
 Do not jump to UI before the upload/download vertical slice works end to end; it validates auth,
 DB, S3, streaming, audit, and counts together.

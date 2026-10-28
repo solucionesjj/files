@@ -33,10 +33,10 @@ route with caching disabled for sensitive data (`Cache-Control: no-store`).
 | `/files` | MsalGuard | File list, search, filters, pagination. |
 | `/files/:id` | MsalGuard | File detail, metadata, links, stats. |
 | `/links` | MsalGuard | Links created by me (active/revoked/expired). |
-| `/admin/integrations` | MsalGuard + role `Files.Admin` | Integrations and Entra app binding (no API keys). |
-| `/admin/policies` | role `Files.Admin` | Retention, link TTLs, legal hold, notifications, quotas, templates. |
-| `/admin/audit` | role `Files.Admin` or `Files.Auditor` | Audit and download events. |
-| `/admin/usage` | role `Files.Admin` or `Files.Auditor` | Storage, downloads, quota usage. |
+| `/admin/integrations` | MsalGuard + role `admin` | Integrations and Entra app binding (no API keys). |
+| `/admin/policies` | role `admin` | Retention, link TTLs, legal hold, notifications, quotas, templates. |
+| `/admin/audit` | role `admin` or `auditor` | Audit and download events. |
+| `/admin/usage` | role `admin` or `auditor` | Storage, downloads, quota usage. |
 | `/d/:token` | none | Public link landing: file summary + key entry. |
 | `/d/:token` (private) | MsalGuard after metadata | Redirects to login if the link requires it. |
 | `/access-denied` | none | 403 page. |
@@ -53,8 +53,8 @@ Lazy-load every feature route. Preload the shell only.
 - `MsalInterceptor` attaches tokens for the API origin only. A second interceptor handles API
   errors (401 → acquire token silently; if it fails, redirect to login).
 - `MsalRedirectComponent` at `/auth/callback`.
-- Role guard reads `idTokenClaims.roles` (falls back to `account.idTokenClaims`); the API is
-  still authoritative.
+- Role guard reads the Files-managed role from `GET /v1/me` (ADR-0014), never from
+  `idTokenClaims.roles`; the API is authoritative.
 - Sign-out clears MSAL cache and redirects to the Entra logout endpoint with
   `postLogoutRedirectUri`.
 - Runtime config (`/assets/config.json`) supplies `apiBaseUrl`, `tenantId`, `clientId`,

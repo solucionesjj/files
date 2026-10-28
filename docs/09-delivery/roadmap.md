@@ -27,7 +27,7 @@ can run partly in parallel once their dependencies are met.
 | S2 | M1 | Database and persistence base | Flyway runner, EF DbContext + naming, repository seams, user/integration entities, audit writer, outbox writer, DB tests. |
 | S3 | M1 | Entra auth and admin base | JWT validation, policies, JIT users, `/me`, integration CRUD (API keys), admin audit. |
 | S3b | M1/M5 | Identity realignment (ADR-0014) | `users.role` roles in Files; API-key issuance/verification + admin endpoints; remove Entra app roles and client credentials; drop private links/Graph from scope; apply `V3`. |
-| S4 | M2 | Storage adapter, staging, sessions | `IObjectStore` (S3; LocalStack locally), `IChunkStore` staging, create session, chunk endpoints, disk/quota checks. |
+| S4 | M2 | Storage adapter, staging, sessions | ✅ `IObjectStore` (S3; LocalStack locally), `IChunkStore` staging, create session, chunk endpoints, disk/quota checks, retryable commit (scanning disabled). |
 | S5 | M2 | Completion, ClamAV scan/commit, cleanup | Verify chunks/size/checksum, scan before S3, server-side multipart/put, HeadObject, retry commit, abort/cleanup, integration tests. |
 | S6 | M3 | Portal shell and files UX | Angular app, MSAL, API client, file list/search/filters/pagination, detail, upload orchestration. |
 | S7 | M3 | Portal management | Rename/tags/retention, delete, owner download grant, E2E + accessibility, error UX. |
@@ -56,8 +56,8 @@ S6. S10 depends on S5 and S9. S11 depends on S10.
 |---|---|---|---|
 | M0 | ✅ | ✅ | S1 done: .NET 10 solution, Angular workspace, health/config endpoints, OTel, Dockerfiles, local compose. |
 | M1 | ✅ | ✅ | S1–S3 done: foundations, EF mapping + repositories, audit/outbox writers, Entra JWT auth (human-only per ADR-0014), JIT users, roles in Files, `/me`, integration admin CRUD, API keys, admin audit. |
-| M2 | ✅ | ⬜ | Upload/download design finalized. |
-| M3 | ✅ | ⬜ | Frontend design finalized. |
+| M2 | ✅ | ✅ | S4 done: `IObjectStore` (S3/LocalStack), staging, chunk endpoints, retryable server-side commit (scanning disabled). S5 done: ClamAV scan-before-commit worker (`ClamAvScanner`, `ScanCommitService`, `UploadScanCommitJob`), quarantines infected files, retries scanner failures with backoff, and keeps the scanning-disabled path + cleanup green. |
+| M3 | ✅ | ✅ | S6 done: portal shell (MSAL sign-in + `/v1/me` roles), owner-scoped file list/search/filters/sort/cursor pagination, read-only detail, and chunked upload orchestration. S7 done: rename/tags/retention, logical delete, owner download grant (256-bit single-use 120 s API stream, counted on completion), If-Match 412 / legal-hold 409, E2E Playwright + axe accessibility. S8 (links) remains. |
 | M4 | ✅ | ⬜ | Public link/key design finalized; private links and Graph deferred (ADR-0014). |
 | M5 | ✅ | ⬜ | API-key flow designed (ADR-0014); OpenAPI contract update pending S3b/S9. |
 | M6 | ✅ | ⬜ | Background jobs and notifications designed. |
@@ -98,9 +98,9 @@ Legend: ✅ complete · 🟡 in progress · ⬜ not started.
 | Key brute force incident | Security | Throttling + monitoring designed; rehearse runbook. |
 | Backup erasure expectations | Legal | ADR-0008 wording; legal sign-off. |
 
-## 6. Next session (S4) checklist
+## 6. Next session (S8) checklist
 
 1. Read `AGENTS.md`, this roadmap, and the [session log](session-log.md).
-2. **S4:** `IObjectStore` (S3; LocalStack locally) and `IChunkStore` staging with free-space reserve.
-3. Chunk upload-session endpoints (portal + integration), disk/quota checks, and cleanup.
-4. Keep `make validate` green and update the progress table + session log.
+2. **S6 (done):** portal shell and files UX — Angular app + MSAL, `GET /v1/portal/files` and `GET /v1/portal/files/{fileId}`, file list/search/filters/sort/cursor pagination, read-only detail, and chunked upload orchestration; `make validate` green.
+3. **S7 (done):** portal management — rename/tags/retention, delete, owner download grant, E2E Playwright + accessibility, error UX.
+4. **S8:** public links and downloads — link create/list/revoke, admin TTL (15 d), key shown once, grant redemption with the 8-char key, reservation concurrency, abuse controls, stats.

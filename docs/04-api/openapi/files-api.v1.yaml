@@ -316,6 +316,8 @@ paths:
           $ref: '#/components/responses/Gone'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '502':
+          $ref: '#/components/responses/CommitFailed'
 
   /portal/files/{fileId}:
     get:
@@ -674,12 +676,24 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
+        '413':
+          description: Declared size exceeds the maximum.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
         '429':
           $ref: '#/components/responses/TooManyRequests'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '507':
+          description: Staging disk capacity exhausted.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
 
   /integrations/upload-sessions/{sessionId}/chunks/{chunkNumber}:
     put:
@@ -798,6 +812,8 @@ paths:
           $ref: '#/components/responses/Gone'
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
+        '502':
+          $ref: '#/components/responses/CommitFailed'
 
   /integrations/files:
     get:
@@ -2009,6 +2025,15 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
+    CommitFailed:
+      description: The S3 commit failed; staged bytes are retained so the client can retry without re-uploading.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/XRequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
 
   schemas:
     Problem:
@@ -2059,7 +2084,7 @@ components:
           type: array
           items:
             type: string
-            enum: [Files.User, Files.Admin, Files.Auditor]
+            enum: [user, admin, auditor]
         permissions:
           type: array
           items:
