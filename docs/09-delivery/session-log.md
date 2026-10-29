@@ -6,6 +6,61 @@ entry.
 
 ---
 
+## 2026-10-29 — S12/M7 implemented: test hardening and security
+
+**Delivered (code + tests green: 291 unit + 9 contract + integration incl. new matrix/tampering)**
+
+- **Authorization + IDOR matrix (NFR-005, I-01, E-01):** `AuthorizationMatrixTests`
+  ([tests/Files.IntegrationTests/Upload/AuthorizationMatrixTests.cs](../../tests/Files.IntegrationTests/Upload/AuthorizationMatrixTests.cs))
+  — one table-driven suite over every implemented route × 8 actors (anonymous / user-owner /
+  user-other / auditor / admin / integration-owner / integration-other / integration-without-scope),
+  asserting the exact status + `code` and the canonical 404-for-foreign vs 403-for-insufficient
+  role/scope split (ADR-0012/0014). Includes the denied cases: admins never read content (404 on
+  foreign file download-grant/content, D-19) and auditors are read-only with no download
+  (403 on every user/admin route, FR-ADM-008); machine scopes are intersected (read-only key → 403
+  `insufficient_permission` on write/delete).
+- **Upload tampering (T-01/02/05, FR-UP):** `UploadTamperingTests` — filename path traversal and
+  CRLF/control rejection, content-type header injection, negative size, zero-size (valid empty file),
+  oversized (chunk-count and per-integration max file size → 422/413), oversized chunk, and
+  whole-file checksum mismatch. Extracted `Files.Application.Storage.ContentDisposition` (shared by
+  the grant + integration download paths) and unit-tested RFC 5987 behavior
+  (`ContentDispositionTests`): ASCII fallback never breaks/injects, `filename*=UTF-8''` preserves the
+  name. EICAR→quarantine and scanner-down→unavailable remain covered by `ScanCommitTests`.
+- **Secret/log-leakage guard (I-03):** `LogRedactionTests` (reflects over `LoggerMessage` templates)
+  + `scripts/check-security-static.sh` — no `DateTime.UtcNow`, no presigned S3, no Graph/POP, no
+  `innerHTML`/`bypassSecurityTrust` in the SPA, no log template emitting a filename/key/token/email/
+  object key, and no mutating route mapped to audit/usage/download-event resources. Wired into
+  `make validate` and CI.
+- **Secret + dependency/image + SAST scanning (E-04):** gitleaks (`.gitleaks.toml` allowlist = the
+  two committed placeholder templates only; `make scan-secrets`), Trivy (`make scan-deps` /
+  `scan-images`), plus the existing `dotnet list package --vulnerable` + analyzer set as the SAST
+  baseline — all wired into `.github/workflows/ci.yml` (`security-scanners` job). Baseline recorded
+  in [security-scanning.md](../07-quality/security-scanning.md); no real secret is committed.
+- **ZAP baseline (S-04):** `scripts/zap-baseline.sh` (baseline + documented authenticated active-pass
+  procedure + artifacts location) and a CSP header added to `deploy/Caddyfile`
+  (`script-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`, Entra-limited connect/frame).
+  The SPA XSS posture is locked by the static guard (§ innerHTML) — filenames are interpolation-only.
+- **Load/soak (D-01/02/06, NFR-003/004):** k6 scenarios in `tests/perf/` (metadata reads, chunked
+  upload, ranged download, public-link redemption/abuse, 5 GiB upload/download smoke) encoding the
+  SLO thresholds from `observability-and-slos.md`; `make perf-smoke` (CI `performance-smoke` job)
+  validates every scenario and runs a 1-VU pass; the full 2×-baseline run is documented in
+  `tests/perf/README.md`.
+- **Audit append-only + no-admin-content (T-04, FR-AUD-002, D-19):** `SecuritySurfaceTests`
+  (contract) asserts the audit/download-event resources have no mutating operation and no admin
+  operation returns content; the runtime denial is asserted by `AuthorizationMatrixTests`.
+
+**Decision:** the contract still declares `/admin/audit-events`, `/admin/download-events`,
+`/admin/usage`, `/admin/settings`, and `/admin/files/{id}/deletion` + `/admin/files/{id}/grants`
+that are **not implemented** (deferred to S13/S14; auditors currently have no read endpoint). The
+matrix and `SecuritySurfaceTests` cover the implemented surface and treat those contract paths as
+read-only-by-declaration. `Content-Disposition` was extracted from two duplicated private helpers
+into `Files.Application.Storage.ContentDisposition` so the RFC 5987 behavior is unit-testable.
+
+**Next:** S13/M7 — operations readiness (deploy to the existing host, backup/restore drill,
+dashboards/alerts, runbook rehearsal, cost review).
+
+---
+
 ## 2026-10-29 — S11/M6 implemented: physical deletion, tombstones, reconciliation, metrics
 
 **Delivered (code + tests green: 282 unit + 106 integration + 5 contract)**

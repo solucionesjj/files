@@ -119,20 +119,27 @@ Run on Chromium in PR CI; full browser matrix (Edge/Firefox/Safari) nightly.
 
 ## 7. Security tests
 
+The automated security suites below are now implemented (S12) and CI-gated; the scanner toolchain
+(gitleaks, Trivy, ZAP, k6) is documented in [security-scanning.md](security-scanning.md).
+
 - **IDOR matrix:** every file/link/grant/session endpoint called by another user/integration →
-  404 (or 403 only where documented), no data in body.
+  404 (or 403 only where documented), no data in body — `AuthorizationMatrixTests`
+  ([tests/Files.IntegrationTests/Upload/AuthorizationMatrixTests.cs](../../tests/Files.IntegrationTests/Upload/AuthorizationMatrixTests.cs))
+  covers every route × actor with the exact 404-vs-403 outcome.
 - **Auth matrix:** no token, expired, wrong audience/issuer/tenant, `alg=none`, app token on user
-  route, user token on integration route.
+  route, user token on integration route — `AuthApiTests`.
 - **Upload tampering:** declared vs actual size/type, cross-session chunk, duplicate/conflicting
-  chunk, oversize chunk, out-of-order completion, staged-file tampering.
+  chunk, oversize chunk, out-of-order completion, staged-file tampering, traversal/CRLF/content-type
+  injection, zero/negative/oversized — `UploadTamperingTests` + `ContentDispositionTests` (RFC 5987).
 - **Public key:** lockout thresholds, timing distribution (t-test on success/failure paths),
-  grant reuse, enumeration.
+  grant reuse, enumeration — `KeyThrottleTests` + `PublicLinkTests`.
 - **Headers:** no secrets in logs/traces (capture test), `Content-Disposition` encoding, no
-  `X-Powered-By`, CORS allowlist, `nosniff`, CSP for the SPA.
+  `X-Powered-By`, CORS allowlist, `nosniff`, CSP for the SPA — `LogRedactionTests` +
+  `check-security-static.sh` + CSP in `deploy/Caddyfile`.
 - **Dependencies/secrets:** `dotnet list package --vulnerable`, `npm audit`, Trivy image scan,
-  secret scanning (gitleaks), SBOM generation.
+  secret scanning (gitleaks), SBOM generation — `make scan-secrets` / `scan-deps` / `scan-images`.
 - **DAST:** OWASP ZAP baseline + authenticated scan against a local/staging-like deployment before
-  each release.
+  each release — `make zap-baseline`.
 
 ## 8. Performance and resilience
 
@@ -165,9 +172,9 @@ Run on Chromium in PR CI; full browser matrix (Edge/Firefox/Safari) nightly.
 | Integration | Every PR | PostgreSQL 18 + LocalStack S3 containers |
 | Contract | Every PR | OpenAPI valid (Redocly), schemas match |
 | Migration | Every PR | Fresh apply + drift test |
-| Security static | Every PR | Vulnerable deps, secrets |
+| Security static | Every PR | Vulnerable deps, secrets (`check-security-static.sh`, gitleaks, Trivy fs/config) |
 | E2E (Chromium) | PR + main | Critical paths |
-| Performance smoke | main / nightly | Budgets |
+| Performance smoke | main / nightly | Budgets (`make perf-smoke`: k6 script validation + 1-VU pass) |
 | Image scan + SBOM | main | No critical CVEs (exception process) |
 | Deploy to host | main/tag | Backup + migrations + compose + smoke tests |
 | Deploy prod | Tag + approval | Same + rollback plan |

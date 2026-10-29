@@ -186,9 +186,11 @@ verify to reduce timing differences. Locked-out requests skip hashing (documente
 
 ## 9. Verification plan
 
-- **Automated:** IDOR suite per endpoint, auth matrix tests, concurrency tests for reservations,
-  upload tampering tests, contract tests, secret scanning, SAST, dependency/image scanning, and a
-  ZAP baseline against a local/staging-like deployment.
+- **Automated (landed in S12/M7, CI-gated):** IDOR/auth matrix (`AuthorizationMatrixTests`), upload
+  tampering (`UploadTamperingTests` + `ContentDispositionTests`), log-redaction guard
+  (`LogRedactionTests` + `check-security-static.sh`), secret scanning (gitleaks), dependency/image
+  scanning (Trivy) + SAST, a ZAP baseline script, and k6 load/soak scenarios with a CI smoke gate —
+  see [security-scanning.md](../07-quality/security-scanning.md).
 - **Manual:** threat-model review per milestone; key-flow code review; AWS S3 access-key review; pen test
   before public launch (scope: auth, links, IDOR, upload abuse, key brute force).
 - **Operational:** daily review of denied-download spikes and key lockouts; quarterly access

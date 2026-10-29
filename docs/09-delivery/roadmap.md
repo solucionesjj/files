@@ -1,6 +1,6 @@
 # Roadmap and Delivery Plan
 
-**Status date:** 2026-10-29 · **Phase:** Implementation started — M6 (S1–S11) delivered.
+**Status date:** 2026-10-29 · **Phase:** Implementation — M7 hardening (S12 delivered; S13/S14 remain).
 Progress is updated at the end of every work session (see [AGENTS.md](../../AGENTS.md)).
 
 ## 1. Milestones
@@ -61,7 +61,7 @@ S6. S10 depends on S5 and S9. S11 depends on S10.
 | M4 | ✅ | ✅ | S8 done: public links and downloads — create/list/revoke/stats (owner-scoped), admin TTL (15 d), 8-char key shown once (Argon2id + versioned pepper), anonymous metadata + key redemption, 120 s single-use grants, atomic `max_downloads` reservation (concurrency), abuse controls (progressive delay/lockout/soft-lock + alert), completion-only counting, portal link management UI + `/d/{token}` landing page, Playwright E2E + axe-core. Private links/Graph deferred (ADR-0014). |
 | M5 | ✅ | ✅ | S9 done: integration file endpoints (`GET /v1/integrations/files`, `GET/DELETE /v1/integrations/files/{fileId}`, `GET .../availability`, `GET .../content`) on top of the API-key auth + chunk-upload machinery; ownership OR active `integration_file_grants` (foreign → 404, grants read-only); `Idempotency-Key` (24 h, replay / `idempotency_key_reuse` 422 / `idempotency_in_progress` 409); per-integration quotas (max file size, concurrent sessions, daily bytes via `daily_usage` → 429 `quota_exceeded`); single-range downloads (`Range` 206/416) counted only on completion (source/actor = integration); §15 flow + contract/unit/integration tests. |
 | M6 | ✅ | ✅ | S10 done: retention policy versioning (publish + history), legal hold (place/release, blocks expiry + delete), admin retention override, bulk retention migrations, notification policy + email-template versioning, notification scheduling/sending (SMTP via MailKit, dedupe/supersede/retry/attempt states), and the expiration job (skip legal hold). S11 done: physical S3 deletion job (idempotent, retry/backoff, legal-hold skip), tombstones + 60-month retention purge, DB↔S3 reconciliation (missing-object quarantine + orphan move), and lifecycle metrics/alerts (`files_expired_total`, `files_deletion_failures_total`, `reconcile_*`, `job_last_success` gauge). |
-| M7 | ✅ | ⬜ | SLOs, runbooks, cost model, threat model ready. |
+| M7 | ✅ | 🟡 | S12 done: authorization/IDOR matrix (`AuthorizationMatrixTests`), upload tampering (`UploadTamperingTests` + `ContentDispositionTests`), secret/log-leakage guard (`LogRedactionTests` + `check-security-static.sh`), gitleaks + Trivy + SAST wired into CI and `make` targets (see [security scanning](../07-quality/security-scanning.md)), ZAP baseline script + CSP, and k6 load/soak scenarios with a CI smoke gate. S13 (ops readiness) and S14 (launch) remain. |
 
 Legend: ✅ complete · 🟡 in progress · ⬜ not started.
 
@@ -103,4 +103,5 @@ Legend: ✅ complete · 🟡 in progress · ⬜ not started.
 1. Read `AGENTS.md`, this roadmap, and the [session log](session-log.md).
 2. ✅ **S10 (done):** retention, legal hold, and notifications — policy versioning (30/365 + note), legal hold, admin retention override, bulk retention migrations, notification policy + email-template versioning, notification scheduler/sender (SMTP via MailKit, dedupe/supersede/retry/attempt states), expiration job (skip legal hold), and contract/unit/integration tests (incl. Mailpit SMTP sink).
 3. ✅ **S11 (done):** expiration and deletion completion — physical S3 deletion job (idempotent, retry/backoff, legal-hold skip), tombstones + 60-month retention purge, DB↔S3 reconciliation (missing-object quarantine + orphan move), lifecycle metrics/alerts, and unit/integration tests (PostgreSQL 18 + LocalStack S3).
-4. **S12 (next):** test hardening and security (IDOR/auth matrices, upload tampering, ZAP, dependency/IaC scans, pen-test fixes, load/soak).
+4. **S12 (done):** test hardening and security — IDOR/auth matrix, upload tampering, secret/dependency/image scanning, ZAP baseline + CSP, and k6 load/soak (smoke in CI). See the [session log](session-log.md) and [security scanning](../07-quality/security-scanning.md).
+5. **S13 (next):** operations readiness — deploy to the existing host, backup/restore drill, dashboards/alerts, runbook rehearsal, cost review.

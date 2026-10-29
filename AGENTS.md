@@ -142,6 +142,7 @@ Local endpoints: API `http://localhost:8080`, Portal `http://localhost:4200`, Lo
 | Local stack, CI, scripts | Done |
 | Deployment assets | Done: host-bootstrap, Compose, Caddy, backup/restore/smoke |
 | Application code | **S11 done** — S7 portal management, S8 public links and downloads, S9 integration API (`GET /v1/integrations/files`, `GET/DELETE /v1/integrations/files/{fileId}`, `GET .../availability`, `GET .../content` streamed single-range 206/416 with completion-only counting + `Idempotency-Key` + per-integration quotas), S10 retention/legal-hold/notifications (admin retention policy + migrations, legal hold, admin retention override, notification policy + email templates, notification scheduler/sender via SMTP, expiration job), and S11 expiration & deletion completion: physical S3 deletion job (idempotent, retry/backoff, legal-hold skip), tombstones + 60-month retention purge (`V6`), DB↔S3 reconciliation (missing-object quarantine + orphan move), and lifecycle metrics/alerts (`files_expired_total`, `files_deletion_failures_total`, `notification_delivery_failures_total`, `reconcile_*`, `job_last_success` gauge) |
+| Security & test hardening | **S12 done** — table-driven `AuthorizationMatrixTests` (every route × 8 actors, 404-for-foreign vs 403-for-insufficient-role, admin/auditor never reach content); `UploadTamperingTests` + `ContentDispositionTests` (RFC 5987); `LogRedactionTests` + `scripts/check-security-static.sh` (TimeProvider/no-presigned/no-Graph-POP/no-innerHTML/log-redaction/audit-append-only); gitleaks (`.gitleaks.toml` allowlist = placeholder templates only) + Trivy + SAST wired into `ci.yml` and `make scan-secrets/scan-deps/scan-images`; ZAP baseline script + CSP in `deploy/Caddyfile`; k6 load/soak in `tests/perf/` with `make perf-smoke` CI gate; `SecuritySurfaceTests` (audit append-only, no admin content) |
 
 ## 7. Next steps (in order)
 
@@ -174,6 +175,11 @@ Local endpoints: API `http://localhost:8080`, Portal `http://localhost:4200`, Lo
     DB↔S3 reconciliation (missing-object quarantine + orphan move), and lifecycle metrics/alerts
     (`files_expired_total`, `files_deletion_failures_total`, `notification_delivery_failures_total`,
     `reconcile_*`, `job_last_success` gauge). Physical S3 deletion + reconciliation complete.
+12. ✅ **S12 / M7 (done):** test hardening and security — table-driven `AuthorizationMatrixTests`,
+    `UploadTamperingTests` + `ContentDispositionTests`, `LogRedactionTests` +
+    `check-security-static.sh`, gitleaks + Trivy + SAST in CI/Makefile, ZAP baseline script + CSP,
+    k6 load/soak with CI smoke gate, and `SecuritySurfaceTests` (audit append-only, no admin content).
+    Full details in [security-scanning.md](docs/07-quality/security-scanning.md).
 
 Do not jump to UI before the upload/download vertical slice works end to end; it validates auth,
 DB, S3, streaming, audit, and counts together.

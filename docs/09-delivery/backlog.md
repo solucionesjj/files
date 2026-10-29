@@ -70,10 +70,10 @@ IDs match [requirements.md](../01-product/requirements.md).
 | T-12 | Observability (OTel, dashboards, alerts) | M | M0/M7 | Collector, SigNoz, SLOs, alert routes. |
 | T-13 | Host bootstrap for the existing VM (no IaC) | S | M7 | `deploy/host-bootstrap.sh`: Docker/Compose, directories, swap. **Done (S13 prep):** infra pre-exists; no Terraform. |
 | T-14 | SSH/Compose deployment, Caddy, backups, smoke tests | M | M7 | Docker Compose prod, Caddy/TLS, `.env`, migrations, backup/restore. |
-| T-15 | Threat model implementation checklist | M | M7 | IDOR/auth matrices, upload tampering, ZAP. |
-| T-16 | Load/soak test scripts | M | M7 | k6: metadata, upload, download, abuse. |
+| T-15 | Threat model implementation checklist | M | M7 | IDOR/auth matrices, upload tampering, ZAP. **Done (S12):** `AuthorizationMatrixTests`, `UploadTamperingTests`, ZAP baseline + CSP. |
+| T-16 | Load/soak test scripts | M | M7 | k6: metadata, upload, download, abuse. **Done (S12):** `tests/perf/` + `make perf-smoke` CI gate. |
 | T-17 | Identity realignment (ADR-0014) | L | M1/M5 | `V3`; roles in `users.role`; API-key issue/verify/rotate/revoke + admin endpoints; remove Entra app roles and `BearerIntegration`; remove private-link/Graph scope. |
-| T-18 | API-key security review | S | M7 | Hashing, constant-time verify, rate limits, revocation, audit, no logging; threat-model update. |
+| T-18 | API-key security review | S | M7 | Hashing, constant-time verify, rate limits, revocation, audit, no logging; threat-model update. **Done (S12):** key lifecycle verified in `AuthorizationMatrixTests` + `AuthApiTests`; no key ever logged (gitleaks + `LogRedactionTests`). |
 | T-17 | DR drill and runbook rehearsal | M | M7 | Restore, RTO/RPO measurement. |
 | T-18 | Docs upkeep + ADR log | S | ongoing | Update on every decision change. |
 | T-20 | Staging disk monitoring/cleanup and 507 path | M | M2 | Reserve check, pwrite failures, stale session cleanup, alerts. |
