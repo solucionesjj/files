@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Files.Application.Abstractions;
+using Files.Application.Abstractions.Repositories;
 using Files.Application.Configuration;
 using Files.Application.Storage;
 using Files.Domain.Entities;
@@ -21,6 +22,7 @@ public sealed partial class UploadCommitter(
     IUnitOfWork unitOfWork,
     IAuditWriter auditWriter,
     IOutboxWriter outboxWriter,
+    IDailyUsageRepository dailyUsage,
     TimeProvider timeProvider,
     StorageOptions storage,
     ILogger<UploadCommitter> logger) : IUploadCommitter
@@ -119,6 +121,14 @@ public sealed partial class UploadCommitter(
             session.S3UploadId = null;
             await WriteFileAuditAsync(file.Id, session, "file.upload.completed", ct).ConfigureAwait(false);
             await WriteOutboxAsync(file.Id, "file.upload.completed", ct).ConfigureAwait(false);
+
+            // Count integration upload bytes only once the object is verified and the file is
+            // available (FR-INT-010); human uploads are not part of the integration quota scope.
+            if (session.InitiatorType == UploadInitiatorType.Integration)
+            {
+                await dailyUsage.AddUploadedAsync(session.InitiatorId, file.SizeBytes, DateOnly.FromDateTime(now.Date), ct).ConfigureAwait(false);
+            }
+
             await unitOfWork.SaveChangesAsync(ct).ConfigureAwait(false);
             await unitOfWork.CommitAsync(ct).ConfigureAwait(false);
         }

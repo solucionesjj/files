@@ -6,6 +6,52 @@ entry.
 
 ---
 
+## 2026-10-29 — S9/M5 implemented: integration API (machine-to-machine)
+
+**Delivered (code + tests green: 229 unit + 91 integration + 3 contract)**
+
+- **Contract-first (OpenAPI):** added `IntegrationFile`/`IntegrationFileList` schemas (no storage
+  keys/buckets/URLs, no portal/admin fields), a `status` filter on `listIntegrationFiles`, the
+  `Idempotency-Key` parameter on `completeIntegrationUpload`/`deleteIntegrationFile`, and the
+  `416` response + `Content-Range` header on `downloadIntegrationFile`. Redocly stays green.
+- **Endpoints (`IntegrationFilesEndpoints`, on top of the S3b/S5 API-key auth + chunk upload):**
+  `GET /v1/integrations/files` (owner-scoped, newest-first keyset cursor + `status` filter),
+  `GET /v1/integrations/files/{fileId}` (owned **or** active `integration_file_grants`; foreign →
+  404 `file_not_found`), `DELETE` (owner-only, logical `pending_deletion`, idempotent, legal-hold
+  409, audited + outbox), `GET .../availability` (200 `available`/`unavailable`, no content), and
+  `GET .../content` (streamed by the API, single `Range` 206/416, `Accept-Ranges`/`Content-Range`,
+  `no-store`/`nosniff`, completion-only counting + `download_events` source/actor = integration;
+  no presigned URLs). New `IntegrationReadPolicy` (`file.read`) and `IntegrationDeletePolicy`
+  (`file.delete`) scopes.
+- **Idempotency (FR-INT-007):** `IdempotencyMiddleware` (runs **after** authorization so the API-key
+  scheme has authenticated) + Dapper `IIdempotencyRepository` over `idempotency_records`; scoped per
+  integration, 24 h, request-hash over method+path+body. Same key+body replays the stored response
+  (status/body/headers); different body → 422 `idempotency_key_reuse`; in-flight → 409
+  `idempotency_in_progress`; 5xx responses are abandoned so a retry re-runs (e.g. retryable
+  `upload_commit_failed`).
+- **Quotas (FR-INT-010):** `IntegrationQuotaService` reads `max_file_size_bytes`,
+  `max_upload_sessions_per_integration`, `daily_upload_quota_bytes`, `daily_download_quota_bytes`
+  from `platform_settings` (fallback to `StorageOptions`/defaults), and enforces max file size
+  (413 `file_too_large`), concurrent open sessions (429 `quota_exceeded`), and daily upload/download
+  bytes (429 `quota_exceeded`); `daily_usage` is incremented only after the upload is committed/
+  verified (in `UploadCommitter.FinalizeAsync`) or the download stream completes.
+- **Data model:** mapped `integration_file_grants` as `IntegrationFileGrant` (EF) with an
+  `IsActive(now)` predicate; `idempotency_records`/`daily_usage` stay Dapper-only.
+- **Tests:** unit `IdempotencyKeysTests`, `IntegrationQuotaTests`, `HttpRangeTests`,
+  `IntegrationFileAccessTests`; integration `IntegrationApiTests` (upload→list→get→availability→
+  content→delete, foreign-404 + grant-read-only, idempotent create/complete/delete, Range 206/416,
+  completion-only counting + `daily_usage`, concurrent-session and daily-byte quotas); contract
+  `ContractSurfaceTests` guards the integration surface.
+
+**Decision:** `max_file_size_bytes` surfaces as **413 `file_too_large`** (a single-file validation,
+per the existing contract/error catalog), while accumulated usage (sessions + daily bytes) surfaces
+as **429 `quota_exceeded`**. Availability returns `200` with `state` for accessible files; the
+**content** endpoint returns 404 `file_unavailable` for accessible-but-not-downloadable files.
+
+**Next:** S10/M6 — retention, legal hold, and notifications.
+
+---
+
 ## 2026-10-28 — S8/M4 implemented: public links and downloads
 
 **Delivered (code + tests green: backend 13 new integration + 19 new unit, Angular build green, Playwright links spec)**

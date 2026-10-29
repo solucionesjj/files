@@ -2,6 +2,7 @@ using Files.Application.Abstractions;
 using Files.Application.Abstractions.Repositories;
 using Files.Application.Configuration;
 using Files.Application.Files;
+using Files.Application.Integrations;
 using Files.Application.Storage;
 using Files.Application.Upload;
 using Files.Infrastructure.Persistence.Repositories;
@@ -57,6 +58,10 @@ public static class StorageServiceCollectionExtensions
 
         // S8 public links and downloads (ADR-0005).
         services.AddScoped<IPublicLinkService, PublicLinkService>();
+
+        // S9 integration API (FR-INT): file access + idempotency + quotas.
+        services.AddScoped<IIntegrationFileService, IntegrationFileService>();
+        services.AddScoped<IIntegrationQuotaService, IntegrationQuotaService>();
 
         return services;
     }

@@ -10,6 +10,9 @@ public interface IPlatformSettingsRepository
     /// <summary>Returns the setting as an integer, or <c>null</c> when absent or malformed.</summary>
     Task<int?> GetIntAsync(string key, CancellationToken ct = default);
 
+    /// <summary>Returns the setting as a 64-bit integer, or <c>null</c> when absent or malformed.</summary>
+    Task<long?> GetLongAsync(string key, CancellationToken ct = default);
+
     /// <summary>Returns the setting as a boolean, or <c>null</c> when absent or malformed.</summary>
     Task<bool?> GetBoolAsync(string key, CancellationToken ct = default);
 }

@@ -19,6 +19,14 @@ public sealed class PlatformSettingsRepository(FilesDbContext db) : IPlatformSet
             : value;
     }
 
+    public async Task<long?> GetLongAsync(string key, CancellationToken ct = default)
+    {
+        var raw = await ReadAsync(key, ct);
+        return raw is null || !long.TryParse(Unquote(raw), NumberStyles.Integer, CultureInfo.InvariantCulture, out var value)
+            ? null
+            : value;
+    }
+
     public async Task<bool?> GetBoolAsync(string key, CancellationToken ct = default)
     {
         var raw = await ReadAsync(key, ct);

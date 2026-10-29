@@ -40,6 +40,8 @@ public sealed class FilesDbContext : DbContext
 
     public DbSet<FileTag> FileTags => Set<FileTag>();
 
+    public DbSet<IntegrationFileGrant> IntegrationFileGrants => Set<IntegrationFileGrant>();
+
     public DbSet<RetentionPolicy> RetentionPolicies => Set<RetentionPolicy>();
 
     public DbSet<NotificationPolicy> NotificationPolicies => Set<NotificationPolicy>();

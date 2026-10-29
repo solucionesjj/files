@@ -147,5 +147,25 @@ public sealed class S3ObjectStore : IObjectStore, IDisposable
         }
     }
 
+    public async Task<Stream> GetObjectAsync(string key, long offset, long length, CancellationToken ct = default)
+    {
+        var request = new GetObjectRequest
+        {
+            BucketName = _bucket,
+            Key = key,
+            ByteRange = new ByteRange(offset, offset + length - 1),
+        };
+
+        try
+        {
+            var response = await _client.GetObjectAsync(request, ct).ConfigureAwait(false);
+            return response.ResponseStream;
+        }
+        catch (AmazonS3Exception ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            throw new ObjectMissingException();
+        }
+    }
+
     public void Dispose() => _client.Dispose();
 }

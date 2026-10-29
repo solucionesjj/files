@@ -56,4 +56,7 @@ public interface IObjectStore
 
     /// <summary>Opens the object's content stream (the caller disposes it).</summary>
     Task<Stream> GetObjectAsync(string key, CancellationToken ct = default);
+
+    /// <summary>Opens a byte range of the object's content stream (single range, the caller disposes it).</summary>
+    Task<Stream> GetObjectAsync(string key, long offset, long length, CancellationToken ct = default);
 }

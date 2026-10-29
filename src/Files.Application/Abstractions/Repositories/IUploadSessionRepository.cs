@@ -22,6 +22,9 @@ public interface IUploadSessionRepository
     /// <summary>Number of non-terminal, non-expired sessions (the per-host concurrency limit).</summary>
     Task<int> CountOpenAsync(DateTimeOffset now, CancellationToken ct = default);
 
+    /// <summary>Open (non-terminal, non-expired) sessions owned by one integration (FR-INT-010).</summary>
+    Task<int> CountOpenByIntegrationAsync(Guid integrationId, DateTimeOffset now, CancellationToken ct = default);
+
     /// <summary>Open sessions whose upload TTL has passed (for the expiry cleanup job).</summary>
     Task<IReadOnlyList<UploadSession>> ListExpiredOpenAsync(DateTimeOffset now, int limit, CancellationToken ct = default);
 

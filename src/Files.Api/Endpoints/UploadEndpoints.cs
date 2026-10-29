@@ -1,4 +1,5 @@
 using Files.Api.Authentication;
+using Files.Api.Middleware;
 using Files.Application.Abstractions;
 using Files.Application.Identity;
 using Files.Application.Upload;
@@ -23,13 +24,15 @@ public static class UploadEndpoints
             .RequireAuthorization(AuthenticationSetup.UserPolicy);
 
         endpoints.MapPost("/v1/integrations/upload-sessions", CreateIntegrationAsync)
-            .RequireAuthorization(AuthenticationSetup.IntegrationWritePolicy);
+            .RequireAuthorization(AuthenticationSetup.IntegrationWritePolicy)
+            .WithMetadata(new IdempotentAttribute());
         endpoints.MapPut("/v1/integrations/upload-sessions/{sessionId:guid}/chunks/{chunkNumber:int}", UploadIntegrationChunkAsync)
             .RequireAuthorization(AuthenticationSetup.IntegrationWritePolicy);
         endpoints.MapGet("/v1/integrations/upload-sessions/{sessionId:guid}", GetIntegrationStatusAsync)
             .RequireAuthorization(AuthenticationSetup.IntegrationPolicy);
         endpoints.MapPost("/v1/integrations/upload-sessions/{sessionId:guid}/complete", CompleteIntegrationAsync)
-            .RequireAuthorization(AuthenticationSetup.IntegrationWritePolicy);
+            .RequireAuthorization(AuthenticationSetup.IntegrationWritePolicy)
+            .WithMetadata(new IdempotentAttribute());
         endpoints.MapDelete("/v1/integrations/upload-sessions/{sessionId:guid}", AbortIntegrationAsync)
             .RequireAuthorization(AuthenticationSetup.IntegrationWritePolicy);
     }

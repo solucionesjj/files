@@ -420,6 +420,9 @@ public class UploadApiTests(PostgresDatabaseFixture postgres, LocalStackS3Fixtur
 
         public Task<Stream> GetObjectAsync(string key, CancellationToken ct = default) =>
             throw new NotImplementedException();
+
+        public Task<Stream> GetObjectAsync(string key, long offset, long length, CancellationToken ct = default) =>
+            throw new NotImplementedException();
     }
 
     private static HttpClient PortalClient(WebApplicationFactory<Program> factory, out string token)

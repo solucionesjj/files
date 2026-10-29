@@ -35,6 +35,13 @@ public sealed class UploadSessionRepository(FilesDbContext db) : IUploadSessionR
         db.UploadSessions.CountAsync(
             s => OpenStatuses.Contains(s.Status) && s.ExpiresAt > now, ct);
 
+    public Task<int> CountOpenByIntegrationAsync(Guid integrationId, DateTimeOffset now, CancellationToken ct = default) =>
+        db.UploadSessions.CountAsync(
+            s => s.InitiatorType == UploadInitiatorType.Integration
+                 && s.InitiatorId == integrationId
+                 && OpenStatuses.Contains(s.Status)
+                 && s.ExpiresAt > now, ct);
+
     public async Task<IReadOnlyList<UploadSession>> ListExpiredOpenAsync(DateTimeOffset now, int limit, CancellationToken ct = default) =>
         await db.UploadSessions.AsNoTracking()
             .Where(s => OpenStatuses.Contains(s.Status) && s.ExpiresAt <= now)

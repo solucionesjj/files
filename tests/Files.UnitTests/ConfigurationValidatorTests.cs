@@ -87,5 +87,6 @@ public class ConfigurationValidatorTests
         config["ConnectionStrings:FilesDb"].Returns("Host=localhost;Database=files;Username=files;Password=files");
         config["Storage:StagingPath"].Returns("/var/tmp/files-staging");
         config["Auth:LinkKeyPepper"].Returns("test-pepper");
-        return config;    }
+        return config;
+    }
 }

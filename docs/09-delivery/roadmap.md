@@ -1,6 +1,6 @@
 # Roadmap and Delivery Plan
 
-**Status date:** 2026-10-28 · **Phase:** Implementation started — M4 (S1–S8) delivered.
+**Status date:** 2026-10-29 · **Phase:** Implementation started — M5 (S1–S9) delivered.
 Progress is updated at the end of every work session (see [AGENTS.md](../../AGENTS.md)).
 
 ## 1. Milestones
@@ -59,7 +59,7 @@ S6. S10 depends on S5 and S9. S11 depends on S10.
 | M2 | ✅ | ✅ | S4 done: `IObjectStore` (S3/LocalStack), staging, chunk endpoints, retryable server-side commit (scanning disabled). S5 done: ClamAV scan-before-commit worker (`ClamAvScanner`, `ScanCommitService`, `UploadScanCommitJob`), quarantines infected files, retries scanner failures with backoff, and keeps the scanning-disabled path + cleanup green. |
 | M3 | ✅ | ✅ | S6 done: portal shell (MSAL sign-in + `/v1/me` roles), owner-scoped file list/search/filters/sort/cursor pagination, read-only detail, and chunked upload orchestration. S7 done: rename/tags/retention, logical delete, owner download grant (256-bit single-use 120 s API stream, counted on completion), If-Match 412 / legal-hold 409, E2E Playwright + axe accessibility. S8 (links) remains. |
 | M4 | ✅ | ✅ | S8 done: public links and downloads — create/list/revoke/stats (owner-scoped), admin TTL (15 d), 8-char key shown once (Argon2id + versioned pepper), anonymous metadata + key redemption, 120 s single-use grants, atomic `max_downloads` reservation (concurrency), abuse controls (progressive delay/lockout/soft-lock + alert), completion-only counting, portal link management UI + `/d/{token}` landing page, Playwright E2E + axe-core. Private links/Graph deferred (ADR-0014). |
-| M5 | ✅ | ⬜ | API-key flow designed (ADR-0014); OpenAPI contract update pending S3b/S9. |
+| M5 | ✅ | ✅ | S9 done: integration file endpoints (`GET /v1/integrations/files`, `GET/DELETE /v1/integrations/files/{fileId}`, `GET .../availability`, `GET .../content`) on top of the API-key auth + chunk-upload machinery; ownership OR active `integration_file_grants` (foreign → 404, grants read-only); `Idempotency-Key` (24 h, replay / `idempotency_key_reuse` 422 / `idempotency_in_progress` 409); per-integration quotas (max file size, concurrent sessions, daily bytes via `daily_usage` → 429 `quota_exceeded`); single-range downloads (`Range` 206/416) counted only on completion (source/actor = integration); §15 flow + contract/unit/integration tests. |
 | M6 | ✅ | ⬜ | Background jobs and notifications designed. |
 | M7 | ✅ | ⬜ | SLOs, runbooks, cost model, threat model ready. |
 
@@ -98,9 +98,8 @@ Legend: ✅ complete · 🟡 in progress · ⬜ not started.
 | Key brute force incident | Security | Throttling + monitoring designed; rehearse runbook. |
 | Backup erasure expectations | Legal | ADR-0008 wording; legal sign-off. |
 
-## 6. Next session (S8) checklist
+## 6. Next session (S9) checklist
 
 1. Read `AGENTS.md`, this roadmap, and the [session log](session-log.md).
-2. **S6 (done):** portal shell and files UX — Angular app + MSAL, `GET /v1/portal/files` and `GET /v1/portal/files/{fileId}`, file list/search/filters/sort/cursor pagination, read-only detail, and chunked upload orchestration; `make validate` green.
-3. **S7 (done):** portal management — rename/tags/retention, delete, owner download grant, E2E Playwright + accessibility, error UX.
-4. ✅ **S8 (done):** public links and downloads — link create/list/revoke, admin TTL (15 d), key shown once, grant redemption with the 8-char key, reservation concurrency, abuse controls, stats.
+2. ✅ **S9 (done):** integration API — API-key auth + chunk upload already existed (S3b/S5); added list/get/delete/availability/content endpoints, ownership + explicit grants (404 for foreign), `Idempotency-Key` (create/complete/delete), per-integration quotas (max file size, concurrent sessions, daily bytes), single-range downloads counted on completion, §15 flow, and contract/unit/integration tests; `make validate` green.
+3. **S10 (next):** retention, legal hold, and notifications — policy versioning (30/365 + note), legal hold, scheduler, templates/renderer, M365 SMTP sender, retries, admin endpoints/UI.

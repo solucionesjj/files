@@ -2,6 +2,7 @@ using System.Text.Json;
 using Files.Application.Abstractions;
 using Files.Application.Abstractions.Repositories;
 using Files.Application.Configuration;
+using Files.Application.Integrations;
 using Files.Application.Storage;
 using Files.Domain.Entities;
 using Files.Domain.Enums;
@@ -36,6 +37,7 @@ public sealed partial class UploadService(
     StorageOptions storage,
     S3Options s3,
     IConfiguration configuration,
+    IIntegrationQuotaService integrationQuota,
     ILogger<UploadService> logger) : IUploadService
 {
     private const string FileAggregateType = "file";
@@ -74,6 +76,13 @@ public sealed partial class UploadService(
         if (validate is not null)
         {
             return validate;
+        }
+
+        // Per-integration quotas (FR-INT-010): max file size, concurrent sessions, daily upload bytes.
+        var quotaError = await integrationQuota.CheckCreateSessionAsync(ownerIntegrationId, command.SizeBytes, ct);
+        if (quotaError is not null)
+        {
+            return ServiceResult<UploadSessionCreated>.Fail(quotaError);
         }
 
         return await CreateAsync(

@@ -32,6 +32,9 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<IIntegrationRepository, IntegrationRepository>();
         services.AddScoped<IIntegrationApiKeyRepository, IntegrationApiKeyRepository>();
         services.AddScoped<IFileRepository, FileRepository>();
+        services.AddScoped<IIntegrationFileRepository, IntegrationFileRepository>();
+        services.AddScoped<IIdempotencyRepository, IdempotencyRepository>();
+        services.AddScoped<IDailyUsageRepository, DailyUsageRepository>();
         services.AddScoped<ITagRepository, TagRepository>();
         services.AddScoped<IDownloadLinkRepository, DownloadLinkRepository>();
         services.AddScoped<IDownloadGrantRepository, DownloadGrantRepository>();

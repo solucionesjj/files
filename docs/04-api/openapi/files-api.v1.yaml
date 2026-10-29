@@ -789,6 +789,7 @@ paths:
         - apiKey: []
       parameters:
         - $ref: '#/components/parameters/SessionId'
+        - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
         required: false
         content:
@@ -823,15 +824,26 @@ paths:
       security:
         - apiKey: []
       parameters:
+        - name: status
+          in: query
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [pending_upload, processing, available, quarantined, expired, pending_deletion, deleted, upload_failed]
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
       responses:
         '200':
-          description: Owned files.
+          description: Owned files (newest first). Integration-owned files only; never portal/human files.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/FileList'
+                $ref: '#/components/schemas/IntegrationFileList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /integrations/files/{fileId}:
@@ -846,10 +858,13 @@ paths:
       responses:
         '200':
           description: File metadata.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/FileMetadata'
+                $ref: '#/components/schemas/IntegrationFile'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -857,11 +872,12 @@ paths:
     delete:
       tags: [Integrations]
       operationId: deleteIntegrationFile
-      summary: Delete an owned file
+      summary: Delete an owned file (idempotent, logical)
       security:
         - apiKey: []
       parameters:
         - $ref: '#/components/parameters/FileId'
+        - $ref: '#/components/parameters/IdempotencyKey'
       responses:
         '204':
           description: File no longer accessible; physical deletion queued.
@@ -873,6 +889,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
 
   /integrations/files/{fileId}/availability:
     get:
@@ -925,6 +943,11 @@ paths:
                 format: binary
         '206':
           description: Partial content.
+          headers:
+            Content-Range:
+              schema:
+                type: string
+              description: e.g. `bytes 0-1048575/2097152`.
           content:
             application/octet-stream:
               schema:
@@ -934,6 +957,12 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '416':
+          description: Range not satisfiable (single range only).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         '429':
           $ref: '#/components/responses/TooManyRequests'
 
@@ -2258,6 +2287,71 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/FileMetadata'
+        nextCursor:
+          type: [string, 'null']
+        hasMore:
+          type: boolean
+
+    IntegrationFile:
+      type: object
+      description: |
+        Machine-facing file metadata. Unlike `FileMetadata`, it omits portal/admin fields
+        (tags, legal hold, owner display name) and never exposes a storage key, bucket, or URL.
+      required: [id, fileName, sizeBytes, contentType, status, retention, scanStatus, createdAt, updatedAt, version, etag]
+      properties:
+        id:
+          type: string
+          format: uuid
+        fileName:
+          type: string
+          maxLength: 512
+        sizeBytes:
+          type: integer
+          format: int64
+        contentType:
+          type: string
+        checksumSha256:
+          type: [string, 'null']
+          pattern: '^[a-fA-F0-9]{64}$'
+        status:
+          type: string
+          enum: [pending_upload, processing, available, quarantined, expired, pending_deletion, deleted, upload_failed]
+        retention:
+          $ref: '#/components/schemas/FileRetention'
+        scanStatus:
+          type: string
+          enum: [not_scanned, pending, clean, infected, failed]
+        successfulDownloads:
+          type: integer
+          format: int64
+        lastDownloadAt:
+          type: [string, 'null']
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        availableAt:
+          type: [string, 'null']
+          format: date-time
+        deletedAt:
+          type: [string, 'null']
+          format: date-time
+        version:
+          type: integer
+        etag:
+          type: string
+
+    IntegrationFileList:
+      type: object
+      required: [items, hasMore]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/IntegrationFile'
         nextCursor:
           type: [string, 'null']
         hasMore:

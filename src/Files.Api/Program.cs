@@ -89,6 +89,9 @@ try
     app.UseAuthentication();
     app.UseMiddleware<CurrentActorMiddleware>();
     app.UseAuthorization();
+    // Idempotency must run after authorization: the API-key scheme authenticates during
+    // authorization, so resolving the integration before it would cache an unauthenticated actor.
+    app.UseMiddleware<IdempotencyMiddleware>();
 
     app.UseSerilogRequestLogging(options =>
     {
@@ -106,6 +109,7 @@ try
     app.MapAdminUserEndpoints();
     app.MapIntegrationEndpoints();
     app.MapUploadEndpoints();
+    app.MapIntegrationFilesEndpoints();
     app.MapPortalFilesEndpoints();
     app.MapDownloadGrantEndpoints();
     app.MapPublicLinkEndpoints();
