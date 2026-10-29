@@ -220,7 +220,7 @@ public static partial class IntegrationFilesEndpoints
         }
 
         context.Response.Headers["Accept-Ranges"] = "bytes";
-        context.Response.Headers["Content-Disposition"] = ContentDisposition(file.OriginalFilename);
+        context.Response.Headers["Content-Disposition"] = ContentDisposition.Build(file.OriginalFilename);
         context.Response.Headers["X-Content-Type-Options"] = "nosniff";
         context.Response.Headers["Cache-Control"] = "no-store";
         context.Response.Headers["Referrer-Policy"] = "no-referrer";
@@ -365,15 +365,6 @@ public static partial class IntegrationFilesEndpoints
         ScanStatus.Failed => "failed",
         _ => status.ToString().ToLowerInvariant(),
     };
-
-    /// <summary>RFC 5987 <c>filename*</c> with a safe ASCII fallback (ADR-0003 §8).</summary>
-    private static string ContentDisposition(string fileName)
-    {
-        var ascii = new string(fileName
-            .Select(c => c >= 32 && c < 127 && c != '"' && c != '\\' ? c : '_')
-            .ToArray());
-        return $"attachment; filename=\"{ascii}\"; filename*=UTF-8''{Uri.EscapeDataString(fileName)}";
-    }
 
     private static IResult ToProblem(HttpContext context, ServiceError error) =>
         Problems.Response(context, error.Status, error.Code, error.Title, error.Detail);
