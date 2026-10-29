@@ -69,4 +69,24 @@ public class ContractSurfaceTests
         Assert.Contains("AdminRetentionOverrideRequest:", Contract);
         Assert.Contains("LegalHoldRequest:", Contract);
     }
+
+    [Fact]
+    public void Admin_audit_and_usage_endpoints_are_declared()
+    {
+        Assert.Contains("operationId: listAuditEvents", Contract);
+        Assert.Contains("operationId: listDownloadEvents", Contract);
+        Assert.Contains("operationId: getUsage", Contract);
+        Assert.Contains("operationId: getPlatformSettings", Contract);
+    }
+
+    [Fact]
+    public void Admin_audit_and_usage_schemas_are_declared()
+    {
+        Assert.Contains("AuditEvent:", Contract);
+        Assert.Contains("AuditEventList:", Contract);
+        Assert.Contains("DownloadEvent:", Contract);
+        Assert.Contains("DownloadEventList:", Contract);
+        Assert.Contains("UsageStats:", Contract);
+        Assert.Contains("PlatformSettings:", Contract);
+    }
 }

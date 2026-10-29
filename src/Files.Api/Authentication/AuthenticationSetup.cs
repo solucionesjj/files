@@ -24,6 +24,7 @@ public static class AuthenticationSetup
     public const string UserPolicy = "User";
     public const string AdminPolicy = "Admin";
     public const string AuditorPolicy = "Auditor";
+    public const string AdminOrAuditorPolicy = "AdminOrAuditor";
     public const string IntegrationPolicy = "Integration";
 
     /// <summary>Machine caller must hold the <c>file.write</c> scope (upload operations).</summary>
@@ -73,6 +74,10 @@ public static class AuthenticationSetup
                 .AddAuthenticationSchemes(BearerUser)
                 .AddRequirements(new PortalRoleRequirement(PortalRoles.Auditor)));
 
+            options.AddPolicy(AdminOrAuditorPolicy, policy => policy
+                .AddAuthenticationSchemes(BearerUser)
+                .AddRequirements(new AdminOrAuditorRequirement()));
+
             options.AddPolicy(IntegrationPolicy, policy => policy
                 .AddAuthenticationSchemes(ApiKeyAuthenticationHandler.SchemeName)
                 .AddRequirements(new IntegrationRequirement()));
@@ -91,6 +96,7 @@ public static class AuthenticationSetup
         });
 
         services.AddScoped<IAuthorizationHandler, PortalRoleRequirementHandler>();
+        services.AddScoped<IAuthorizationHandler, AdminOrAuditorRequirementHandler>();
         services.AddSingleton<IAuthorizationHandler, IntegrationRequirementHandler>();
 
         return services;

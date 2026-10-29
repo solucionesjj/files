@@ -119,7 +119,7 @@ Likelihood/impact: L/M/H. Status is the v1 control; verification is how we prove
 | ID | Threat | L/I | Mitigation | Verification |
 |---|---|---|---|---|
 | E-01 | User reaches admin endpoints | L/H | Entra app-role policy on every admin route, server-side checks, tests. | Authorization matrix tests. |
-| E-02 | Integration accesses another integration's files | M/H | Explicit grants only, read-only; 404 otherwise; audit. | Cross-integration test suite. |
+| E-02 | Integration accesses another integration's files | M/H | Owner-scoped only in v1; the `integration_file_grants` table is read-only-checked but no admin endpoint creates grants yet (S13/M7 deferral), so cross-integration access is 404; audit denied events. | Cross-integration test suite. |
 | E-03 | Container or host compromise grants bucket-wide access | L/H | Static S3 access key scoped by the existing bucket policy (restricts access to the host); key lives only in `/opt/files/.env`; containers run non-root with read-only root FS where possible; no Docker socket mounted into app containers. | Access-key review; container hardening checks. |
 | E-05 | SSH compromise of the public host | M/H | Port 22 restricted by the externally managed firewall; key-only auth; unattended upgrades; no password login. | SSH config review; external port scan. |
 | E-06 | Host patching/root access bypasses application controls | M/H | OS patching, least-privilege deploy user, no application secrets in shell history, Docker group restricted; root access is break-glass. | Access review; audit of sudo. |

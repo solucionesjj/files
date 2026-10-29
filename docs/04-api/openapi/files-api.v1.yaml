@@ -1199,102 +1199,6 @@ paths:
         '422':
           $ref: '#/components/responses/UnprocessableEntity'
 
-  /admin/files/{fileId}/deletion:
-    post:
-      tags: [Admin]
-      operationId: requestAdminFileDeletion
-      summary: Request deletion of any file (audited, reason required)
-      parameters:
-        - $ref: '#/components/parameters/FileId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AdminDeleteFileRequest'
-      responses:
-        '202':
-          description: Deletion queued; downloads already blocked.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DeletionAccepted'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '422':
-          $ref: '#/components/responses/UnprocessableEntity'
-
-  /admin/files/{fileId}/grants:
-    get:
-      tags: [Admin]
-      operationId: listFileGrants
-      summary: List integration grants for a file
-      parameters:
-        - $ref: '#/components/parameters/FileId'
-      responses:
-        '200':
-          description: Active and revoked grants.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/FileGrantList'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-    post:
-      tags: [Admin]
-      operationId: createFileGrant
-      summary: Grant read-only access to another integration
-      parameters:
-        - $ref: '#/components/parameters/FileId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateFileGrantRequest'
-      responses:
-        '201':
-          description: Grant created.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/FileGrant'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/UnprocessableEntity'
-
-  /admin/grants/{grantId}:
-    delete:
-      tags: [Admin]
-      operationId: revokeFileGrant
-      summary: Revoke an integration file grant
-      parameters:
-        - $ref: '#/components/parameters/GrantId'
-      responses:
-        '204':
-          description: Revoked.
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
   /admin/retention-policy:
     get:
       tags: [Admin]
@@ -1599,31 +1503,6 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
-    patch:
-      tags: [Admin]
-      operationId: updatePlatformSettings
-      summary: Update platform settings (audited)
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UpdatePlatformSettingsRequest'
-      responses:
-        '200':
-          description: Updated settings.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PlatformSettings'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '422':
-          $ref: '#/components/responses/UnprocessableEntity'
 
   /integrations/me:
     get:
@@ -1865,13 +1744,6 @@ components:
       description: Base64url-encoded 256-bit download grant token.
     IntegrationId:
       name: integrationId
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
-    GrantId:
-      name: grantId
       in: path
       required: true
       schema:
@@ -2826,49 +2698,6 @@ components:
             type: string
             enum: [file.write, file.read, file.delete]
 
-    FileGrant:
-      type: object
-      required: [id, fileId, integrationId, createdAt]
-      properties:
-        id:
-          type: string
-          format: uuid
-        fileId:
-          type: string
-          format: uuid
-        integrationId:
-          type: string
-          format: uuid
-        expiresAt:
-          type: [string, 'null']
-          format: date-time
-        revokedAt:
-          type: [string, 'null']
-          format: date-time
-        createdAt:
-          type: string
-          format: date-time
-
-    FileGrantList:
-      type: object
-      required: [items]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: '#/components/schemas/FileGrant'
-
-    CreateFileGrantRequest:
-      type: object
-      required: [integrationId]
-      properties:
-        integrationId:
-          type: string
-          format: uuid
-        expiresAt:
-          type: [string, 'null']
-          format: date-time
-
     Availability:
       type: object
       required: [fileId, state, checkedAt]
@@ -2970,15 +2799,6 @@ components:
           type: [integer, 'null']
           minimum: 1
           maximum: 365
-        reason:
-          type: string
-          minLength: 10
-          maxLength: 500
-
-    AdminDeleteFileRequest:
-      type: object
-      required: [reason]
-      properties:
         reason:
           type: string
           minLength: 10
@@ -3308,18 +3128,6 @@ components:
           additionalProperties: true
           description: Key/value settings (booleans, numbers, or strings).
 
-    UpdatePlatformSettingsRequest:
-      type: object
-      required: [settings, reason]
-      properties:
-        settings:
-          type: object
-          additionalProperties: true
-        reason:
-          type: string
-          minLength: 10
-          maxLength: 500
-
     LegalHoldRequest:
       type: object
       required: [enabled, reason]
@@ -3334,20 +3142,6 @@ components:
           type: [string, 'null']
           format: date-time
           description: Optional review date (reminder only).
-
-    DeletionAccepted:
-      type: object
-      required: [fileId, status]
-      properties:
-        fileId:
-          type: string
-          format: uuid
-        status:
-          type: string
-          enum: [pending_deletion]
-        requestedAt:
-          type: string
-          format: date-time
 
     User:
       type: object

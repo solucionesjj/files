@@ -15,4 +15,10 @@ public interface IPlatformSettingsRepository
 
     /// <summary>Returns the setting as a boolean, or <c>null</c> when absent or malformed.</summary>
     Task<bool?> GetBoolAsync(string key, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns every setting as an ordered <c>key → raw JSON text</c> map (the admin read-only
+    /// settings endpoint, FR-ADM-005). Values are the raw <c>jsonb</c> text, not typed.
+    /// </summary>
+    Task<IReadOnlyList<KeyValuePair<string, string>>> GetAllAsync(CancellationToken ct = default);
 }

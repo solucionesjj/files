@@ -61,8 +61,12 @@ Rules:
 | Download content | `file.read` | Same. |
 | Delete file | `file.delete` | **Owner only**; grants are read-only. |
 
-- Grants are created by admins (`POST /v1/admin/files/{fileId}/grants`), can expire, and are
-  revocable.
+- Grants are reserved for v1.1: the `integration_file_grants` table and the read-time grant check are
+  in place (a grant, if present, authorizes read-only access), but **no admin endpoint creates or
+  revokes them yet** — the S13/M7 owner decision deferred `POST /v1/admin/files/{fileId}/grants`,
+  `GET /v1/admin/files/{fileId}/grants`, and `DELETE /v1/admin/grants/{grantId}` out of the contract
+  (see the [session log](../09-delivery/session-log.md)). Until then, integration file access is
+  owner-scoped only.
 - Disabled integrations, expired grants, and deleted/expired files fail closed.
 - Cross-integration attempts are audited as denied download events.
 - Foreign/unauthorized files return `404 file_not_found` (no existence oracle).

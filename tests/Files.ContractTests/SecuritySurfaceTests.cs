@@ -35,6 +35,24 @@ public class SecuritySurfaceTests
     }
 
     [Fact]
+    public void Admin_read_surface_is_declared_and_deferred_mutations_are_not()
+    {
+        // S13/M7: the read-only admin/auditor surface is implemented contract-first (FR-ADM-005/006/008).
+        Assert.Contains("operationId: listAuditEvents", Contract);
+        Assert.Contains("operationId: listDownloadEvents", Contract);
+        Assert.Contains("operationId: getUsage", Contract);
+        Assert.Contains("operationId: getPlatformSettings", Contract);
+
+        // The mutating admin operations were explicitly deferred (owner decision) and removed from
+        // the contract so it does not claim an unimplemented surface.
+        Assert.DoesNotContain("operationId: requestAdminFileDeletion", Contract);
+        Assert.DoesNotContain("operationId: createFileGrant", Contract);
+        Assert.DoesNotContain("operationId: revokeFileGrant", Contract);
+        Assert.DoesNotContain("operationId: listFileGrants", Contract);
+        Assert.DoesNotContain("operationId: updatePlatformSettings", Contract);
+    }
+
+    [Fact]
     public void No_admin_operation_returns_file_content()
     {
         // D-19: admins manage metadata/policy/legal hold but never read content. The contract must

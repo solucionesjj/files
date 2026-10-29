@@ -35,6 +35,19 @@ public sealed class PlatformSettingsRepository(FilesDbContext db) : IPlatformSet
             : value;
     }
 
+    public async Task<IReadOnlyList<KeyValuePair<string, string>>> GetAllAsync(CancellationToken ct = default)
+    {
+        var connection = db.Database.GetDbConnection();
+        if (connection.State != ConnectionState.Open)
+        {
+            await connection.OpenAsync(ct);
+        }
+
+        var rows = await connection.QueryAsync<SettingRow>(
+            new CommandDefinition("SELECT key, value::text AS value FROM platform_settings ORDER BY key", cancellationToken: ct));
+        return rows.Select(r => new KeyValuePair<string, string>(r.Key, r.Value)).ToList();
+    }
+
     private async Task<string?> ReadAsync(string key, CancellationToken ct)
     {
         var connection = db.Database.GetDbConnection();
@@ -54,4 +67,6 @@ public sealed class PlatformSettingsRepository(FilesDbContext db) : IPlatformSet
             ? trimmed[1..^1]
             : trimmed;
     }
+
+    private sealed record SettingRow(string Key, string Value);
 }

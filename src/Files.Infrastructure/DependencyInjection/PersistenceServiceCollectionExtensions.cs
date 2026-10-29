@@ -40,6 +40,9 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<IDownloadGrantRepository, DownloadGrantRepository>();
         services.AddScoped<IKeyAttemptRepository, KeyAttemptRepository>();
         services.AddScoped<IPlatformSettingsRepository, PlatformSettingsRepository>();
+        services.AddScoped<IAuditLogRepository, AuditLogRepository>();
+        services.AddScoped<IDownloadEventRepository, DownloadEventRepository>();
+        services.AddScoped<IUsageRepository, UsageRepository>();
         services.AddScoped<IRetentionPolicyRepository, RetentionPolicyRepository>();
         services.AddScoped<INotificationPolicyRepository, NotificationPolicyRepository>();
         services.AddScoped<IEmailTemplateRepository, EmailTemplateRepository>();

@@ -109,6 +109,7 @@ try
     app.MapAdminUserEndpoints();
     app.MapAdminRetentionEndpoints();
     app.MapAdminNotificationEndpoints();
+    app.MapAdminAuditEndpoints();
     app.MapIntegrationEndpoints();
     app.MapUploadEndpoints();
     app.MapIntegrationFilesEndpoints();
