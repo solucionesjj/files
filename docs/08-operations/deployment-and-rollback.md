@@ -26,18 +26,24 @@ flowchart LR
   smoke -->|ok| done[Release]
 ```
 
-Stages:
+Stages (all wrapped by [`deploy/deploy.sh`](../../deploy/deploy.sh), run as the `deploy` user on the
+host — `cd /opt/files/app && ./deploy/deploy.sh <tag>`):
 
 1. **PR:** format, build, unit, integration (Postgres 18 + LocalStack S3), contract, migration,
    static security checks.
 2. **Tag/main:** deploy job connects over SSH as the `deploy` user (key restricted in
    `~/.ssh/authorized_keys` to a deployment command if possible).
-3. **Backup:** run `deploy/backup.sh` and verify the dump exists in S3 before any migration.
+3. **Backup:** `deploy/deploy.sh` runs `deploy/backup.sh` and records the resulting S3 key in
+   `/opt/files/REVISION` before any migration.
 4. **Migrate:** `docker compose run --rm migrator` (Flyway) against the running PostgreSQL; fail
-   closed on checksum errors.
+   closed on checksum errors. Never run automatically on API/worker startup.
 5. **Build/pull and start:** `docker compose build` (or pull images), then `up -d` API, worker,
-   Caddy. Caddy reloads automatically.
-6. **Verify:** run `deploy/smoke.sh`; watch logs, health, error rate, and disk for 15 minutes.
+   Caddy. The SPA is built in a `node:22-alpine` container and rsynced to `/var/lib/files/portal`
+   (no host Node required). Caddy reloads automatically.
+6. **Verify:** `deploy/deploy.sh` runs `deploy/smoke.sh`; watch logs, health, error rate, and disk
+   for 15 minutes.
+
+Rollback is [`deploy/rollback.sh`](../../deploy/rollback.sh) (§5).
 
 Because there is one API container, a restart causes a brief 502/connection reset. Announce
 maintenance windows; Caddy keeps the SPA available while the API restarts.
@@ -52,7 +58,8 @@ maintenance windows; Caddy keeps the SPA available while the API restarts.
 5. `cd /opt/files/app && docker compose --env-file /opt/files/.env -f deploy/docker-compose.prod.yml up -d postgres`.
 6. Run migrations once: `docker compose --env-file /opt/files/.env -f deploy/docker-compose.prod.yml --profile tools run --rm migrator`.
 7. Build and start API/worker/Caddy (Compose also starts ClamAV; wait for its health and
-   signatures); copy the built SPA to `/var/lib/files/portal`.
+   signatures); build the SPA and copy it to `/var/lib/files/portal` (see the `deploy.sh` SPA
+   build — `docker build --target build` + `docker cp`, no host Node required).
 8. Install the backup cron/timer; run one backup and verify it in S3.
 9. Run `deploy/smoke.sh`; sign in and upload/download a test file.
 
@@ -76,11 +83,12 @@ maintenance windows; Caddy keeps the SPA available while the API restarts.
 
 ### Application
 
-1. `git checkout <previous-tag>` in `/opt/files/app` (or use the retained image tag/SHA).
-2. `docker compose -f deploy/docker-compose.prod.yml up -d api worker caddy`.
-3. Verify health, smoke tests, and logs; the database schema is usually backward-compatible
+1. `cd /opt/files/app && ./deploy/rollback.sh <previous-tag-or-sha>` (defaults to the `prev_sha`
+   recorded in `/opt/files/REVISION`). It checks out the previous ref, rebuilds/republishes the SPA,
+   and runs `docker compose up -d api worker caddy`.
+2. Verify health, smoke tests, and logs; the database schema is usually backward-compatible
    because of expand/contract.
-4. Record the rollback and root cause.
+3. Record the rollback and root cause.
 
 ### Database
 
@@ -88,7 +96,8 @@ maintenance windows; Caddy keeps the SPA available while the API restarts.
 - If a migration caused the incident and the app rollback is insufficient, restore the pre-deploy
   dump:
   1. Stop API/worker.
-  2. Restore the dump into a fresh database (`pg_restore --clean --if-exists`).
+  2. Restore the dump into a fresh database (`pg_restore --clean --if-exists`) — or run
+     `RESTORE_DUMP=s3://… RESTORE_CONFIRM=YES ./deploy/rollback.sh <ref>`.
   3. Point `ConnectionStrings__FilesDb` at it, start containers, verify.
   4. Accept the data loss after the dump timestamp; record it in the incident.
 - Never restore over the only copy without first preserving the current database volume.
@@ -101,14 +110,17 @@ maintenance windows; Caddy keeps the SPA available while the API restarts.
 
 ## 6. Smoke tests (`deploy/smoke.sh`)
 
+`deploy/smoke.sh` is the **unauthenticated** post-deploy gate that `deploy.sh` runs automatically:
+
 - `GET https://$FILES_DOMAIN/health/live` → 200; `/health/ready` → 200.
 - `GET /v1/config` → 200.
-- Synthesized integration: create a 1 KiB upload session → put one chunk → complete → metadata
-  `available` → download content → verify bytes → delete.
-- Public link create → grant → stream (test user).
-- Admin usage endpoint → 200 (test admin).
-- Disk free > reserve; no container restart loop in the last 5 minutes.
-- External TLS certificate valid and HTTP redirects to HTTPS.
+- `HTTP→HTTPS` redirect (301/308).
+- Disk free on `/var/lib/files` > 10 GiB reserve.
+
+Authenticated checks (run manually with a test user/integration/admin token, or via CI k6
+scenarios in `tests/perf/`): upload→complete→download→delete round-trip, public link create →
+grant → stream, and `GET /v1/admin/usage` → 200. These need credentials and are not part of the
+unattended smoke gate.
 
 Production smoke uses a dedicated synthetic integration and deletes its files immediately.
 

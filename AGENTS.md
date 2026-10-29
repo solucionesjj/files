@@ -140,9 +140,10 @@ Local endpoints: API `http://localhost:8080`, Portal `http://localhost:4200`, Lo
 | Testing strategy | Done |
 | Infrastructure | Pre-existing host + S3 bucket, managed outside the repo; no Terraform; `deploy/host-bootstrap.sh` + Compose provided |
 | Local stack, CI, scripts | Done |
-| Deployment assets | Done: host-bootstrap, Compose, Caddy, backup/restore/smoke |
+| Deployment assets | Done: host-bootstrap, Compose, Caddy, backup/restore/smoke, `deploy/deploy.sh` + `deploy/rollback.sh`, backup/restore + migration drill scripts, SigNoz dashboards/alerts |
 | Application code | **S11 done** — S7 portal management, S8 public links and downloads, S9 integration API (`GET /v1/integrations/files`, `GET/DELETE /v1/integrations/files/{fileId}`, `GET .../availability`, `GET .../content` streamed single-range 206/416 with completion-only counting + `Idempotency-Key` + per-integration quotas), S10 retention/legal-hold/notifications (admin retention policy + migrations, legal hold, admin retention override, notification policy + email templates, notification scheduler/sender via SMTP, expiration job), and S11 expiration & deletion completion: physical S3 deletion job (idempotent, retry/backoff, legal-hold skip), tombstones + 60-month retention purge (`V6`), DB↔S3 reconciliation (missing-object quarantine + orphan move), and lifecycle metrics/alerts (`files_expired_total`, `files_deletion_failures_total`, `notification_delivery_failures_total`, `reconcile_*`, `job_last_success` gauge) |
 | Security & test hardening | **S12 done** — table-driven `AuthorizationMatrixTests` (every route × 8 actors, 404-for-foreign vs 403-for-insufficient-role, admin/auditor never reach content); `UploadTamperingTests` + `ContentDispositionTests` (RFC 5987); `LogRedactionTests` + `scripts/check-security-static.sh` (TimeProvider/no-presigned/no-Graph-POP/no-innerHTML/log-redaction/audit-append-only); gitleaks (`.gitleaks.toml` allowlist = placeholder templates only) + Trivy + SAST wired into `ci.yml` and `make scan-secrets/scan-deps/scan-images`; ZAP baseline script + CSP in `deploy/Caddyfile`; k6 load/soak in `tests/perf/` with `make perf-smoke` CI gate; `SecuritySurfaceTests` (audit append-only, no admin content) |
+| Operations readiness & admin read surface | **S13 done** — `deploy/deploy.sh` + `deploy/rollback.sh` (backup → Flyway migrate → SPA build → compose up → smoke → REVISION); backup/restore drill (gate 5, RTO 338 ms) + Flyway V1→V6 migration/rollback rehearsal (gate 9) on disposable PostgreSQL 18 (`deploy/drill-*.sh`); SigNoz dashboards/alerts + on-call (gate 6, `deploy/observability/` + `otel-collector.yaml` host/container metrics); runbook rehearsal + fixes; cost review + budget thresholds (gate 7). **Admin surface:** read-only `GET /v1/admin/audit-events`, `/v1/admin/download-events`, `/v1/admin/usage`, `/v1/admin/settings` implemented contract-first (admin+auditor, no content); mutating admin ops (settings PATCH, admin deletion, integration grants) **deferred to v1.1** and removed from the contract |
 
 ## 7. Next steps (in order)
 
@@ -180,6 +181,14 @@ Local endpoints: API `http://localhost:8080`, Portal `http://localhost:4200`, Lo
     `check-security-static.sh`, gitleaks + Trivy + SAST in CI/Makefile, ZAP baseline script + CSP,
     k6 load/soak with CI smoke gate, and `SecuritySurfaceTests` (audit append-only, no admin content).
     Full details in [security-scanning.md](docs/07-quality/security-scanning.md).
+13. ✅ **S13 / M7 (done):** operations readiness — `deploy/deploy.sh` + `deploy/rollback.sh`
+    (backup → Flyway migrate → SPA build → compose up → smoke → REVISION); backup/restore drill
+    (gate 5, RTO 338 ms) and Flyway V1→V6 migration/rollback rehearsal (gate 9) on disposable
+    PostgreSQL 18 (`deploy/drill-*.sh`); SigNoz dashboards/alerts + on-call (gate 6,
+    `deploy/observability/`); runbook rehearsal + fixes; cost review + budget thresholds (gate 7);
+    and the read-only admin/audit surface (`/v1/admin/audit-events`, `/download-events`, `/usage`,
+    `/settings`) implemented contract-first (mutating admin ops deferred to v1.1).
+14. **S14 / M7 (next):** launch — staging sign-off, production cutover, post-launch monitoring.
 
 Do not jump to UI before the upload/download vertical slice works end to end; it validates auth,
 DB, S3, streaming, audit, and counts together.

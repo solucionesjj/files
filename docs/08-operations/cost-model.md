@@ -123,11 +123,42 @@ disk must be expanded before uploads/backups need it.
 | Delete idle staging EC2 / release EIP | ~$65–110/mo | Staging unavailable. |
 | Negotiated egress / CDN later | 10–30% of egress | Architecture change; not in the initial phase. |
 
-## 8. Budget controls
+## 8. Budget controls and launch gate 7
 
-- AWS Budgets for the account with alerts at 80/100/120% of ~$120/month.
+**Budget number (gate 7):** `$115/month` — Scenario A planning number (+10% over the ≈$104 baseline).
+The host, public IP, and S3 bucket are **pre-existing** (provisioned outside this repo), so EC2/EBS/
+EIP are fixed; the only variable drivers are **S3 storage/egress/requests** and **EBS growth**
+(staging, backups, PostgreSQL).
+
+**AWS Budgets thresholds (fire at 80/100/120%):**
+
+| Threshold | Amount | Alert → route | Action |
+|---|---|---|---|
+| 80% (forecast) | ≈ $92/mo | `#files-ops` + on-call queue (P2) | Review usage; no action unless trending to breach |
+| 100% (actual) | $115/mo | `#files-ops` + on-call (P2) | Reconcile vs the table below; investigate egress/storage |
+| 120% (actual) | $138/mo | On-call page (P1) | Run `runbooks.md#cost-anomaly`; revoke abusive links / cap public links / resize |
+
+Configure **AWS Budgets** for the account with `Budget = $115/mo`, cost filters on
+`Product=Files` tags, and notifications at 80/100/120% → the `files-oncall` channel (see
+`deploy/observability/README.md`). SigNoz cannot read AWS billing directly, so the cost anomaly
+alert is an AWS Budgets notification (mapped as `CostAnomaly` in `signoz-alerts.yaml` annotations);
+the `/v1/admin/usage` endpoint and the **Cost/usage** dashboard give the in-app storage/download
+side of the same reconciliation.
+
+**Monthly reconciliation (vs actual usage):**
+
+| Line | Baseline | Reconcile with |
+|---|---|---|
+| EC2 `t3.large` | $60.74 | AWS Cost Explorer / instance type of the pre-existing host |
+| EBS 100 GiB gp3 | $8.00 | `df -h /var/lib/files`; grow only when >70% |
+| Public IPv4 | $3.65 | AWS (billed only if an Elastic IP) |
+| S3 storage 500 GiB | $11.50 | S3 bucket metrics (`aws s3 ls --summarize` or CloudWatch `BucketSizeBytes`) |
+| S3 requests | $0.18 | CloudWatch `PutRequests`/`GetRequests` |
+| Egress 200 GiB | $18.00 | `/v1/admin/usage` downloads + CloudWatch `BytesDownloaded` |
+| Backups 50 GiB | $1.15 | `aws s3 ls s3://<bucket>/backups/postgres/` (35-day lifecycle) |
+| Domain | $1.00 | Network Solutions (external) |
+
 - Cost allocation tags: `Product=Files`, `Environment`, `Service` (api/worker/storage).
-- Monthly review: EC2 utilization, EBS growth, S3 storage/egress, backup size, ClamAV memory.
 - Guard against denial of wallet: upload quotas, 5 GiB cap, 3 concurrent sessions/1 scan, egress
   monitoring, public link limits.
 - If SigNoz is external, include its subscription/fee separately.

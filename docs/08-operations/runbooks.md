@@ -8,13 +8,13 @@ Never paste secrets into a shell that logs history; use the `.env` file and
 
 ## First response
 
-1. Check the external HTTPS health check, `docker compose ps`, and disk (`df -h`).
-2. Check recent deploys: `/opt/files/REVISION`, `git log -1`, image tags.
+1. Check the external HTTPS health check, `$DC ps`, and disk (`df -h /var/lib/files`).
+2. Check recent deploys: `/opt/files/REVISION`, `git -C /opt/files/app log -1`, image tags.
 3. Scope: all users, one integration, one link/file, uploads only, downloads only.
 4. If a deploy correlates, roll back the containers before deep diagnosis
-   ([deployment-and-rollback.md](deployment-and-rollback.md)).
+   ([deployment-and-rollback.md](deployment-and-rollback.md)): `cd /opt/files/app && ./deploy/rollback.sh`.
 5. Open an incident, assign a commander, record the timeline; preserve `docker logs` and the
-   pre-deploy backup name.
+   pre-deploy backup name (from `/opt/files/REVISION` `backup=`).
 
 ---
 
@@ -71,6 +71,12 @@ errors.
 6. Verify: a test PUT/GET in `f/` via the API succeeds; `head-object` works with the static key.
 
 ## Deletion failures
+
+Run against the running PostgreSQL (the preamble `DC` wraps the compose file):
+
+```bash
+$DC exec -T postgres psql -U files -d files
+```
 
 ```sql
 SELECT id, owner_type, deletion_attempts, next_deletion_at, last_deletion_error
@@ -137,7 +143,7 @@ SELECT * FROM outbox_messages WHERE state='dead' ORDER BY created_at DESC LIMIT 
 
 ## Database
 
-1. `docker compose exec postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"`.
+1. `$DC exec postgres pg_isready -U files -d files`.
 2. Connections: `pg_stat_activity`; slow queries; missing indexes; lock waits.
 3. Disk full: see §3; do not delete PostgreSQL files. Stop API/worker, free space, restart.
 4. Corruption/failed upgrade: stop API/worker, preserve the volume, restore from the latest
@@ -146,13 +152,17 @@ SELECT * FROM outbox_messages WHERE state='dead' ORDER BY created_at DESC LIMIT 
 
 ## Backup failure
 
-**Backup job** (cron/systemd timer):
+**Backup job** (cron/systemd timer, `deploy/files-backup.cron`):
 
 ```bash
 cd /opt/files/app
-set -a; . /opt/files/.env; set +a
 ./deploy/backup.sh
-aws s3 ls "s3://$S3__Bucket/backups/postgres/" | tail
+# List recent dumps. Do NOT `source` /opt/files/.env — connection strings contain ';'.
+S3_BUCKET="$(grep '^S3__Bucket=' /opt/files/.env | cut -d= -f2-)"
+export AWS_ACCESS_KEY_ID="$(grep '^S3__AccessKeyId=' /opt/files/.env | cut -d= -f2-)"
+export AWS_SECRET_ACCESS_KEY="$(grep '^S3__SecretAccessKey=' /opt/files/.env | cut -d= -f2-)"
+export AWS_DEFAULT_REGION="$(grep '^S3__Region=' /opt/files/.env | cut -d= -f2-)"
+aws s3 ls "s3://$S3_BUCKET/backups/postgres/" | tail
 ```
 
 1. If the dump failed: check disk, DB health, AWS CLI/static key, and the cron logs.
@@ -225,6 +235,7 @@ Record every emergency action in the incident.
 
 | Date | Drill | Result | RTO/RPO | Actions |
 |---|---|---|---|---|
-| _TBD_ | Restore production `pg_dump` into a fresh instance | Not run | — | Schedule before launch |
+| 2026-10-29 | Backup/restore drill (gate 5): `pg_dump\|gzip → S3 + _latest` → `pg_restore` into a disposable PostgreSQL 18 | ✅ Pass — seeded users/integrations/files/audit rows round-tripped (1/1/1/1 + `flyway_schema_history`=6) | **RTO 338 ms** (SLO ≤ 4 h); RPO 0 (restored the just-taken dump; production RPO 24 h nightly) | `deploy/drill-backup-restore.sh`; `_latest` marker verified |
+| 2026-10-29 | Migration rehearsal (gate 9): exact production Flyway sequence V1→V6 + rollback on disposable PostgreSQL 18 | ✅ Pass — 6/6 applied from empty in ~2 s; dump→restore round-trip leaves 29 tables + `flyway_schema_history`=6 | — | `deploy/drill-migrations.sh` |
 | _TBD_ | Disk-fill / staging reserve test | Not run | — | Tabletop |
 | _TBD_ | TLS renewal after DNS change | Not run | — | Tabletop |

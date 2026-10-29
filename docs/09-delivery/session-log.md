@@ -6,6 +6,59 @@ entry.
 
 ---
 
+## 2026-10-29 — S13/M7 implemented: operations readiness
+
+**Delivered (code + tests green: 299 unit + 12 contract + 6 new integration; drills executed)**
+
+- **Deploy + rollback (gate 1/ops):** `deploy/deploy.sh` (idempotent: `git fetch`+checkout → ensure
+  PostgreSQL → `backup.sh` + capture S3 key → explicit Flyway `migrator` (`--profile tools`, never
+  auto) → SPA build in `node:22-alpine` + rsync → `compose up -d --build api worker caddy` →
+  `smoke.sh` → write `/opt/files/REVISION`) and `deploy/rollback.sh` (previous ref + optional
+  pre-deploy dump restore). `deploy/README.md` and `deployment-and-rollback.md` refreshed with the
+  exact reproducible invocation.
+- **Backup/restore drill (gate 5):** `deploy/drill-backup-restore.sh` — disposable PostgreSQL 18 +
+  LocalStack S3, `pg_dump|gzip → _latest` → `pg_restore`; seeded rows round-trip (users/integrations/
+  files/audit = 1/1/1/1, `flyway_schema_history`=6). **RTO 338 ms** vs SLO ≤4 h; RPO 0 (production
+  RPO 24 h nightly). Recorded in the runbook Drill log.
+- **Migration/rollback rehearsal (gate 9):** `deploy/drill-migrations.sh` — Flyway V1→V6 from empty
+  in ~2 s (6/6), then dump→restore round-trip leaves 29 tables + `flyway_schema_history`=6 (a restore
+  is a valid rollback path; no down-migrations, expand/contract preferred). Recorded in the Drill log.
+- **Dashboards + alerts (gate 6):** `deploy/observability/` — `signoz-alerts.yaml` (18 PromQL rules,
+  each with severity/runbook/dashboard + `files-oncall` route), `signoz-dashboards.yaml` (six
+  dashboards per observability-and-slos.md §3), and `README.md` (import steps, on-call rota, the
+  alert→runbook→action map, metric sources). `deploy/otel-collector.yaml` now also collects
+  host (`hostmetrics`) and container (`docker_stats`) metrics; the compose `observability` profile
+  mounts the read-only Docker socket.
+- **Runbook rehearsal:** walked First response / host-down / disk-pressure / backup-failure /
+  deletion-failures / database; fixed drift — the backup runbook no longer `source`s the `.env`
+  (connection strings contain `;`), `aws s3 ls` now exports the static key, deletion/database SQL
+  gets a `$DC exec -T postgres psql` invocation, and `deployment-and-rollback.md` §6 now matches the
+  actual unauthenticated `smoke.sh` (authenticated checks documented as manual/CI).
+- **Cost review (gate 7):** `cost-model.md` §8 reconciled with the pre-existing host/S3 (EC2/EBS/EIP
+  fixed; S3 storage/egress/requests + EBS growth are the variable drivers), budget `$115/mo`, AWS
+  Budgets at 80/100/120% → `files-oncall`, plus a monthly reconciliation table.
+- **Open item — admin surface (resolved):** implemented the **read-only** admin/auditor surface
+  contract-first — `GET /v1/admin/audit-events`, `/v1/admin/download-events`, `/v1/admin/usage`,
+  `/v1/admin/settings` (`AdminAuditEndpoints`, `IAuditLogRepository`/`IDownloadEventRepository`/
+  `IUsageRepository` + Dapper SQL, `AdminOrAuditor` policy, `AdminAuditReadTests`). This closes
+  FR-ADM-005/006/008 + FR-AUD-001..003 (auditors now have a read endpoint; no content access).
+- **Decision (deferral):** the **mutating** admin ops — `PATCH /admin/settings`,
+  `POST /admin/files/{id}/deletion`, and integration grant management
+  (`GET/POST /admin/files/{id}/grants`, `DELETE /admin/grants/{id}`) — are **deferred to v1.1**
+  (post-launch, target 2026-11). Removed from the OpenAPI contract, traceability, and threat model so
+  the docs no longer claim an unimplemented surface; `SecuritySurfaceTests`/`ContractSurfaceTests`
+  now lock the read-only surface and assert the deferred mutations are absent. The mutating part of
+  FR-ADM-007 (admin file deletion) and settings PATCH remain open and are tracked in
+  `docs/01-product/open-questions.md`.
+
+**Validated:** `dotnet build -warnaserror` clean; 299 unit + 12 contract + `AdminAuditReadTests`
+(6) green; `check-security-static.sh` stays green (all new admin routes are `MapGet`); Redocly
+lint green after the contract shrink; both drill scripts run end-to-end.
+
+**Next:** S14/M7 — launch (staging sign-off, production cutover, post-launch monitoring).
+
+---
+
 ## 2026-10-29 — S12/M7 implemented: test hardening and security
 
 **Delivered (code + tests green: 291 unit + 9 contract + integration incl. new matrix/tampering)**
