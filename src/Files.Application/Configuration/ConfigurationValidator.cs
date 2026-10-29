@@ -41,6 +41,16 @@ public static class ConfigurationValidator
         ValidatePositiveIntIfPresent(configuration, "ClamAV__Port", errors);
         ValidatePositiveIntIfPresent(configuration, "ClamAV__ScanTimeoutSeconds", errors);
 
+        ValidatePositiveIntIfPresent(configuration, "Links__PublicTtlDays", errors);
+        ValidatePositiveIntIfPresent(configuration, "Links__PrivateTtlDays", errors);
+        RequireNonEmpty(configuration, "Auth__LinkKeyPepper", errors);
+        ValidatePositiveIntIfPresent(configuration, "Auth__LinkKeyPepperVersion", errors);
+
+        ValidatePositiveIntIfPresent(configuration, "Abuse__MaxKeyAttemptsPerWindow", errors);
+        ValidatePositiveIntIfPresent(configuration, "Abuse__KeyAttemptWindowMinutes", errors);
+        ValidatePositiveIntIfPresent(configuration, "Abuse__KeyLockoutMinutes", errors);
+        ValidatePositiveIntIfPresent(configuration, "Abuse__MaxFailuresPerLinkPerHour", errors);
+
         return errors;
     }
 

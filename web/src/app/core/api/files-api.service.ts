@@ -11,6 +11,7 @@ import type {
   UploadSession,
   UploadSessionStatus,
 } from '../models/file-metadata';
+import type { Link, LinkCreated, LinkList, LinkStats } from '../models/download-links';
 import { RuntimeConfigService } from '../config/runtime-config.service';
 
 /**
@@ -79,6 +80,38 @@ export class FilesApiService {
     return firstValueFrom(
       this.http.post<DownloadGrant>(this.url(`/v1/portal/files/${fileId}/downloads`), null),
     );
+  }
+
+  listFileLinks(fileId: string, cursor?: string, limit = 25): Promise<LinkList> {
+    let params = new HttpParams().set('limit', String(limit));
+    if (cursor) params = params.set('cursor', cursor);
+    return firstValueFrom(this.http.get<LinkList>(this.url(`/v1/portal/files/${fileId}/links`), { params }));
+  }
+
+  createLink(fileId: string, maxDownloads?: number): Promise<LinkCreated> {
+    return firstValueFrom(
+      this.http.post<LinkCreated>(this.url(`/v1/portal/files/${fileId}/links`), {
+        accessMode: 'public',
+        maxDownloads,
+      }),
+    );
+  }
+
+  listMyLinks(status?: Link['status'], cursor?: string, limit = 25): Promise<LinkList> {
+    let params = new HttpParams().set('limit', String(limit));
+    if (status) params = params.set('status', status);
+    if (cursor) params = params.set('cursor', cursor);
+    return firstValueFrom(this.http.get<LinkList>(this.url('/v1/portal/links'), { params }));
+  }
+
+  revokeLink(linkId: string, reason?: string): Promise<void> {
+    let params = new HttpParams();
+    if (reason) params = params.set('reason', reason);
+    return firstValueFrom(this.http.delete<void>(this.url(`/v1/portal/links/${linkId}`), { params }));
+  }
+
+  getLinkStats(linkId: string): Promise<LinkStats> {
+    return firstValueFrom(this.http.get<LinkStats>(this.url(`/v1/portal/links/${linkId}/stats`)));
   }
 
   private url(path: string): string {

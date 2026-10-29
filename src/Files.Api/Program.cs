@@ -108,6 +108,7 @@ try
     app.MapUploadEndpoints();
     app.MapPortalFilesEndpoints();
     app.MapDownloadGrantEndpoints();
+    app.MapPublicLinkEndpoints();
 
     app.MapFallback((HttpContext context) =>
     {

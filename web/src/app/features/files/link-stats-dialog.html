@@ -1,0 +1,63 @@
+<div class="modal d-block" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="stats-title">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title h5" id="stats-title" i18n="@@link.statsTitle">Estadísticas del enlace</h2>
+        <button
+          type="button"
+          class="btn-close"
+          aria-label="Cerrar"
+          i18n-aria-label="@@link.close"
+          (click)="closed.emit()"
+        ></button>
+      </div>
+      <div class="modal-body">
+        @if (loading()) {
+          <div class="text-center py-4">
+            <div class="spinner-border text-primary" role="status">
+              <span class="visually-hidden" i18n="@@list.loading">Cargando…</span>
+            </div>
+          </div>
+        } @else if (error()) {
+          <div class="alert alert-danger py-2" role="alert">{{ error() }}</div>
+        } @else if (stats(); as stats) {
+          <dl class="row mb-3">
+            <dt class="col-sm-4" i18n="@@link.statsSuccessful">Descargas completadas</dt>
+            <dd class="col-sm-8">{{ stats.successfulDownloads }}</dd>
+            <dt class="col-sm-4" i18n="@@link.statsReserved">Reservadas (en curso)</dt>
+            <dd class="col-sm-8">{{ stats.reservedDownloads }}</dd>
+            <dt class="col-sm-4" i18n="@@link.statsFailed">Intentos de clave fallidos</dt>
+            <dd class="col-sm-8">{{ stats.failedAttempts }}</dd>
+            <dt class="col-sm-4" i18n="@@link.statsLast">Última descarga</dt>
+            <dd class="col-sm-8">{{ stats.lastDownloadAt ? (stats.lastDownloadAt | date: 'medium') : '—' }}</dd>
+          </dl>
+
+          <h3 class="h6" i18n="@@link.statsRecent">Eventos recientes</h3>
+          @if (stats.recentEvents.length) {
+            <div class="table-responsive">
+              <table class="table table-sm align-middle">
+                <thead>
+                  <tr>
+                    <th scope="col" i18n="@@link.statsResult">Resultado</th>
+                    <th scope="col" i18n="@@link.statsWhen">Cuándo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (event of stats.recentEvents; track event.id) {
+                    <tr>
+                      <td>{{ event.result }}</td>
+                      <td>{{ event.occurredAt | date: 'medium' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else {
+            <p class="text-muted" i18n="@@link.statsEmpty">Sin eventos registrados.</p>
+          }
+        }
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal-backdrop show"></div>

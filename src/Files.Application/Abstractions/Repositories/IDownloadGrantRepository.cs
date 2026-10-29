@@ -3,8 +3,13 @@ using Files.Domain.Enums;
 
 namespace Files.Application.Abstractions.Repositories;
 
-/// <summary>An atomically claimed (issued → redeemed) grant.</summary>
-public sealed record GrantClaim(Guid GrantId, Guid FileId, GrantSource Source, Guid? IssuedToUserId);
+/// <summary>An atomically claimed (issued → redeemed) grant, including its optional link.</summary>
+public sealed record GrantClaim(
+    Guid GrantId,
+    Guid FileId,
+    Guid? LinkId,
+    GrantSource Source,
+    Guid? IssuedToUserId);
 
 /// <summary>
 /// Download-grant persistence. Reads/claims are raw SQL so the single-use transition

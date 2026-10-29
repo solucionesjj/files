@@ -379,6 +379,7 @@ public class PortalFileManagementTests(PostgresDatabaseFixture fixture)
     {
         Environment.SetEnvironmentVariable("ConnectionStrings__FilesDb", fixture.ConnectionString);
         Environment.SetEnvironmentVariable("Storage__StagingPath", "/tmp/files-staging");
+        Environment.SetEnvironmentVariable("Auth__LinkKeyPepper", "integration-test-pepper");
         Environment.SetEnvironmentVariable("Entra__TenantId", AuthTestJwt.TenantId.ToString());
         Environment.SetEnvironmentVariable("Entra__ApiAudience", AuthTestJwt.Audience);
         Environment.SetEnvironmentVariable("Entra__ApiClientId", AuthTestJwt.ApiClientId.ToString());

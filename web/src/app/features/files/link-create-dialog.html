@@ -1,0 +1,92 @@
+<div class="modal d-block" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="link-title">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title h5" id="link-title" i18n="@@link.createTitle">Crear enlace público</h2>
+        <button
+          type="button"
+          class="btn-close"
+          aria-label="Cancelar"
+          i18n-aria-label="@@link.cancel"
+          (click)="cancelled.emit()"
+        ></button>
+      </div>
+
+      @if (result(); as link) {
+        <div class="modal-body">
+          <div class="alert alert-warning py-2" role="alert" i18n="@@link.keyOnce">
+            Guarda la clave ahora: se muestra una sola vez y no se puede recuperar.
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label" for="link-url" i18n="@@link.url">Enlace</label>
+            <div class="input-group">
+              <input id="link-url" type="text" class="form-control" [value]="fullUrl" readonly />
+              <button type="button" class="btn btn-outline-secondary" (click)="copyUrl()">
+                {{ copyLabel(copiedUrl()) }}
+              </button>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label" for="link-key" i18n="@@link.key">Clave de descarga</label>
+            <div class="input-group">
+              <input
+                id="link-key"
+                type="text"
+                class="form-control font-monospace"
+                [value]="link.downloadKey"
+                readonly
+              />
+              <button type="button" class="btn btn-outline-secondary" (click)="copyKey()">
+                {{ copyLabel(copiedKey()) }}
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-primary" (click)="created.emit(link)" i18n="@@link.done">
+            Listo
+          </button>
+        </div>
+      } @else {
+        <div class="modal-body">
+          @if (error()) {
+            <div class="alert alert-danger py-2" role="alert">{{ error() }}</div>
+          }
+
+          <div class="mb-3">
+            <label class="form-label" for="link-max" i18n="@@link.maxDownloads">
+              Descargas máximas (opcional)
+            </label>
+            <input
+              id="link-max"
+              type="number"
+              class="form-control"
+              min="1"
+              max="1000000"
+              [(ngModel)]="maxDownloads"
+              aria-describedby="link-max-hint"
+            />
+            <div id="link-max-hint" class="form-text" i18n="@@link.maxDownloadsHint">
+              Déjalo vacío para un enlace sin límite. El enlace vence según la política (15 días).
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" (click)="cancelled.emit()" i18n="@@link.cancel">
+            Cancelar
+          </button>
+          <button type="button" class="btn btn-primary" [disabled]="creating()" (click)="create()">
+            @if (creating()) {
+              <span i18n="@@link.creating">Creando…</span>
+            } @else {
+              <span i18n="@@link.create">Crear enlace</span>
+            }
+          </button>
+        </div>
+      }
+    </div>
+  </div>
+</div>
+<div class="modal-backdrop show"></div>

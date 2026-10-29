@@ -524,6 +524,7 @@ public class UploadApiTests(PostgresDatabaseFixture postgres, LocalStackS3Fixtur
     {
         Environment.SetEnvironmentVariable("ConnectionStrings__FilesDb", postgres.ConnectionString);
         Environment.SetEnvironmentVariable("Storage__StagingPath", stagingPath);
+        Environment.SetEnvironmentVariable("Auth__LinkKeyPepper", "integration-test-pepper");
         Environment.SetEnvironmentVariable("Storage__ChunkSizeBytes", "262144");
         Environment.SetEnvironmentVariable("Storage__S3PartSizeBytes", "5242880");
         Environment.SetEnvironmentVariable("Storage__S3SinglePutThresholdBytes", "262144");

@@ -17,5 +17,9 @@ export const routes: Routes = [
     canActivate: [authGuard],
     loadComponent: () => import('./features/files/files-detail').then((m) => m.FilesDetail),
   },
+  {
+    path: 'd/:token',
+    loadComponent: () => import('./features/public/public-link').then((m) => m.PublicLink),
+  },
   { path: '**', redirectTo: '/files' },
 ];

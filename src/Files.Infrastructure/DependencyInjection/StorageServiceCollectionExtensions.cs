@@ -22,6 +22,9 @@ public static class StorageServiceCollectionExtensions
         services.AddSingleton(StorageOptions.FromConfiguration(configuration));
         services.AddSingleton(S3Options.FromConfiguration(configuration));
         services.AddSingleton(ClamAvOptions.FromConfiguration(configuration));
+        var linksOptions = LinksOptions.FromConfiguration(configuration);
+        services.AddSingleton(linksOptions);
+        services.AddSingleton(KeyThrottle.FromOptions(linksOptions));
 
         services.AddSingleton<IObjectStore, S3ObjectStore>();
         services.AddSingleton<IChunkStore, FileChunkStore>();
@@ -51,6 +54,9 @@ public static class StorageServiceCollectionExtensions
         // S7 portal management (rename/tag/retention/delete + owner download grants).
         services.AddScoped<IFileManagementService, FileManagementService>();
         services.AddScoped<IDownloadGrantService, DownloadGrantService>();
+
+        // S8 public links and downloads (ADR-0005).
+        services.AddScoped<IPublicLinkService, PublicLinkService>();
 
         return services;
     }

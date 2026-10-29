@@ -1,6 +1,6 @@
 # Roadmap and Delivery Plan
 
-**Status date:** 2026-10-24 · **Phase:** Implementation started — M1 (S1–S3) delivered.
+**Status date:** 2026-10-28 · **Phase:** Implementation started — M4 (S1–S8) delivered.
 Progress is updated at the end of every work session (see [AGENTS.md](../../AGENTS.md)).
 
 ## 1. Milestones
@@ -58,7 +58,7 @@ S6. S10 depends on S5 and S9. S11 depends on S10.
 | M1 | ✅ | ✅ | S1–S3 done: foundations, EF mapping + repositories, audit/outbox writers, Entra JWT auth (human-only per ADR-0014), JIT users, roles in Files, `/me`, integration admin CRUD, API keys, admin audit. |
 | M2 | ✅ | ✅ | S4 done: `IObjectStore` (S3/LocalStack), staging, chunk endpoints, retryable server-side commit (scanning disabled). S5 done: ClamAV scan-before-commit worker (`ClamAvScanner`, `ScanCommitService`, `UploadScanCommitJob`), quarantines infected files, retries scanner failures with backoff, and keeps the scanning-disabled path + cleanup green. |
 | M3 | ✅ | ✅ | S6 done: portal shell (MSAL sign-in + `/v1/me` roles), owner-scoped file list/search/filters/sort/cursor pagination, read-only detail, and chunked upload orchestration. S7 done: rename/tags/retention, logical delete, owner download grant (256-bit single-use 120 s API stream, counted on completion), If-Match 412 / legal-hold 409, E2E Playwright + axe accessibility. S8 (links) remains. |
-| M4 | ✅ | ⬜ | Public link/key design finalized; private links and Graph deferred (ADR-0014). |
+| M4 | ✅ | ✅ | S8 done: public links and downloads — create/list/revoke/stats (owner-scoped), admin TTL (15 d), 8-char key shown once (Argon2id + versioned pepper), anonymous metadata + key redemption, 120 s single-use grants, atomic `max_downloads` reservation (concurrency), abuse controls (progressive delay/lockout/soft-lock + alert), completion-only counting, portal link management UI + `/d/{token}` landing page, Playwright E2E + axe-core. Private links/Graph deferred (ADR-0014). |
 | M5 | ✅ | ⬜ | API-key flow designed (ADR-0014); OpenAPI contract update pending S3b/S9. |
 | M6 | ✅ | ⬜ | Background jobs and notifications designed. |
 | M7 | ✅ | ⬜ | SLOs, runbooks, cost model, threat model ready. |
@@ -103,4 +103,4 @@ Legend: ✅ complete · 🟡 in progress · ⬜ not started.
 1. Read `AGENTS.md`, this roadmap, and the [session log](session-log.md).
 2. **S6 (done):** portal shell and files UX — Angular app + MSAL, `GET /v1/portal/files` and `GET /v1/portal/files/{fileId}`, file list/search/filters/sort/cursor pagination, read-only detail, and chunked upload orchestration; `make validate` green.
 3. **S7 (done):** portal management — rename/tags/retention, delete, owner download grant, E2E Playwright + accessibility, error UX.
-4. **S8:** public links and downloads — link create/list/revoke, admin TTL (15 d), key shown once, grant redemption with the 8-char key, reservation concurrency, abuse controls, stats.
+4. ✅ **S8 (done):** public links and downloads — link create/list/revoke, admin TTL (15 d), key shown once, grant redemption with the 8-char key, reservation concurrency, abuse controls, stats.

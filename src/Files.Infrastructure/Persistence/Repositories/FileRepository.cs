@@ -9,6 +9,9 @@ public sealed class FileRepository(FilesDbContext db, TimeProvider timeProvider)
 {
     public void Add(FileEntity file) => db.Files.Add(file);
 
+    public Task<FileEntity?> GetByIdAsync(Guid fileId, CancellationToken ct = default) =>
+        db.Files.AsNoTracking().SingleOrDefaultAsync(f => f.Id == fileId, ct);
+
     public Task<FileEntity?> GetByIdTrackedAsync(Guid fileId, CancellationToken ct = default) =>
         db.Files.SingleOrDefaultAsync(f => f.Id == fileId, ct);
 

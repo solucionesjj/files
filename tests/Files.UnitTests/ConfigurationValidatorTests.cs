@@ -49,6 +49,17 @@ public class ConfigurationValidatorTests
     }
 
     [Fact]
+    public void Validate_reports_missing_download_key_pepper()
+    {
+        var config = ValidConfig();
+        config["Auth:LinkKeyPepper"].Returns((string?)null);
+
+        var errors = ConfigurationValidator.Validate(config);
+
+        errors.Should().ContainSingle(e => e.Contains("Auth__LinkKeyPepper", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Validate_rejects_malformed_otlp_endpoint()
     {
         var config = ValidConfig();
@@ -75,6 +86,6 @@ public class ConfigurationValidatorTests
         var config = Substitute.For<IConfiguration>();
         config["ConnectionStrings:FilesDb"].Returns("Host=localhost;Database=files;Username=files;Password=files");
         config["Storage:StagingPath"].Returns("/var/tmp/files-staging");
-        return config;
-    }
+        config["Auth:LinkKeyPepper"].Returns("test-pepper");
+        return config;    }
 }

@@ -6,9 +6,13 @@ import { DownloadService } from '../../core/api/download.service';
 import { ToastService } from '../../core/http/toast.service';
 import { toProblem } from '../../core/http/problem';
 import type { FileMetadata, ScanStatus } from '../../core/models/file-metadata';
+import type { Link } from '../../core/models/download-links';
 import { FileStatusBadgePipe, FileStatusLabelPipe } from './file-status.pipe';
 import { FileEditDialog } from './file-edit-dialog';
 import { FileDeleteDialog } from './file-delete-dialog';
+import { LinkCreateDialog } from './link-create-dialog';
+import { LinkRevokeDialog } from './link-revoke-dialog';
+import { LinkStatsDialog } from './link-stats-dialog';
 
 const SCAN_LABELS: Record<ScanStatus, string> = {
   not_scanned: $localize`:@@scan.notScanned:Sin escanear`,
@@ -21,7 +25,17 @@ const SCAN_LABELS: Record<ScanStatus, string> = {
 @Component({
   selector: 'app-files-detail',
   standalone: true,
-  imports: [RouterLink, DatePipe, FileStatusLabelPipe, FileStatusBadgePipe, FileEditDialog, FileDeleteDialog],
+  imports: [
+    RouterLink,
+    DatePipe,
+    FileStatusLabelPipe,
+    FileStatusBadgePipe,
+    FileEditDialog,
+    FileDeleteDialog,
+    LinkCreateDialog,
+    LinkRevokeDialog,
+    LinkStatsDialog,
+  ],
   templateUrl: './files-detail.html',
 })
 export class FilesDetail implements OnInit {
@@ -35,6 +49,12 @@ export class FilesDetail implements OnInit {
   readonly loading = signal(false);
   readonly editing = signal(false);
   readonly deleting = signal(false);
+
+  readonly links = signal<Link[]>([]);
+  readonly linksLoading = signal(false);
+  readonly creatingLink = signal(false);
+  readonly revokingLink = signal<Link | null>(null);
+  readonly statsLink = signal<Link | null>(null);
 
   ngOnInit(): void {
     void this.load();
@@ -53,6 +73,18 @@ export class FilesDetail implements OnInit {
     } finally {
       this.loading.set(false);
     }
+    void this.loadLinks(id);
+  }
+
+  async loadLinks(fileId: string): Promise<void> {
+    this.linksLoading.set(true);
+    try {
+      this.links.set((await this.api.listFileLinks(fileId)).items);
+    } catch (error) {
+      this.toast.errorFromProblem(await toProblem(error));
+    } finally {
+      this.linksLoading.set(false);
+    }
   }
 
   download(): void {
@@ -69,6 +101,24 @@ export class FilesDetail implements OnInit {
     return file.status === 'available';
   }
 
+  onLinkCreated(): void {
+    this.creatingLink.set(false);
+    const file = this.file();
+    if (file) {
+      void this.loadLinks(file.id);
+    }
+    this.toast.success($localize`:@@link.created:Enlace creado.`);
+  }
+
+  onLinkRevoked(): void {
+    this.revokingLink.set(null);
+    const file = this.file();
+    if (file) {
+      void this.loadLinks(file.id);
+    }
+    this.toast.success($localize`:@@link.revoked:Enlace revocado.`);
+  }
+
   onSaved(updated: FileMetadata): void {
     this.file.set(updated);
     this.editing.set(false);
@@ -82,6 +132,19 @@ export class FilesDetail implements OnInit {
 
   scanLabel(scanStatus: ScanStatus): string {
     return SCAN_LABELS[scanStatus];
+  }
+
+  linkStatusLabel(status: Link['status']): string {
+    switch (status) {
+      case 'active':
+        return $localize`:@@link.statusActive:Activo`;
+      case 'revoked':
+        return $localize`:@@link.statusRevoked:Revocado`;
+      case 'expired':
+        return $localize`:@@link.statusExpired:Vencido`;
+      default:
+        return status;
+    }
   }
 
   sizeLabel(bytes: number): string {

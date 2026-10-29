@@ -6,4 +6,4 @@ UPDATE download_grants
  WHERE grant_token_hash = @TokenHash
    AND state = 'issued'
    AND expires_at > @Now
-RETURNING id, file_id AS FileId, source, issued_to_user_id AS IssuedToUserId;
+RETURNING id, file_id AS FileId, link_id AS LinkId, source, issued_to_user_id AS IssuedToUserId;

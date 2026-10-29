@@ -93,3 +93,94 @@
 @if (deleting() && file(); as file) {
   <app-file-delete-dialog [file]="file" (deleted)="onDeleted()" (cancelled)="deleting.set(false)"></app-file-delete-dialog>
 }
+@if (creatingLink() && file(); as file) {
+  <app-link-create-dialog
+    [fileId]="file.id"
+    (created)="onLinkCreated()"
+    (cancelled)="creatingLink.set(false)"
+  ></app-link-create-dialog>
+}
+@if (revokingLink(); as link) {
+  <app-link-revoke-dialog [link]="link" (revoked)="onLinkRevoked()" (cancelled)="revokingLink.set(null)"></app-link-revoke-dialog>
+}
+@if (statsLink(); as link) {
+  <app-link-stats-dialog [link]="link" (closed)="statsLink.set(null)"></app-link-stats-dialog>
+}
+
+@if (file(); as file) {
+  <div class="card mt-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <h2 class="h6 mb-0" i18n="@@link.sectionTitle">Enlaces públicos</h2>
+      <button
+        type="button"
+        class="btn btn-outline-primary btn-sm"
+        [disabled]="!isDownloadable(file)"
+        (click)="creatingLink.set(true)"
+        i18n="@@link.new"
+      >
+        Crear enlace
+      </button>
+    </div>
+    <div class="card-body">
+      @if (linksLoading()) {
+        <div class="text-center py-3">
+          <div class="spinner-border spinner-border-sm text-primary" role="status">
+            <span class="visually-hidden" i18n="@@list.loading">Cargando…</span>
+          </div>
+        </div>
+      } @else if (links().length) {
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead>
+              <tr>
+                <th scope="col" i18n="@@link.colStatus">Estado</th>
+                <th scope="col" i18n="@@link.colExpires">Vence</th>
+                <th scope="col" i18n="@@link.colDownloads">Descargas</th>
+                <th scope="col" class="text-end" i18n="@@link.colActions">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (link of links(); track link.id) {
+                <tr>
+                  <td>
+                    <span class="badge" [class]="link.status === 'active' ? 'text-bg-success' : link.status === 'revoked' ? 'text-bg-secondary' : 'text-bg-warning'">
+                      {{ linkStatusLabel(link.status) }}
+                    </span>
+                  </td>
+                  <td>{{ link.expiresAt | date: 'mediumDate' }}</td>
+                  <td>{{ link.successfulDownloads }}@if (link.maxDownloads) { / {{ link.maxDownloads }} }</td>
+                  <td class="text-end">
+                    <div class="btn-group btn-group-sm">
+                      <button
+                        type="button"
+                        class="btn btn-outline-secondary"
+                        (click)="statsLink.set(link)"
+                        i18n="@@link.stats"
+                      >
+                        Estadísticas
+                      </button>
+                      @if (link.status === 'active') {
+                        <button
+                          type="button"
+                          class="btn btn-outline-danger"
+                          (click)="revokingLink.set(link)"
+                          i18n="@@link.revoke"
+                        >
+                          Revocar
+                        </button>
+                      }
+                    </div>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      } @else {
+        <p class="text-muted mb-0" i18n="@@link.empty">
+          No hay enlaces públicos para este archivo.
+        </p>
+      }
+    </div>
+  </div>
+}

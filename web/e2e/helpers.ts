@@ -1,5 +1,6 @@
 import { expect, type Page } from '@playwright/test';
 import type { FileMetadata } from '../src/app/core/models/file-metadata';
+import type { Link, LinkCreated, LinkPublicInfo } from '../src/app/core/models/download-links';
 
 /** Fake Entra tenant/client used only to make the portal's MSAL layer treat itself as configured. */
 export const E2E_ENTRA = {
@@ -123,6 +124,47 @@ export function fileBody(overrides: Partial<FileMetadata> = {}): FileMetadata {
   };
 }
 
+export function linkBody(overrides: Partial<Link> = {}): Link {
+  return {
+    id: 'link-1',
+    fileId: 'file-1',
+    accessMode: 'public',
+    status: 'active',
+    createdAt: '2026-10-28T12:00:00Z',
+    expiresAt: '2026-11-12T12:00:00Z',
+    maxDownloads: null,
+    successfulDownloads: 0,
+    reservedDownloads: 0,
+    revokedAt: null,
+    createdBy: { type: 'user', displayName: 'Test Owner' },
+    ...overrides,
+  };
+}
+
+export function linkCreatedBody(overrides: Partial<LinkCreated> = {}): LinkCreated {
+  return {
+    ...linkBody(),
+    url: '/d/abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRST',
+    token: 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRST',
+    downloadKey: 'Ab3xY9Qz',
+    ...overrides,
+  };
+}
+
+export function publicLinkBody(overrides: Partial<LinkPublicInfo> = {}): LinkPublicInfo {
+  return {
+    fileName: 'report.pdf',
+    sizeBytes: 1024,
+    contentType: 'application/pdf',
+    requiresKey: true,
+    requiresAuthentication: false,
+    expiresAt: '2026-11-12T12:00:00Z',
+    remainingDownloads: 5,
+    ownerDisplayName: 'Test Owner',
+    ...overrides,
+  };
+}
+
 /** Mocks the Files API surface the portal exercises. */
 export async function mockApi(page: Page, files: FileMetadata[] = [fileBody()]): Promise<void> {
   await page.route((url) => url.origin === new URL(API_BASE).origin && url.pathname === '/v1/me', (route) =>
@@ -169,6 +211,21 @@ export async function mockApi(page: Page, files: FileMetadata[] = [fileBody()]):
           downloadUrl: '/v1/download-grants/e2e-grant-token',
         }),
       }),
+  );
+
+  // Link list on the file detail page (empty by default; individual tests override creation).
+  await page.route(
+    (url) =>
+      url.origin === new URL(API_BASE).origin && /^\/v1\/portal\/files\/[^/]+\/links$/.test(url.pathname),
+    (route) => {
+      if (route.request().method() !== 'GET') {
+        return route.fallback();
+      }
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({ items: [], nextCursor: null, hasMore: false }),
+      });
+    },
   );
 }
 

@@ -118,6 +118,7 @@ public class UploadCleanupTests(PostgresDatabaseFixture postgres, LocalStackS3Fi
     {
         Environment.SetEnvironmentVariable("ConnectionStrings__FilesDb", postgres.ConnectionString);
         Environment.SetEnvironmentVariable("Storage__StagingPath", stagingPath);
+        Environment.SetEnvironmentVariable("Auth__LinkKeyPepper", "integration-test-pepper");
         Environment.SetEnvironmentVariable("Storage__StagingReserveBytes", "1048576");
         Environment.SetEnvironmentVariable("Features__MalwareScanning", "false");
         Environment.SetEnvironmentVariable("S3__Region", LocalStackS3Fixture.Region);

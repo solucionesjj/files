@@ -508,7 +508,7 @@ Scenario: Public link uses the administrator's lifetime
 Scenario: Public link disabled by policy
   Given the administrator disabled public links
   When I request a public link
-  Then the response is 403 with code "public_links_disabled"
+  Then the response is 409 with code "public_links_disabled"
 ```
 
 ### US-021 — Redeem a public link

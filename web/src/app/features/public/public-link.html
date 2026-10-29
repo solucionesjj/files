@@ -1,0 +1,68 @@
+<div class="row justify-content-center">
+  <div class="col-12 col-md-8 col-lg-6">
+    <div class="card">
+      <div class="card-header">
+        <h1 class="h5 mb-0" i18n="@@publicLink.title">Descarga de archivo</h1>
+      </div>
+      <div class="card-body">
+        @if (loading()) {
+          <div class="text-center py-4">
+            <div class="spinner-border text-primary" role="status">
+              <span class="visually-hidden" i18n="@@list.loading">Cargando…</span>
+            </div>
+          </div>
+        } @else if (info(); as info) {
+          <dl class="row mb-4">
+            <dt class="col-sm-4" i18n="@@publicLink.fileName">Archivo</dt>
+            <dd class="col-sm-8 text-break">{{ info.fileName }}</dd>
+            <dt class="col-sm-4" i18n="@@detail.size">Tamaño</dt>
+            <dd class="col-sm-8">{{ sizeLabel(info.sizeBytes) }}</dd>
+            <dt class="col-sm-4" i18n="@@publicLink.expires">Vence</dt>
+            <dd class="col-sm-8">{{ info.expiresAt | date: 'mediumDate' }}</dd>
+            @if (info.remainingDownloads !== null) {
+              <dt class="col-sm-4" i18n="@@publicLink.remaining">Descargas restantes</dt>
+              <dd class="col-sm-8">{{ info.remainingDownloads }}</dd>
+            }
+          </dl>
+
+          @if (error()) {
+            <div class="alert alert-danger py-2" role="alert">{{ error() }}</div>
+          }
+
+          <div class="mb-3">
+            <label for="public-key" class="form-label" i18n="@@publicLink.keyLabel">
+              Clave de descarga (8 caracteres)
+            </label>
+            <input
+              id="public-key"
+              type="text"
+              class="form-control font-monospace"
+              maxlength="8"
+              autocomplete="off"
+              autocapitalize="off"
+              spellcheck="false"
+              [(ngModel)]="key"
+              (keyup.enter)="redeem()"
+            />
+          </div>
+        } @else if (error()) {
+          <div class="alert alert-danger" role="alert">{{ error() }}</div>
+        }
+      </div>
+      <div class="card-footer">
+        <button
+          type="button"
+          class="btn btn-primary w-100"
+          [disabled]="submitting() || !info()"
+          (click)="redeem()"
+        >
+          @if (submitting()) {
+            <span i18n="@@publicLink.downloading">Preparando descarga…</span>
+          } @else {
+            <span i18n="@@actions.download">Descargar</span>
+          }
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

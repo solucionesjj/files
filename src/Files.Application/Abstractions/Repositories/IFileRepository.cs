@@ -11,6 +11,9 @@ public interface IFileRepository
 {
     void Add(FileEntity file);
 
+    /// <summary>Returns any file by id (no ownership scope; used by anonymous link redemption).</summary>
+    Task<FileEntity?> GetByIdAsync(Guid fileId, CancellationToken ct = default);
+
     /// <summary>Tracked variant for mutating a file in the ambient transaction (internal use cases).</summary>
     Task<FileEntity?> GetByIdTrackedAsync(Guid fileId, CancellationToken ct = default);
 

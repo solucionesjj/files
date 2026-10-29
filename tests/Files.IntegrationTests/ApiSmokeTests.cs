@@ -83,6 +83,7 @@ public class ApiSmokeTests
     {
         Environment.SetEnvironmentVariable("ConnectionStrings__FilesDb", ConnectionString);
         Environment.SetEnvironmentVariable("Storage__StagingPath", "/tmp/files-staging");
+        Environment.SetEnvironmentVariable("Auth__LinkKeyPepper", "integration-test-pepper");
         return new WebApplicationFactory<Program>();
     }
 }

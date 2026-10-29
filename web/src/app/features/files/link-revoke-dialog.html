@@ -1,0 +1,44 @@
+<div class="modal d-block" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="revoke-title">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title h5" id="revoke-title" i18n="@@link.revokeTitle">Revocar enlace</h2>
+        <button
+          type="button"
+          class="btn-close"
+          aria-label="Cancelar"
+          i18n-aria-label="@@link.cancel"
+          (click)="cancelled.emit()"
+        ></button>
+      </div>
+      <div class="modal-body">
+        @if (error()) {
+          <div class="alert alert-danger py-2" role="alert">{{ error() }}</div>
+        }
+        <p class="mb-3" i18n="@@link.revokeConfirm">
+          El enlace y sus descargas pendientes dejarán de funcionar de inmediato. Esta acción no se
+          puede deshacer.
+        </p>
+        <div class="mb-2">
+          <label class="form-label" for="revoke-reason" i18n="@@link.revokeReason">
+            Motivo (opcional)
+          </label>
+          <textarea id="revoke-reason" class="form-control" rows="2" maxlength="500" [(ngModel)]="reason"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" (click)="cancelled.emit()" i18n="@@link.cancel">
+          Cancelar
+        </button>
+        <button type="button" class="btn btn-danger" [disabled]="revoking()" (click)="revoke()">
+          @if (revoking()) {
+            <span i18n="@@link.revoking">Revocando…</span>
+          } @else {
+            <span i18n="@@link.revoke">Revocar</span>
+          }
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal-backdrop show"></div>

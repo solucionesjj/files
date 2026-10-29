@@ -6,6 +6,52 @@ entry.
 
 ---
 
+## 2026-10-28 — S8/M4 implemented: public links and downloads
+
+**Delivered (code + tests green: backend 13 new integration + 19 new unit, Angular build green, Playwright links spec)**
+
+- **Public-link lifecycle (contract-first, extending the S7 grant machinery):** `GET/POST
+  /v1/portal/files/{fileId}/links` (owner-scoped list with keyset cursor + create), `GET
+  /v1/portal/links` (links created by caller, optional `status` filter), `DELETE
+  /v1/portal/links/{linkId}` (revoke + optional `reason`, invalidates outstanding grants via raw-SQL
+  grant failure + reservation release), `GET /v1/portal/links/{linkId}/stats`, `GET
+  /v1/public/download-links/{token}` (anonymous `LinkPublicInfo`), `POST
+  /v1/public/download-links/{token}/downloads` (key → 256-bit single-use 120 s `source=public_link`
+  grant), and `GET /v1/download-grants/{token}` extended to accept `link_id != null` grants with a
+  link-active re-check.
+- **Crypto (ADR-0005):** `LinkTokens` (32-byte base64url 43-char token, SHA-256 at rest) and
+  `DownloadKeys` (8-char `[A-Za-z0-9]` CSPRNG key, `Argon2id(pepper || key)` via Isopoh m=19 MiB
+  t=2 p=1, `download_key_version` pepper version, dummy-verify for unknown tokens). The key/URL are
+  returned exactly once at creation and never logged or listed.
+- **Abuse controls (FR-LINK-009):** `KeyThrottle` state machine (5 failures/link+IP/15 min, 0.5/1/2/4 s
+  progressive delay, 15-min lockout → 429 `too_many_attempts`; 100/hour/link → soft-lock + warning
+  log), persisted in `download_key_attempts`/`abuse_lockouts` (Postgres-backed). Unknown tokens burn
+  on a dummy verifier; lockouts skip hashing.
+- **Reservation concurrency:** `TryReserveAsync` (release-expired + atomic `successful + reserved <
+  max` `UPDATE … RETURNING`) with completion converting reserved→successful and failure/expiry/revoke
+  releasing; counts increment only on stream completion (Complete/FailGrant CTEs extended for
+  `link_id`).
+- **Config:** `LinksOptions` (public TTL default 15 d + `DownloadKeyPepper`/`DownloadKeyVersion`)
+  wired into `ConfigurationValidator`; the authoritative TTL and `public_links_enabled` are read from
+  `platform_settings` (admin override; `public_links_disabled` → **409** per task, catalog/story
+  aligned).
+- **Portal Angular:** link management on file detail (`LinkCreateDialog` shows the key once + copy,
+  list, `LinkRevokeDialog` with reason, `LinkStatsDialog`), an anonymous `/d/{token}` landing page
+  (`PublicLinksApiService` via `HttpBackend` bypasses the auth interceptor), `DownloadService`-style
+  two-step redeem→stream, and Spanish/English strings.
+- **Tests:** unit (`DownloadKeys`, `LinkTokens`, `KeyThrottle`, `LinkQueryParsing`, config pepper);
+  integration `PublicLinkTests` (create/list/revoke/stats, single-use, wrong-key 404, expired/revoked/
+  max-reached 404, 3-way reservation concurrency, completion-only counting, owner isolation,
+  integration-file 404, `public_links_enabled=false` 409, soft-lock 429); Angular specs; Playwright
+  `links.spec.ts` (create → key shown once → `/d/{token}` → key → download) + axe-core.
+
+**Decision:** `public_links_disabled` is HTTP **409** (not 403) per the S8 task; error catalog and
+US-020 aligned. Unknown grant state after revoke/failure now maps to 404 `grant_not_found`.
+
+**Next session:** S9/M5 integration API (idempotency, content/availability/delete, quotas, §15 demo).
+
+---
+
 ## 2026-10-28 — S7/M3 implemented: portal file management + download grants
 
 **Delivered (code + tests green: backend 70 integration / 145 unit, Angular 25 unit, Playwright 7 E2E + axe)**

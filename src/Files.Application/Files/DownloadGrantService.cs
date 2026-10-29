@@ -35,6 +35,7 @@ public interface IDownloadGrantService
 public sealed partial class DownloadGrantService(
     IFileRepository files,
     IDownloadGrantRepository grants,
+    IDownloadLinkRepository links,
     IUnitOfWork unitOfWork,
     TimeProvider timeProvider,
     StorageOptions storage,
@@ -116,6 +117,15 @@ public sealed partial class DownloadGrantService(
 
         try
         {
+            // A revoked/expired link invalidates its grants immediately (FR-LINK-006/013): re-check
+            // the link before streaming, after the atomic claim.
+            if (claim.LinkId is { } linkId && !await links.IsActiveAsync(linkId, now, ct))
+            {
+                await grants.FailAsync(claim.GrantId, claim.FileId, "link_revoked", ct);
+                await unitOfWork.CommitAsync(ct);
+                return ServiceResult<GrantRedeemed>.Fail(404, "grant_not_found", "Grant not found");
+            }
+
             var file = await files.GetByIdTrackedAsync(claim.FileId, ct);
             if (file is null || !IsDownloadable(file, now))
             {
@@ -170,6 +180,8 @@ public sealed partial class DownloadGrantService(
             null => ServiceResult<GrantRedeemed>.Fail(404, "grant_not_found", "Grant not found"),
             GrantState.Issued or GrantState.Expired =>
                 ServiceResult<GrantRedeemed>.Fail(410, "grant_expired", "Grant expired"),
+            GrantState.Failed =>
+                ServiceResult<GrantRedeemed>.Fail(404, "grant_not_found", "Grant not found"),
             _ => ServiceResult<GrantRedeemed>.Fail(409, "grant_consumed", "Grant already used"),
         };
 

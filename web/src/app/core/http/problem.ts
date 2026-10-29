@@ -70,6 +70,12 @@ export function problemMessageKey(code: string | undefined): string {
     case 'grant_consumed':
     case 'grant_not_found':
       return 'errors.grantInvalid';
+    case 'link_not_found':
+      return 'errors.linkInvalid';
+    case 'public_links_disabled':
+      return 'errors.publicLinksDisabled';
+    case 'link_limit_reached':
+      return 'errors.linkLimitReached';
     case 'staging_capacity_exceeded':
       return 'errors.stagingCapacity';
     case 'chunk_conflict':
@@ -116,6 +122,12 @@ export function problemMessage(problem: Problem | null): string {
       return $localize`:@@errors.legalHoldActive:El archivo está bajo retención legal y no puede modificarse ni eliminarse.`;
     case 'errors.grantInvalid':
       return $localize`:@@errors.grantInvalid:El enlace de descarga expiró o ya se usó. Intenta descargar de nuevo.`;
+    case 'errors.linkInvalid':
+      return $localize`:@@errors.linkInvalid:El enlace no es válido o ya no está disponible.`;
+    case 'errors.publicLinksDisabled':
+      return $localize`:@@errors.publicLinksDisabled:Los enlaces públicos están deshabilitados.`;
+    case 'errors.linkLimitReached':
+      return $localize`:@@errors.linkLimitReached:Se alcanzó el límite de enlaces activos.`;
     case 'errors.stagingCapacity':
       return $localize`:@@errors.stagingCapacity:No hay espacio de almacenamiento temporal disponible.`;
     case 'errors.uploadCorrupted':

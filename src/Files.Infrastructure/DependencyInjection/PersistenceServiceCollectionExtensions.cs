@@ -35,6 +35,8 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<ITagRepository, TagRepository>();
         services.AddScoped<IDownloadLinkRepository, DownloadLinkRepository>();
         services.AddScoped<IDownloadGrantRepository, DownloadGrantRepository>();
+        services.AddScoped<IKeyAttemptRepository, KeyAttemptRepository>();
+        services.AddScoped<IPlatformSettingsRepository, PlatformSettingsRepository>();
         services.AddScoped<IOutboxWriter, OutboxWriter>();
         services.AddScoped<IAuditWriter, AuditWriter>();
         services.AddScoped<IUserProvisioner, UserProvisioner>();

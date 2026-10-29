@@ -36,6 +36,7 @@ public sealed class DownloadGrantRepository(FilesDbContext db) : IDownloadGrantR
             : new GrantClaim(
                 row.Id,
                 row.FileId,
+                row.LinkId,
                 Enum.Parse<GrantSource>(row.Source.ToPascalCase(), ignoreCase: false),
                 row.IssuedToUserId);
     }
@@ -72,5 +73,5 @@ public sealed class DownloadGrantRepository(FilesDbContext db) : IDownloadGrantR
         db.Database.CurrentTransaction?.GetDbTransaction()
         ?? throw new InvalidOperationException("Grant writes require an active transaction.");
 
-    private sealed record ClaimRow(Guid Id, Guid FileId, string Source, Guid? IssuedToUserId);
+    private sealed record ClaimRow(Guid Id, Guid FileId, Guid? LinkId, string Source, Guid? IssuedToUserId);
 }

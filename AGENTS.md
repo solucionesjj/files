@@ -141,7 +141,7 @@ Local endpoints: API `http://localhost:8080`, Portal `http://localhost:4200`, Lo
 | Infrastructure | Pre-existing host + S3 bucket, managed outside the repo; no Terraform; `deploy/host-bootstrap.sh` + Compose provided |
 | Local stack, CI, scripts | Done |
 | Deployment assets | Done: host-bootstrap, Compose, Caddy, backup/restore/smoke |
-| Application code | **S7 done** — S6 portal shell/files UX plus portal management: `PATCH /v1/portal/files/{id}` (rename/retag/retention, If-Match 412), `DELETE /v1/portal/files/{id}` (logical delete + link revocation), owner download grant (`POST /v1/portal/files/{id}/downloads` → `GET /v1/download-grants/{token}` 256-bit single-use 120 s API stream, counted on completion), portal UI actions/dialogs/download, and Playwright E2E + axe-core accessibility; S8 public links next |
+| Application code | **S8 done** — S7 portal management plus S8 public links and downloads: `GET/POST /v1/portal/files/{id}/links` (list/create, key shown once), `GET /v1/portal/links`, `DELETE /v1/portal/links/{id}` (revoke + grant invalidation), `GET /v1/portal/links/{id}/stats`, `GET /v1/public/download-links/{token}`, `POST /v1/public/download-links/{token}/downloads` (8-char Argon2id key + 256-bit single-use 120 s grant), `GET /v1/download-grants/{token}` extended for public_link grants; admin TTL from `platform_settings`, atomic `max_downloads` reservation, abuse controls (progressive delay/lockout/soft-lock), completion-only counting; portal link management UI + `/d/{token}` landing page, Playwright E2E + axe-core; S9 integration API next |
 
 ## 7. Next steps (in order)
 
@@ -160,7 +160,7 @@ Local endpoints: API `http://localhost:8080`, Portal `http://localhost:4200`, Lo
 7. ✅ **S7 / M3 (done):** portal management — rename/tags/retention, logical delete, owner download
    grant (256-bit single-use 120 s API stream, counted on completion), If-Match 412 / legal-hold
    409, Playwright E2E + axe-core accessibility.
-8. **S8 / M4:** public links and downloads — link create/list/revoke, admin TTL (15 d), 8-char key
+8. ✅ **S8 / M4 (done):** public links and downloads — link create/list/revoke, admin TTL (15 d), 8-char key
    shown once, grant redemption, reservation concurrency, abuse controls, stats.
 
 Do not jump to UI before the upload/download vertical slice works end to end; it validates auth,

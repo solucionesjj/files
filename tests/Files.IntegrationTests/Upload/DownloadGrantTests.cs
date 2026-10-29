@@ -235,6 +235,7 @@ public class DownloadGrantTests(PostgresDatabaseFixture postgres, LocalStackS3Fi
     {
         Environment.SetEnvironmentVariable("ConnectionStrings__FilesDb", postgres.ConnectionString);
         Environment.SetEnvironmentVariable("Storage__StagingPath", "/tmp/files-staging");
+        Environment.SetEnvironmentVariable("Auth__LinkKeyPepper", "integration-test-pepper");
         Environment.SetEnvironmentVariable("Storage__ChunkSizeBytes", "262144");
         Environment.SetEnvironmentVariable("Storage__S3PartSizeBytes", "5242880");
         Environment.SetEnvironmentVariable("Storage__S3SinglePutThresholdBytes", "262144");
