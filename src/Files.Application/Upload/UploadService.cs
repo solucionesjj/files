@@ -2,6 +2,7 @@ using System.Text.Json;
 using Files.Application.Abstractions;
 using Files.Application.Abstractions.Repositories;
 using Files.Application.Configuration;
+using Files.Application.Files;
 using Files.Application.Integrations;
 using Files.Application.Storage;
 using Files.Domain.Entities;
@@ -656,10 +657,10 @@ public sealed partial class UploadService(
         var defaultDays = configuration.GetValue("Retention:DefaultDays", 30);
         var maxDays = configuration.GetValue("Retention:MaxDays", 365);
 
-        if (input is not null && string.Equals(input.Mode, "indefinite", StringComparison.Ordinal))
+        if (input is not null && RetentionRules.RejectIndefiniteForHuman(input.Mode) is { } indefiniteError)
         {
             retention = Retention.Indefinite();
-            error = ServiceResult<UploadSessionCreated>.Fail(422, "retention_not_allowed", "Indefinite retention is not allowed for portal files");
+            error = ServiceResult<UploadSessionCreated>.Fail(indefiniteError);
             return false;
         }
 

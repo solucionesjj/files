@@ -16,8 +16,9 @@ credentials in logs.
 
 - **Sending:** `SmtpEmailSender` using MailKit over `smtp.office365.com:587` with STARTTLS, the
   full mailbox address as username, and a password/app password stored in `/opt/files/.env`
-  (`Smtp__Password`, mode 0600). The mailbox must have **SMTP AUTH enabled**; POP remains enabled
-  only for inbound mail and is not used by Files.
+  (`Smtp__AppPassword`, mode 0600; `Smtp__Password` is accepted as a legacy alias). The mailbox
+  must have **SMTP AUTH enabled**; POP remains enabled only for inbound mail and is not used by
+  Files.
 - **From:** `Notifications__FromAddress` (e.g., `files@<company-domain>`), display name "Files".
 - **TLS:** required (`Smtp__UseStartTls=true`, port 587). Certificate validation is never disabled.
 - **Graph fallback:** `Microsoft.Graph` `sendMail` with application `Mail.Send` restricted to the

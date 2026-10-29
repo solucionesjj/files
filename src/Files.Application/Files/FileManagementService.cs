@@ -90,9 +90,10 @@ public sealed partial class FileManagementService(
         Retention? retention = null;
         if (command.Retention is { } retentionInput)
         {
-            if (string.Equals(retentionInput.Mode, "indefinite", StringComparison.Ordinal))
+            var indefiniteError = RetentionRules.RejectIndefiniteForHuman(retentionInput.Mode);
+            if (indefiniteError is not null)
             {
-                return ServiceResult<FileEntity>.Fail(422, "retention_not_allowed", "Indefinite retention is not allowed for portal files");
+                return ServiceResult<FileEntity>.Fail(indefiniteError);
             }
 
             var defaultDays = configuration.GetValue("Retention:DefaultDays", RetentionRules.DefaultDays);

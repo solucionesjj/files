@@ -3,8 +3,11 @@ using Files.Application.Abstractions.Repositories;
 using Files.Application.Configuration;
 using Files.Application.Files;
 using Files.Application.Integrations;
+using Files.Application.Notifications;
+using Files.Application.Lifecycle;
 using Files.Application.Storage;
 using Files.Application.Upload;
+using Files.Infrastructure.Email;
 using Files.Infrastructure.Persistence.Repositories;
 using Files.Infrastructure.Persistence.Writers;
 using Files.Infrastructure.Storage;
@@ -23,12 +26,15 @@ public static class StorageServiceCollectionExtensions
         services.AddSingleton(StorageOptions.FromConfiguration(configuration));
         services.AddSingleton(S3Options.FromConfiguration(configuration));
         services.AddSingleton(ClamAvOptions.FromConfiguration(configuration));
+        services.AddSingleton(SmtpOptions.FromConfiguration(configuration));
+        services.AddSingleton(SchedulerOptions.FromConfiguration(configuration));
         var linksOptions = LinksOptions.FromConfiguration(configuration);
         services.AddSingleton(linksOptions);
         services.AddSingleton(KeyThrottle.FromOptions(linksOptions));
 
         services.AddSingleton<IObjectStore, S3ObjectStore>();
         services.AddSingleton<IChunkStore, FileChunkStore>();
+        services.AddSingleton<IEmailSender, SmtpEmailSender>();
 
         // Fail closed (D-35): ClamAV is only wired when scanning is enabled and a host is present;
         // otherwise the placeholder scanner refuses to upload (never commits an unscanned file).
@@ -62,6 +68,12 @@ public static class StorageServiceCollectionExtensions
         // S9 integration API (FR-INT): file access + idempotency + quotas.
         services.AddScoped<IIntegrationFileService, IntegrationFileService>();
         services.AddScoped<IIntegrationQuotaService, IntegrationQuotaService>();
+
+        // S10 retention, legal hold, notifications (M6).
+        services.AddScoped<INotificationScheduler, NotificationScheduler>();
+        services.AddScoped<INotificationSender, NotificationSender>();
+        services.AddScoped<IExpirationService, ExpirationService>();
+        services.AddScoped<IRetentionMigrationService, RetentionMigrationService>();
 
         return services;
     }

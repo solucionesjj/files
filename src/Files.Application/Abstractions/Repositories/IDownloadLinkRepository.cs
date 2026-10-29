@@ -20,6 +20,13 @@ public interface IDownloadLinkRepository
         DateTimeOffset revokedAt,
         CancellationToken ct = default);
 
+    /// <summary>Marks all active links for a file revoked by the system (e.g. expiration), with a reason.</summary>
+    Task<int> RevokeActiveForFileBySystemAsync(
+        Guid fileId,
+        DateTimeOffset revokedAt,
+        string reason,
+        CancellationToken ct = default);
+
     /// <summary>Loads a link by its token hash (no ownership scope; used by anonymous redemption).</summary>
     Task<DownloadLink?> GetByTokenHashAsync(byte[] tokenHash, CancellationToken ct = default);
 

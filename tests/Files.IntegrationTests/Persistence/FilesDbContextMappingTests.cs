@@ -32,10 +32,12 @@ public class FilesDbContextMappingTests
 
         // The DbContext maps the 12 aggregate tables plus the integration_permissions join table
         // (part of the integration aggregate), the integration_api_keys table (ADR-0014), the
-        // upload_chunks table (S4/M2), the file_tags join table (S6 portal tag filter), and the
-        // integration_file_grants table (S9 explicit cross-integration grants);
-        // operational tables (outbox, idempotency, usage, admin audit, ...) are Dapper-only.
-        mapped.Should().HaveCount(17);
+        // upload_chunks table (S4/M2), the file_tags join table (S6 portal tag filter), the
+        // integration_file_grants table (S9 explicit cross-integration grants), and the
+        // email_templates + retention_migrations tables (S10 retention/notifications);
+        // operational tables (outbox, idempotency, usage, admin audit, notification delivery
+        // attempts, ...) are Dapper-only.
+        mapped.Should().HaveCount(19);
 
         var missing = new List<string>();
         await using var connection = new NpgsqlConnection(_fixture.ConnectionString);

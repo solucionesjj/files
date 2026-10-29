@@ -22,11 +22,14 @@ try
 
     ConfigurationValidator.ThrowIfInvalid(builder.Configuration);
 
-    builder.Services.AddHostedService<Worker>();
     builder.Services.AddFilesPersistence(builder.Configuration);
     builder.Services.AddFilesStorage(builder.Configuration);
     builder.Services.AddHostedService<UploadCleanupJob>();
     builder.Services.AddHostedService<UploadScanCommitJob>();
+    builder.Services.AddHostedService<NotificationScheduleJob>();
+    builder.Services.AddHostedService<NotificationSendJob>();
+    builder.Services.AddHostedService<ExpirationJob>();
+    builder.Services.AddHostedService<RetentionMigrationJob>();
 
     var otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
 

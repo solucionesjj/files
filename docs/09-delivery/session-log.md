@@ -6,6 +6,62 @@ entry.
 
 ---
 
+## 2026-10-29 — S10/M6 implemented: retention, legal hold, and notifications
+
+**Delivered (code + tests green: 242 unit + 97 integration + 5 contract)**
+
+- **Admin retention policy (FR-RET-001/003/007, FR-ADM-003/007):** `GET/POST
+  /v1/admin/retention-policy` — `GET` returns current + history; `POST` publishes a new active
+  version (deactivates the current row, then inserts; the `uq_retention_policies_active` partial
+  unique index enforces one active), rejects `allowIndefinite` for humans (422
+  `retention_indefinite_not_allowed`) and `maxDays < defaultDays`. Audited + outbox.
+- **Bulk retention migrations (FR-RET-003/007, FR-ADM-003, ADR-0006):** `POST
+  /v1/admin/retention-migrations` (202) + `GET .../{migrationId}`; `RetentionMigrationService`
+  claims the oldest pending row (`FOR UPDATE SKIP LOCKED`), applies the target policy default to
+  human `available` non-held files in keyset pages (uuidv7 `id` cursor), recalculates notifications
+  per file (supersede + schedule), and audits each with `admin_retention_migration`. Integration
+  files always skipped (v1).
+- **Legal hold (FR-DEL-010, FR-ADM-007):** `POST /v1/admin/files/{fileId}/legal-hold` place/release
+  (reason required, optional `reviewAt`), audited (file + admin) + outbox; place supersedes pending
+  notifications. The expiration job and every delete path skip `legal_hold=true`.
+- **Admin retention override (FR-RET-006, FR-ADM-007):** `POST /v1/admin/files/{fileId}/retention`
+  — finite-only (rejects indefinite), ≤ active policy max (365 absolute), reason required, legal
+  hold → 409; recalculates notifications (supersede + schedule) via `NotificationTiming`.
+- **Notification policy + email templates (FR-NOT-001/003, FR-ADM-004):** `GET/PUT
+  /v1/admin/notification-policy` (versioned, intervals 1..365) and `GET /v1/admin/email-templates`
+  + `PUT .../{key}/{locale}` (versioned, single active per key+locale; new version supersedes).
+- **Notification pipeline (FR-NOT-002/004/005/006/007/008/009/010, ADR-0007/0009):**
+  `NotificationScheduler` (idempotent upsert on `(file_id, interval_days, expiration_at)`, skips
+  retroactive intervals, revives only `superseded`), `NotificationSender` (claims due rows
+  `FOR UPDATE SKIP LOCKED`, reclaims `sending` >10 min, renders the recipient-locale template with
+  the strict variable allowlist, sends via `IEmailSender`, records
+  `notification_delivery_attempts`; provider-accepted is distinct from delivered). `SmtpEmailSender`
+  (MailKit, SMTP AUTH 587 STARTTLS; POP never used); retries 1/5/15 m + 1/6 h backoff, 5 attempts
+  max; transient vs permanent failures distinct. No email/credential is ever logged.
+- **Expiration job (FR-RET-008, FR-DEL-001/002/005, first cut):** `ExpirationService` transitions
+  past-expiry `available` files to `pending_deletion` (skipping legal hold), revokes links, cancels
+  notifications, audits `expired` + outbox `file.expired`. Physical S3 deletion is S11.
+- **Config:** `SmtpOptions` (host/port=587/username/`AppPassword` secret from env, `Smtp__Password`
+  legacy alias; never logged) + `SchedulerOptions`; `ConfigurationValidator` extended (key names
+  only). `V5__retention_notifications.sql` (SMTP provider default, candidate/sending indexes). New
+  EF entities `EmailTemplate` + `RetentionMigration`; Dapper repos for notification/expiry/migration.
+- **Tests:** unit `NotificationTimingTests`/`NotificationRetryTests`/`EmailTemplateRendererTests`/
+  `SmtpOptionsTests` + `RetentionRulesTests` (indefinite); integration `RetentionNotificationsTests`
+  (policy versioning, legal hold blocks expiry + release, bulk migration + supersede, scheduling
+  dedupe + SMTP delivery via Mailpit, retry/attempt states, notification policy + template
+  versioning); `ContractSurfaceTests` guards the admin retention/notification surface; mapping
+  test bumped to 19 mapped entities.
+
+**Decision:** the SMTP secret key is `Smtp__AppPassword` (ADR-0009's `Smtp__Password` accepted as a
+legacy alias). Background jobs use the existing `BackgroundService` + `FOR UPDATE SKIP LOCKED`
+pattern (Quartz/advisory locks remain deferred, consistent with S5); the retention/notification
+rules that live in SQL are mirrored by the pure `NotificationTiming` helper for unit-testability.
+
+**Next:** S11 — physical S3 deletion job, tombstones, reconciliation, retention purge, and
+metrics/alerts.
+
+---
+
 ## 2026-10-29 — S9/M5 implemented: integration API (machine-to-machine)
 
 **Delivered (code + tests green: 229 unit + 91 integration + 3 contract)**

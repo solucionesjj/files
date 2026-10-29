@@ -87,4 +87,16 @@ public class RetentionRulesTests
         error!.Code.Should().Be("retention_reason_required");
         retention.Should().BeNull();
     }
+
+    [Fact]
+    public void Indefinite_retention_is_rejected_for_humans()
+    {
+        var error = RetentionRules.RejectIndefiniteForHuman("indefinite");
+        error.Should().NotBeNull();
+        error!.Code.Should().Be("retention_not_allowed");
+        error.Status.Should().Be(422);
+
+        RetentionRules.RejectIndefiniteForHuman("finite").Should().BeNull();
+        RetentionRules.RejectIndefiniteForHuman(null).Should().BeNull();
+    }
 }

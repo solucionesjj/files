@@ -44,6 +44,27 @@ public sealed class DownloadLinkRepository(FilesDbContext db) : IDownloadLinkRep
         return active.Count;
     }
 
+    public async Task<int> RevokeActiveForFileBySystemAsync(
+        Guid fileId,
+        DateTimeOffset revokedAt,
+        string reason,
+        CancellationToken ct = default)
+    {
+        var active = await db.DownloadLinks
+            .Where(l => l.FileId == fileId && l.Status == LinkStatus.Active)
+            .ToListAsync(ct);
+
+        foreach (var link in active)
+        {
+            link.Status = LinkStatus.Revoked;
+            link.RevokedAt = revokedAt;
+            link.RevokedBy = null;
+            link.RevokedReason = reason;
+        }
+
+        return active.Count;
+    }
+
     public Task<DownloadLink?> GetByTokenHashAsync(byte[] tokenHash, CancellationToken ct = default) =>
         db.DownloadLinks.AsNoTracking().SingleOrDefaultAsync(l => l.TokenHash == tokenHash, ct);
 

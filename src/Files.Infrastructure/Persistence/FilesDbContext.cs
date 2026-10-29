@@ -48,6 +48,10 @@ public sealed class FilesDbContext : DbContext
 
     public DbSet<NotificationEvent> NotificationEvents => Set<NotificationEvent>();
 
+    public DbSet<EmailTemplate> EmailTemplates => Set<EmailTemplate>();
+
+    public DbSet<RetentionMigration> RetentionMigrations => Set<RetentionMigration>();
+
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

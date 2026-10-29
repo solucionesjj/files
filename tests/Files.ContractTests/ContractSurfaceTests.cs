@@ -38,4 +38,35 @@ public class ContractSurfaceTests
         Assert.Contains("name: Range", Contract);
         Assert.Contains("name: X-Api-Key", Contract);
     }
+
+    [Fact]
+    public void Admin_retention_and_notification_endpoints_are_declared()
+    {
+        Assert.Contains("operationId: getRetentionPolicy", Contract);
+        Assert.Contains("operationId: createRetentionPolicy", Contract);
+        Assert.Contains("operationId: createRetentionMigration", Contract);
+        Assert.Contains("operationId: getRetentionMigration", Contract);
+        Assert.Contains("operationId: overrideFileRetention", Contract);
+        Assert.Contains("operationId: setLegalHold", Contract);
+        Assert.Contains("operationId: getNotificationPolicy", Contract);
+        Assert.Contains("operationId: updateNotificationPolicy", Contract);
+        Assert.Contains("operationId: listEmailTemplates", Contract);
+        Assert.Contains("operationId: upsertEmailTemplate", Contract);
+    }
+
+    [Fact]
+    public void Admin_retention_and_notification_schemas_are_declared()
+    {
+        Assert.Contains("RetentionPolicy:", Contract);
+        Assert.Contains("RetentionPolicyHistory:", Contract);
+        Assert.Contains("CreateRetentionPolicyRequest:", Contract);
+        Assert.Contains("RetentionMigration:", Contract);
+        Assert.Contains("CreateRetentionMigrationRequest:", Contract);
+        Assert.Contains("NotificationPolicy:", Contract);
+        Assert.Contains("UpdateNotificationPolicyRequest:", Contract);
+        Assert.Contains("EmailTemplate:", Contract);
+        Assert.Contains("UpsertEmailTemplateRequest:", Contract);
+        Assert.Contains("AdminRetentionOverrideRequest:", Contract);
+        Assert.Contains("LegalHoldRequest:", Contract);
+    }
 }

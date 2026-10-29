@@ -60,7 +60,7 @@ S6. S10 depends on S5 and S9. S11 depends on S10.
 | M3 | ✅ | ✅ | S6 done: portal shell (MSAL sign-in + `/v1/me` roles), owner-scoped file list/search/filters/sort/cursor pagination, read-only detail, and chunked upload orchestration. S7 done: rename/tags/retention, logical delete, owner download grant (256-bit single-use 120 s API stream, counted on completion), If-Match 412 / legal-hold 409, E2E Playwright + axe accessibility. S8 (links) remains. |
 | M4 | ✅ | ✅ | S8 done: public links and downloads — create/list/revoke/stats (owner-scoped), admin TTL (15 d), 8-char key shown once (Argon2id + versioned pepper), anonymous metadata + key redemption, 120 s single-use grants, atomic `max_downloads` reservation (concurrency), abuse controls (progressive delay/lockout/soft-lock + alert), completion-only counting, portal link management UI + `/d/{token}` landing page, Playwright E2E + axe-core. Private links/Graph deferred (ADR-0014). |
 | M5 | ✅ | ✅ | S9 done: integration file endpoints (`GET /v1/integrations/files`, `GET/DELETE /v1/integrations/files/{fileId}`, `GET .../availability`, `GET .../content`) on top of the API-key auth + chunk-upload machinery; ownership OR active `integration_file_grants` (foreign → 404, grants read-only); `Idempotency-Key` (24 h, replay / `idempotency_key_reuse` 422 / `idempotency_in_progress` 409); per-integration quotas (max file size, concurrent sessions, daily bytes via `daily_usage` → 429 `quota_exceeded`); single-range downloads (`Range` 206/416) counted only on completion (source/actor = integration); §15 flow + contract/unit/integration tests. |
-| M6 | ✅ | ⬜ | Background jobs and notifications designed. |
+| M6 | ✅ | 🟡 | S10 done: retention policy versioning (publish + history), legal hold (place/release, blocks expiry + delete), admin retention override, bulk retention migrations, notification policy + email-template versioning, notification scheduling/sending (SMTP via MailKit, dedupe/supersede/retry/attempt states), and the expiration job (skip legal hold). Physical S3 deletion + reconciliation (S11) remain. |
 | M7 | ✅ | ⬜ | SLOs, runbooks, cost model, threat model ready. |
 
 Legend: ✅ complete · 🟡 in progress · ⬜ not started.
@@ -98,8 +98,8 @@ Legend: ✅ complete · 🟡 in progress · ⬜ not started.
 | Key brute force incident | Security | Throttling + monitoring designed; rehearse runbook. |
 | Backup erasure expectations | Legal | ADR-0008 wording; legal sign-off. |
 
-## 6. Next session (S9) checklist
+## 6. Next session (S11) checklist
 
 1. Read `AGENTS.md`, this roadmap, and the [session log](session-log.md).
-2. ✅ **S9 (done):** integration API — API-key auth + chunk upload already existed (S3b/S5); added list/get/delete/availability/content endpoints, ownership + explicit grants (404 for foreign), `Idempotency-Key` (create/complete/delete), per-integration quotas (max file size, concurrent sessions, daily bytes), single-range downloads counted on completion, §15 flow, and contract/unit/integration tests; `make validate` green.
-3. **S10 (next):** retention, legal hold, and notifications — policy versioning (30/365 + note), legal hold, scheduler, templates/renderer, M365 SMTP sender, retries, admin endpoints/UI.
+2. ✅ **S10 (done):** retention, legal hold, and notifications — policy versioning (30/365 + note), legal hold, admin retention override, bulk retention migrations, notification policy + email-template versioning, notification scheduler/sender (SMTP via MailKit, dedupe/supersede/retry/attempt states), expiration job (skip legal hold), and contract/unit/integration tests (incl. Mailpit SMTP sink).
+3. **S11 (next):** expiration and deletion completion — physical S3 deletion job, tombstones, reconciliation, retention purge, and metrics/alerts.

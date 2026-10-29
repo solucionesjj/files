@@ -15,6 +15,15 @@ public static class RetentionRules
     public const int MinReasonLength = 10;
 
     /// <summary>
+    /// Rejects an indefinite retention request for a human-owned (portal) file. Indefinite retention
+    /// is integration-only (ADR-0006); humans always resolve a finite expiry.
+    /// </summary>
+    public static ServiceError? RejectIndefiniteForHuman(string? mode) =>
+        string.Equals(mode, "indefinite", StringComparison.Ordinal)
+            ? new ServiceError(422, "retention_not_allowed", "Indefinite retention is not allowed for portal files")
+            : null;
+
+    /// <summary>
     /// Validates a requested finite retention and resolves the concrete expiry (relative to
     /// <paramref name="now"/>, the server clock). Returns a <see cref="ServiceError"/> on failure
     /// and a resolved <see cref="Retention"/> on success.

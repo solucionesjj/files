@@ -51,6 +51,14 @@ public static class ConfigurationValidator
         ValidatePositiveIntIfPresent(configuration, "Abuse__KeyLockoutMinutes", errors);
         ValidatePositiveIntIfPresent(configuration, "Abuse__MaxFailuresPerLinkPerHour", errors);
 
+        ValidatePositiveIntIfPresent(configuration, "Smtp__Port", errors);
+        ValidatePositiveIntIfPresent(configuration, "Scheduler__NotificationScheduleSeconds", errors);
+        ValidatePositiveIntIfPresent(configuration, "Scheduler__NotificationSendSeconds", errors);
+        ValidatePositiveIntIfPresent(configuration, "Scheduler__ExpirationSeconds", errors);
+        ValidatePositiveIntIfPresent(configuration, "Scheduler__NotificationMaxAttempts", errors);
+        ValidatePositiveIntIfPresent(configuration, "Scheduler__SenderReclaimSeconds", errors);
+        ValidatePositiveIntIfPresent(configuration, "Scheduler__MigrationBatchSize", errors);
+
         return errors;
     }
 
