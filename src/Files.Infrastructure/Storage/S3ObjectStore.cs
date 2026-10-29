@@ -167,5 +167,79 @@ public sealed class S3ObjectStore : IObjectStore, IDisposable
         }
     }
 
+    public async Task DeleteObjectAsync(string key, CancellationToken ct = default)
+    {
+        try
+        {
+            var request = new DeleteObjectRequest { BucketName = _bucket, Key = key };
+            await _client.DeleteObjectAsync(request, ct).ConfigureAwait(false);
+        }
+        catch (AmazonS3Exception ex) when (string.Equals(ex.ErrorCode, "NoSuchKey", StringComparison.Ordinal))
+        {
+            // Idempotent success (FR-DEL-003): a missing object is already deleted.
+            return;
+        }
+        catch (AmazonS3Exception ex)
+        {
+            throw Translate(ex);
+        }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // A provider timeout surfaces as a retryable failure, never as a cancellation.
+            throw new StorageException(StorageErrorKind.Retryable, "timeout", "The storage request timed out.");
+        }
+    }
+
+    public async Task<IReadOnlyList<ObjectListEntry>> ListObjectsAsync(string prefix, int maxKeys, CancellationToken ct = default)
+    {
+        var request = new ListObjectsV2Request
+        {
+            BucketName = _bucket,
+            Prefix = prefix,
+            MaxKeys = maxKeys,
+        };
+
+        var response = await _client.ListObjectsV2Async(request, ct).ConfigureAwait(false);
+        return (response.S3Objects ?? [])
+            .Select(o => new ObjectListEntry(o.Key, o.Size ?? 0))
+            .ToArray();
+    }
+
+    public async Task CopyObjectAsync(string sourceKey, string destinationKey, CancellationToken ct = default)
+    {
+        try
+        {
+            var request = new CopyObjectRequest
+            {
+                SourceBucket = _bucket,
+                SourceKey = sourceKey,
+                DestinationBucket = _bucket,
+                DestinationKey = destinationKey,
+            };
+
+            await _client.CopyObjectAsync(request, ct).ConfigureAwait(false);
+        }
+        catch (AmazonS3Exception ex)
+        {
+            throw Translate(ex);
+        }
+    }
+
+    private static StorageException Translate(AmazonS3Exception ex)
+    {
+        var kind = StorageErrors.IsRetryable(ex.ErrorCode, (int?)ex.StatusCode)
+            ? StorageErrorKind.Retryable
+            : StorageErrorKind.Permanent;
+        var code = StorageErrors.SanitizeCode(ex.ErrorCode, (int?)ex.StatusCode);
+
+        // The provider message may embed the object key or bucket; never surface it. Build a
+        // sanitized, stable message from the classification only.
+        var message = kind == StorageErrorKind.Retryable
+            ? "The storage request failed and may be retried."
+            : "The storage request failed permanently.";
+
+        return new StorageException(kind, code, message);
+    }
+
     public void Dispose() => _client.Dispose();
 }

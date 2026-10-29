@@ -423,6 +423,15 @@ public class UploadApiTests(PostgresDatabaseFixture postgres, LocalStackS3Fixtur
 
         public Task<Stream> GetObjectAsync(string key, long offset, long length, CancellationToken ct = default) =>
             throw new NotImplementedException();
+
+        public Task DeleteObjectAsync(string key, CancellationToken ct = default) =>
+            Task.CompletedTask;
+
+        public Task<IReadOnlyList<Files.Application.Storage.ObjectListEntry>> ListObjectsAsync(string prefix, int maxKeys, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<Files.Application.Storage.ObjectListEntry>>([]);
+
+        public Task CopyObjectAsync(string sourceKey, string destinationKey, CancellationToken ct = default) =>
+            throw new NotImplementedException();
     }
 
     private static HttpClient PortalClient(WebApplicationFactory<Program> factory, out string token)

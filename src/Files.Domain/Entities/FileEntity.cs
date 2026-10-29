@@ -21,8 +21,7 @@ public sealed class FileEntity : IVersionedEntity
 
     public string StorageBucket { get; set; } = string.Empty;
 
-    public string StorageKey { get; set; } = string.Empty;
-
+    public string? StorageKey { get; set; }
     public long SizeBytes { get; set; }
 
     public string ContentType { get; set; } = string.Empty;

@@ -39,7 +39,7 @@ public static partial class DownloadGrantEndpoints
         Stream stream;
         try
         {
-            stream = await objectStore.GetObjectAsync(file.StorageKey, ct);
+            stream = await objectStore.GetObjectAsync(file.StorageKey!, ct);
         }
         catch (ObjectMissingException)
         {

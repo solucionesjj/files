@@ -12,6 +12,9 @@ public sealed class ObjectMissingException : Exception
 /// <summary>A single S3 object's existence and metadata, as returned by <c>HeadObject</c>.</summary>
 public sealed record ObjectHead(bool Exists, string? ETag, long SizeBytes, string? ContentType);
 
+/// <summary>One object returned by a bounded <c>ListObjectsV2</c> page (key + size only).</summary>
+public sealed record ObjectListEntry(string Key, long SizeBytes);
+
 /// <summary>One completed multipart part (its number and the ETag S3 returned).</summary>
 public sealed record UploadedPart(int PartNumber, string ETag);
 
@@ -59,4 +62,22 @@ public interface IObjectStore
 
     /// <summary>Opens a byte range of the object's content stream (single range, the caller disposes it).</summary>
     Task<Stream> GetObjectAsync(string key, long offset, long length, CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes an object idempotently (FR-DEL-003): a missing object (<c>NoSuchKey</c>/404) is
+    /// treated as success and returns normally. Retryable failures throw
+    /// <see cref="StorageException"/> with <see cref="StorageErrorKind.Retryable"/>; permanent
+    /// failures throw with <see cref="StorageErrorKind.Permanent"/>.
+    /// </summary>
+    Task DeleteObjectAsync(string key, CancellationToken ct = default);
+
+    /// <summary>
+    /// Lists up to <paramref name="maxKeys"/> objects under <paramref name="prefix"/>, bounded
+    /// (ADR-0008 reconciliation). Keys are returned verbatim to the caller but must never be logged
+    /// in full — only a fingerprint.
+    /// </summary>
+    Task<IReadOnlyList<ObjectListEntry>> ListObjectsAsync(string prefix, int maxKeys, CancellationToken ct = default);
+
+    /// <summary>Server-side copy of an object (used by reconciliation to move orphans to <c>orphan/</c>).</summary>
+    Task CopyObjectAsync(string sourceKey, string destinationKey, CancellationToken ct = default);
 }

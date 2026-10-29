@@ -1,5 +1,6 @@
 using Files.Application.Configuration;
 using Files.Application.Lifecycle;
+using Files.Application.Telemetry;
 using Microsoft.Extensions.Logging;
 
 namespace Files.Worker;
@@ -8,8 +9,11 @@ namespace Files.Worker;
 public sealed partial class ExpirationJob(
     IServiceScopeFactory scopeFactory,
     ILogger<ExpirationJob> logger,
-    SchedulerOptions scheduler) : BackgroundService
+    SchedulerOptions scheduler,
+    LifecycleMetrics metrics) : BackgroundService
 {
+    public const string JobName = "files:expire";
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(scheduler.ExpirationSeconds));
@@ -35,6 +39,7 @@ public sealed partial class ExpirationJob(
         using var scope = scopeFactory.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<IExpirationService>();
         var summary = await service.RunOnceAsync(ct);
+        metrics.RecordJobSuccess(JobName, TimeProvider.System.GetUtcNow());
         if (summary.Expired > 0)
         {
             Log.Expired(logger, summary.Expired);

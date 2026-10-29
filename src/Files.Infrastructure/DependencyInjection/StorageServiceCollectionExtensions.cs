@@ -1,11 +1,13 @@
 using Files.Application.Abstractions;
 using Files.Application.Abstractions.Repositories;
 using Files.Application.Configuration;
+using Files.Application.Deletion;
 using Files.Application.Files;
 using Files.Application.Integrations;
 using Files.Application.Notifications;
 using Files.Application.Lifecycle;
 using Files.Application.Storage;
+using Files.Application.Telemetry;
 using Files.Application.Upload;
 using Files.Infrastructure.Email;
 using Files.Infrastructure.Persistence.Repositories;
@@ -28,6 +30,7 @@ public static class StorageServiceCollectionExtensions
         services.AddSingleton(ClamAvOptions.FromConfiguration(configuration));
         services.AddSingleton(SmtpOptions.FromConfiguration(configuration));
         services.AddSingleton(SchedulerOptions.FromConfiguration(configuration));
+        services.AddSingleton<LifecycleMetrics>();
         var linksOptions = LinksOptions.FromConfiguration(configuration);
         services.AddSingleton(linksOptions);
         services.AddSingleton(KeyThrottle.FromOptions(linksOptions));
@@ -74,6 +77,11 @@ public static class StorageServiceCollectionExtensions
         services.AddScoped<INotificationSender, NotificationSender>();
         services.AddScoped<IExpirationService, ExpirationService>();
         services.AddScoped<IRetentionMigrationService, RetentionMigrationService>();
+
+        // S11 expiration & deletion completion (M6).
+        services.AddScoped<IDeletionService, DeletionService>();
+        services.AddScoped<ITombstonePurgeService, TombstonePurgeService>();
+        services.AddScoped<IReconciliationService, ReconciliationService>();
 
         return services;
     }

@@ -1,3 +1,4 @@
+using Files.Application.Telemetry;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using OpenTelemetry;
@@ -30,6 +31,7 @@ public static class TelemetrySetup
             .WithMetrics(metrics =>
             {
                 metrics.AddAspNetCoreInstrumentation().AddHttpClientInstrumentation().AddRuntimeInstrumentation();
+                metrics.AddMeter(LifecycleMetrics.MeterName);
                 AddOtlpExporterIfConfigured(metrics, configuration);
             });
 

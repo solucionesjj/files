@@ -1,4 +1,5 @@
 using Files.Application.Lifecycle;
+using Files.Application.Telemetry;
 using Microsoft.Extensions.Logging;
 
 namespace Files.Worker;
@@ -6,8 +7,11 @@ namespace Files.Worker;
 /// <summary>Processes pending bulk retention migrations in bounded pages (ADR-0006).</summary>
 public sealed partial class RetentionMigrationJob(
     IServiceScopeFactory scopeFactory,
-    ILogger<RetentionMigrationJob> logger) : BackgroundService
+    ILogger<RetentionMigrationJob> logger,
+    LifecycleMetrics metrics) : BackgroundService
 {
+    public const string JobName = "files:retention-migration";
+
     private static readonly TimeSpan Interval = TimeSpan.FromSeconds(15);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -35,6 +39,7 @@ public sealed partial class RetentionMigrationJob(
         using var scope = scopeFactory.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<IRetentionMigrationService>();
         var summary = await service.RunOnceAsync(ct);
+        metrics.RecordJobSuccess(JobName, TimeProvider.System.GetUtcNow());
         if (summary.MigrationId is not null)
         {
             Log.Progress(logger, summary.MigrationId.Value, summary.Processed, summary.Completed);

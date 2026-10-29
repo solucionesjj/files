@@ -133,7 +133,7 @@ Local endpoints: API `http://localhost:8080`, Portal `http://localhost:4200`, Lo
 |---|---|
 | Product requirements, stories, RBAC | Done |
 | Architecture + ADRs | Done |
-| Data model + V1/V2/V3/V4/V5 migrations | Done, validated on PostgreSQL 18.6 |
+| Data model + V1/V2/V3/V4/V5/V6 migrations | Done, validated on PostgreSQL 18.6 |
 | OpenAPI contract | Done, Redocly-valid |
 | Security designs + threat model | Done |
 | Workflows (lifecycle/upload/download/retention) | Done |
@@ -141,7 +141,7 @@ Local endpoints: API `http://localhost:8080`, Portal `http://localhost:4200`, Lo
 | Infrastructure | Pre-existing host + S3 bucket, managed outside the repo; no Terraform; `deploy/host-bootstrap.sh` + Compose provided |
 | Local stack, CI, scripts | Done |
 | Deployment assets | Done: host-bootstrap, Compose, Caddy, backup/restore/smoke |
-| Application code | **S10 done** — S7 portal management, S8 public links and downloads, S9 integration API (`GET /v1/integrations/files`, `GET/DELETE /v1/integrations/files/{fileId}`, `GET .../availability`, `GET .../content` streamed single-range 206/416 with completion-only counting + `Idempotency-Key` + per-integration quotas), plus S10 retention/legal-hold/notifications: admin `GET/POST /v1/admin/retention-policy` (versioned publish + history), `POST /v1/admin/retention-migrations` + `GET .../{migrationId}` (async bulk apply), `POST /v1/admin/files/{fileId}/legal-hold` (place/release, audited, blocks expiry + delete), `POST /v1/admin/files/{fileId}/retention` (audited finite override), `GET/PUT /v1/admin/notification-policy`, `GET /v1/admin/email-templates` + `PUT .../{key}/{locale}` (versioned), a notification scheduler/sender (SMTP via MailKit, dedupe/supersede/retry/attempt states), and an expiration job (skip legal hold); physical S3 deletion/reconciliation is S11 |
+| Application code | **S11 done** — S7 portal management, S8 public links and downloads, S9 integration API (`GET /v1/integrations/files`, `GET/DELETE /v1/integrations/files/{fileId}`, `GET .../availability`, `GET .../content` streamed single-range 206/416 with completion-only counting + `Idempotency-Key` + per-integration quotas), S10 retention/legal-hold/notifications (admin retention policy + migrations, legal hold, admin retention override, notification policy + email templates, notification scheduler/sender via SMTP, expiration job), and S11 expiration & deletion completion: physical S3 deletion job (idempotent, retry/backoff, legal-hold skip), tombstones + 60-month retention purge (`V6`), DB↔S3 reconciliation (missing-object quarantine + orphan move), and lifecycle metrics/alerts (`files_expired_total`, `files_deletion_failures_total`, `notification_delivery_failures_total`, `reconcile_*`, `job_last_success` gauge) |
 
 ## 7. Next steps (in order)
 
@@ -164,11 +164,16 @@ Local endpoints: API `http://localhost:8080`, Portal `http://localhost:4200`, Lo
    shown once, grant redemption, reservation concurrency, abuse controls, stats.
 9. ✅ **S9 / M5 (done):** integration API — machine-to-machine upload/list/get/availability/content/
    delete with Files-issued API keys, idempotency, and per-integration quotas.
-10. ✅ **S10 / M6 (partial):** retention, legal hold, and notifications — admin retention policy
+10. ✅ **S10 / M6 (done):** retention, legal hold, and notifications — admin retention policy
     versioning + bulk migrations, legal hold (place/release, blocks expiry + delete), admin
     retention override, notification policy + email-template versioning, notification
     scheduler/sender (SMTP via MailKit, dedupe/supersede/retry/attempt states), and the expiration
-    job (skip legal hold). Physical S3 deletion + reconciliation is S11.
+    job (skip legal hold).
+11. ✅ **S11 / M6 (done):** expiration and deletion completion — physical S3 deletion job
+    (idempotent, retry/backoff, legal-hold skip), tombstones + 60-month retention purge (`V6`),
+    DB↔S3 reconciliation (missing-object quarantine + orphan move), and lifecycle metrics/alerts
+    (`files_expired_total`, `files_deletion_failures_total`, `notification_delivery_failures_total`,
+    `reconcile_*`, `job_last_success` gauge). Physical S3 deletion + reconciliation complete.
 
 Do not jump to UI before the upload/download vertical slice works end to end; it validates auth,
 DB, S3, streaming, audit, and counts together.

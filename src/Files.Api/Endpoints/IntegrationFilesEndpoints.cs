@@ -210,8 +210,8 @@ public static partial class IntegrationFilesEndpoints
         try
         {
             stream = parse == ByteRangeParse.Satisfiable
-                ? await objectStore.GetObjectAsync(file.StorageKey, offset, length, ct)
-                : await objectStore.GetObjectAsync(file.StorageKey, ct);
+                ? await objectStore.GetObjectAsync(file.StorageKey!, offset, length, ct)
+                : await objectStore.GetObjectAsync(file.StorageKey!, ct);
         }
         catch (ObjectMissingException)
         {

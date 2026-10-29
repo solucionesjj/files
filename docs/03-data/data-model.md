@@ -53,7 +53,7 @@ tables without aggregate relationships.
 
 | Table | Purpose | Key constraints |
 |---|---|---|
-| `files` | File metadata, ownership, storage reference, lifecycle, retention, legal hold, stats. | Owner XOR; retention mode/expiry consistency; `retention_days ≤365`; legal-hold state consistency; deleted iff `deleted_at`; integration ⇒ `integration_only`; unique `storage_key`. |
+| `files` | File metadata, ownership, storage reference, lifecycle, retention, legal hold, stats. | Owner XOR; retention mode/expiry consistency; `retention_days ≤365`; legal-hold state consistency; deleted iff `deleted_at`; integration ⇒ `integration_only`; unique `storage_key` (nullable from `V6`; nulled only at tombstone purge). |
 | `tags` | Reusable tags, global or per-user. | `UNIQUE NULLS NOT DISTINCT (scope, owner_user_id, name)` (case-insensitive via `citext`). |
 | `file_tags` | File ↔ tag. | PK (`file_id`, `tag_id`), cascade. |
 | `upload_sessions` | Upload intent, expected size/type/checksum, chunk geometry, local staging path, S3 upload ID, state. | One per file (`UNIQUE file_id`); unique `staging_path`; `received_bytes <= expected_size_bytes`; status/expiry. |
@@ -212,6 +212,8 @@ streams the staging file to S3. A retry after a failed S3 commit reuses the same
 | `ix_files_expiry ... WHERE status='available'` | Expiration scan. |
 | `ix_files_filename_trgm` | `ILIKE '%term%'` filename search. |
 | `ix_files_pending_deletion (next_deletion_at)` | Deletion due batch. |
+| `ix_files_deleted_purge (deleted_at) WHERE status='deleted' AND storage_key IS NOT NULL` | Tombstone purge (V6). |
+| `ix_files_available_reconcile (id) WHERE status='available'` | Reconciliation DB→S3 keyset page (V6). |
 | `uq_notification_schedule` | Duplicate prevention + due lookup. |
 | `ix_notifications_pending (next_attempt_at)` | Sender batch. |
 | `ix_outbox_pending (available_at)` | Dispatcher claim. |

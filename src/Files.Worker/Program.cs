@@ -1,4 +1,5 @@
 using Files.Application.Configuration;
+using Files.Application.Telemetry;
 using Files.Infrastructure.DependencyInjection;
 using Files.Worker;
 using Microsoft.Extensions.Configuration;
@@ -30,6 +31,9 @@ try
     builder.Services.AddHostedService<NotificationSendJob>();
     builder.Services.AddHostedService<ExpirationJob>();
     builder.Services.AddHostedService<RetentionMigrationJob>();
+    builder.Services.AddHostedService<DeletionJob>();
+    builder.Services.AddHostedService<TombstonePurgeJob>();
+    builder.Services.AddHostedService<ReconciliationJob>();
 
     var otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"];
 
@@ -38,6 +42,7 @@ try
         .WithMetrics(metrics =>
         {
             metrics.AddRuntimeInstrumentation();
+            metrics.AddMeter(LifecycleMetrics.MeterName);
             if (!string.IsNullOrWhiteSpace(otlpEndpoint))
             {
                 var target = otlpEndpoint;

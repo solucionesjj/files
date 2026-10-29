@@ -58,6 +58,12 @@ public static class ConfigurationValidator
         ValidatePositiveIntIfPresent(configuration, "Scheduler__NotificationMaxAttempts", errors);
         ValidatePositiveIntIfPresent(configuration, "Scheduler__SenderReclaimSeconds", errors);
         ValidatePositiveIntIfPresent(configuration, "Scheduler__MigrationBatchSize", errors);
+        ValidatePositiveIntIfPresent(configuration, "Scheduler__DeletionSeconds", errors);
+        ValidatePositiveIntIfPresent(configuration, "Scheduler__ReconcileSeconds", errors);
+        ValidatePositiveIntIfPresent(configuration, "Scheduler__PurgeSeconds", errors);
+        ValidatePositiveIntIfPresent(configuration, "Scheduler__DeletionMaxAttempts", errors);
+        ValidatePositiveIntIfPresent(configuration, "Scheduler__DeletionBatchSize", errors);
+        ValidatePositiveIntIfPresent(configuration, "Scheduler__ReconcileBatchSize", errors);
 
         return errors;
     }

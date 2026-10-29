@@ -46,6 +46,8 @@ public static class PersistenceServiceCollectionExtensions
         services.AddScoped<IRetentionMigrationRepository, RetentionMigrationRepository>();
         services.AddScoped<INotificationEventRepository, NotificationEventRepository>();
         services.AddScoped<IFileExpiryRepository, FileExpiryRepository>();
+        services.AddScoped<IFileDeletionRepository, FileDeletionRepository>();
+        services.AddScoped<IFileReconciliationRepository, FileReconciliationRepository>();
         services.AddScoped<IOutboxWriter, OutboxWriter>();
         services.AddScoped<IAuditWriter, AuditWriter>();
         services.AddScoped<IUserProvisioner, UserProvisioner>();

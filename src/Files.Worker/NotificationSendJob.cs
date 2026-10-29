@@ -1,5 +1,6 @@
 using Files.Application.Configuration;
 using Files.Application.Notifications;
+using Files.Application.Telemetry;
 using Microsoft.Extensions.Logging;
 
 namespace Files.Worker;
@@ -8,8 +9,11 @@ namespace Files.Worker;
 public sealed partial class NotificationSendJob(
     IServiceScopeFactory scopeFactory,
     ILogger<NotificationSendJob> logger,
-    SchedulerOptions scheduler) : BackgroundService
+    SchedulerOptions scheduler,
+    LifecycleMetrics metrics) : BackgroundService
 {
+    public const string JobName = "files:notify-send";
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(scheduler.NotificationSendSeconds));
@@ -35,6 +39,7 @@ public sealed partial class NotificationSendJob(
         using var scope = scopeFactory.CreateScope();
         var service = scope.ServiceProvider.GetRequiredService<INotificationSender>();
         var summary = await service.RunOnceAsync(ct);
+        metrics.RecordJobSuccess(JobName, TimeProvider.System.GetUtcNow());
         Log.Completed(logger, summary.Reclaimed, summary.Sent, summary.Failed, summary.Suppressed);
     }
 

@@ -81,6 +81,23 @@ public class ConfigurationValidatorTests
             .WithMessage("*ConnectionStrings__FilesDb*");
     }
 
+    [Theory]
+    [InlineData("Scheduler:DeletionSeconds")]
+    [InlineData("Scheduler:ReconcileSeconds")]
+    [InlineData("Scheduler:PurgeSeconds")]
+    [InlineData("Scheduler:DeletionMaxAttempts")]
+    [InlineData("Scheduler:DeletionBatchSize")]
+    [InlineData("Scheduler:ReconcileBatchSize")]
+    public void Validate_rejects_non_positive_scheduler_deletion_keys(string key)
+    {
+        var config = ValidConfig();
+        config[key].Returns("0");
+
+        var errors = ConfigurationValidator.Validate(config);
+
+        errors.Should().ContainSingle(e => e.Contains(key.Replace(":", "__"), StringComparison.Ordinal));
+    }
+
     private static IConfiguration ValidConfig()
     {
         var config = Substitute.For<IConfiguration>();

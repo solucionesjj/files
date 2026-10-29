@@ -31,7 +31,8 @@ public sealed partial class UploadCommitter(
 
     public async Task CommitAsync(FileEntity file, UploadSession session, CancellationToken ct = default)
     {
-        var key = file.StorageKey;
+        var key = file.StorageKey
+            ?? throw new InvalidOperationException("A file being committed must have a storage key.");
 
         if (file.SizeBytes <= storage.S3SinglePutThresholdBytes)
         {

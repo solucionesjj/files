@@ -1,6 +1,7 @@
 using Files.Application.Abstractions;
 using Files.Application.Abstractions.Repositories;
 using Files.Application.Configuration;
+using Files.Application.Telemetry;
 using Microsoft.Extensions.Logging;
 
 namespace Files.Application.Notifications;
@@ -29,6 +30,7 @@ public sealed partial class NotificationSender(
     SmtpOptions smtp,
     SchedulerOptions scheduler,
     TimeProvider timeProvider,
+    LifecycleMetrics metrics,
     ILogger<NotificationSender> logger) : INotificationSender
 {
     private const int BatchSize = 50;
@@ -104,6 +106,7 @@ public sealed partial class NotificationSender(
                 now,
                 ct);
             failed++;
+            metrics.RecordNotificationDeliveryFailure();
 
             Log.SendFailed(logger, item.EventId, item.Attempts, permanent);
         }

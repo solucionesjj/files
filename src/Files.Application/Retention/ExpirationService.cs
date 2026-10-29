@@ -3,6 +3,7 @@ using Files.Application.Abstractions;
 using Files.Application.Abstractions.Repositories;
 using Files.Application.Configuration;
 using Files.Application.Notifications;
+using Files.Application.Telemetry;
 using Files.Domain.Entities;
 using Files.Domain.Enums;
 using Files.Domain.Events;
@@ -34,6 +35,7 @@ public sealed partial class ExpirationService(
     IOutboxWriter outboxWriter,
     SchedulerOptions scheduler,
     TimeProvider timeProvider,
+    LifecycleMetrics metrics,
     ILogger<ExpirationService> logger) : IExpirationService
 {
     private const string FileAggregateType = "file";
@@ -96,6 +98,7 @@ public sealed partial class ExpirationService(
 
         if (expired > 0)
         {
+            metrics.RecordFileExpired(expired);
             Log.Expired(logger, expired);
         }
 

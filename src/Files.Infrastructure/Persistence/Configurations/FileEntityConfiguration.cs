@@ -20,7 +20,7 @@ public sealed class FileEntityConfiguration : IEntityTypeConfiguration<FileEntit
         builder.Property(x => x.OriginalFilename).IsRequired();
         builder.Property(x => x.StorageProvider).HasConversion(EnumConversion.SnakeCase<StorageProvider>());
         builder.Property(x => x.StorageBucket).IsRequired();
-        builder.Property(x => x.StorageKey).IsRequired();
+        builder.Property(x => x.StorageKey);
         builder.Property(x => x.SizeBytes).IsRequired();
         builder.Property(x => x.ContentType).IsRequired();
         builder.Property(x => x.ContentTypeSource).HasConversion(EnumConversion.SnakeCase<ContentTypeSource>());

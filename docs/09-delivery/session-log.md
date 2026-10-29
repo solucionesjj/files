@@ -6,6 +6,63 @@ entry.
 
 ---
 
+## 2026-10-29 — S11/M6 implemented: physical deletion, tombstones, reconciliation, metrics
+
+**Delivered (code + tests green: 282 unit + 106 integration + 5 contract)**
+
+- **Physical deletion job (FR-DEL-001..005/007/010, ADR-0008):** `DeletionService` + `DeletionJob`
+  (every 5 min, `FOR UPDATE SKIP LOCKED`, batch 100) claims due `pending_deletion` files
+  (`next_deletion_at <= now`, `legal_hold=false`), calls S3 `DeleteObjectAsync` (idempotent:
+  `NoSuchKey`/404 = success), and either marks `deleted` (`deleted_at`, audit `deleted`, outbox
+  `file.deleted`) or records a retryable/permanent failure. Retryable (5xx/429/408/timeout) →
+  `deletion_attempts++`, `next_deletion_at = now + min(1h, 1m·2^(attempts-1))` ±20% jitter,
+  sanitized `last_deletion_error`; permanent (403/`NoSuchBucket`) → alert (error log + metric), no
+  backoff. Legal hold is re-checked right before the delete and every mutation is guarded on
+  `status='pending_deletion' AND legal_hold=false` (a held file can never be physically deleted).
+  Owner/admin/integration `pending_deletion` rows (S7/S9) flow through the same pipeline.
+- **Tombstones + retention purge (FR-DEL-008, ADR-0008):** `TombstonePurgeService` + `TombstonePurgeJob`
+  null `storage_key` on `deleted` rows older than 60 months, retaining all other tombstone metadata;
+  audited `tombstone_purged`. `V6` makes `files.storage_key` nullable for this. The backups caveat
+  (logical `pg_dump` retains copies ≤35 days) is documented — no immediate-erasure claim.
+- **Reconciliation (FR-DEL-006):** `ReconciliationService` + `ReconciliationJob` (daily): DB→S3
+  keyset-pages `available` files and `HeadObject`s them — missing → `quarantined`
+  (`quarantine_reason='object_missing'`), links revoked, audited, alert; S3→DB uses bounded
+  `ListObjectsV2` — `f/` objects with no file row move to `orphan/` (copy+delete) and `staging/`
+  objects are deleted (staging is local disk per ADR-0003, so they are orphaned by construction).
+  Fail-closed: a failed HEAD never quarantines, and reconciliation never restores availability.
+  Object keys are only ever logged by fingerprint (`ReconciliationScope.Fingerprint`).
+- **Storage (FR-DEL-003, NFR-015):** `IObjectStore` gains `DeleteObjectAsync` (idempotent),
+  bounded `ListObjectsAsync`, and `CopyObjectAsync`; `S3ObjectStore` implements them
+  (DeleteObject/ListObjectsV2/CopyObject; LocalStack-compatible). Provider errors are translated to
+  a sanitized `StorageException` (`StorageErrors`); no key/filename is ever in the message.
+- **Metrics/alerts (NFR-011, workflow §9):** `LifecycleMetrics` (System.Diagnostics.Metrics Meter
+  `Files.Lifecycle`, registered via `AddMeter` in API + worker) — `files_expired_total`,
+  `files_deleted_total`, `files_deletion_failures_total{reason}`,
+  `notification_delivery_failures_total`, `reconcile_missing_db_total`, `reconcile_orphan_s3_total`,
+  `reconcile_quarantined_total`, and a `job_last_success_timestamp_seconds` gauge per job (wired into
+  all lifecycle jobs).
+- **Config:** `SchedulerOptions` + `ConfigurationValidator` extended with `DeletionSeconds`,
+  `ReconcileSeconds`, `PurgeSeconds`, `DeletionMaxAttempts`, `DeletionBatchSize`,
+  `ReconcileBatchSize` (key names only). No auto-migrate; `V6__deletion_reconciliation.sql`.
+- **Tests:** unit `DeletionBackoffTests` (cap/jitter bounds), `StorageErrorsTests` (sanitize +
+  retryable classification), `ReconciliationScopeTests` (scope/predicate/fingerprint),
+  `ConfigurationValidatorTests` (new keys); integration `DeletionReconciliationTests` (PostgreSQL 18
+  + LocalStack S3, following the S10 fixture/reset pattern): DeleteObject success → tombstone,
+  NoSuchKey idempotent success, retryable backoff + attempts, permanent-failure alert, legal-hold
+  skip, owner/admin/integration delete flows, tombstone purge nulls `storage_key`, missing-object
+  quarantine, and `f/` orphan move + `staging/` orphan delete. Mapping test stays at 19 (no new
+  tables).
+
+**Decision:** cron alignment (02:00 reconcile / 03:00 purge) is expressed as daily periodic timers
+(`ReconcileSeconds`/`PurgeSeconds` = 86400) consistent with the S5/S10 BackgroundService pattern;
+Quartz/advisory locks remain deferred per ADR-0007. Tombstone purge nulls `storage_key` (made
+nullable by `V6`) rather than a sentinel, so `FileEntity.StorageKey` is now `string?`.
+
+**Next:** S12 — test hardening and security (IDOR/auth matrices, upload tampering, ZAP,
+dependency/IaC scans, pen-test fixes, load/soak).
+
+---
+
 ## 2026-10-29 — S10/M6 implemented: retention, legal hold, and notifications
 
 **Delivered (code + tests green: 242 unit + 97 integration + 5 contract)**
