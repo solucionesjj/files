@@ -100,21 +100,33 @@ requires `RESTORE_CONFIRM=YES` and a verified dump).
 
 ## 7. Deploy updates
 
+Use [`deploy.sh`](deploy.sh) — it is idempotent and fail-fast, and performs the exact sequence:
+
 ```bash
 cd /opt/files/app
-git fetch --tags
-git checkout <tag>
-./deploy/backup.sh
-docker compose --env-file /opt/files/.env -f deploy/docker-compose.prod.yml \
-  --profile tools run --rm migrator
-docker compose --env-file /opt/files/.env -f deploy/docker-compose.prod.yml \
-  up -d --build api worker caddy
-./deploy/smoke.sh
+./deploy/deploy.sh <git-tag-or-sha>
 ```
 
-Record the deployed tag in `/opt/files/REVISION`. Rollback by checking out the previous tag and
-re-running the same compose command (migrations are expand/contract; restore the pre-deploy dump
-only as a last resort).
+`deploy.sh` runs, in order: `git fetch` + checkout (refuses a dirty tree) → ensure PostgreSQL →
+[`backup.sh`](backup.sh) (records the S3 key) → Flyway `migrate` (explicit `--profile tools`, never
+auto) → build the SPA in a `node:22-alpine` container and rsync it to `/var/lib/files/portal` →
+`docker compose up -d --build api worker caddy` (images tagged with the release SHA) →
+[`smoke.sh`](smoke.sh) → write `/opt/files/REVISION`.
+
+### Rollback
+
+```bash
+cd /opt/files/app
+./deploy/rollback.sh <previous-tag-or-sha>            # application rollback (preferred)
+RESTORE_DUMP=s3://<bucket>/backups/postgres/<file>.dump.gz RESTORE_CONFIRM=YES \
+  ./deploy/rollback.sh <previous-tag-or-sha>          # + restore the pre-deploy dump (last resort)
+```
+
+Application rollback checks out the previous ref and restarts `api worker caddy` (migrations are
+expand/contract, so the schema stays backward-compatible). A database restore is only for a
+migration that broke the database and cannot be forward-fixed; it restores the dump recorded in
+`/opt/files/REVISION` (`backup=`). See
+[`docs/08-operations/deployment-and-rollback.md`](../docs/08-operations/deployment-and-rollback.md).
 
 ## 8. Operations
 

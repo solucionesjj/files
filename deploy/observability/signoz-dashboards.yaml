@@ -1,0 +1,71 @@
+# Files — SigNoz dashboard definitions (launch gate 6).
+#
+# Six dashboards matching observability-and-slos.md §3. Each panel is a PromQL query; paste each
+# query into a SigNoz panel (Dashboard → New Dashboard → Add Panel → PromQL). Units/thresholds are
+# noted so panels can be configured to match. Import steps and the on-call route are in
+# deploy/observability/README.md.
+#
+# Metric sources:
+#   - http_server_*            → OTel ASP.NET Core (API)
+#   - files_*, clamav_*, ...   → Files.Lifecycle + HTTP metrics (System.Diagnostics.Metrics → OTLP)
+#   - system.*                 → otelcol hostmetrics receiver
+#   - container.*              → otelcol docker_stats receiver
+
+dashboards:
+
+  - name: Edge/API RED
+    panels:
+      - { title: "Request rate",      query: "sum(rate(http_server_requests_total[5m])) by (route)", unit: req/s }
+      - { title: "5xx rate",          query: "sum(rate(http_server_requests_total{status_class=\"5xx\"}[5m])) / sum(rate(http_server_requests_total[5m]))", unit: percent, threshold: "0.01 (SLO alert)" }
+      - { title: "p95 latency",       query: "histogram_quantile(0.95, sum(rate(http_server_request_duration_seconds_bucket[5m])) by (le, route))", unit: s }
+      - { title: "p99 latency",       query: "histogram_quantile(0.99, sum(rate(http_server_request_duration_seconds_bucket[5m])) by (le, route))", unit: s }
+      - { title: "401/403/429",       query: "sum(rate(http_server_requests_total{status_class=~\"4xx\"}[5m])) by (status_class)", unit: req/s }
+      - { title: "Error budget burn", query: "sum(rate(http_server_requests_total{status_class=\"5xx\"}[30d])) / sum(rate(http_server_requests_total[30d]))", unit: percent, threshold: "0.5% (99.5% SLO)" }
+
+  - name: Uploads
+    panels:
+      - { title: "Uploads started",       query: "sum(rate(files_uploads_started_total[5m])) by (owner_type)", unit: req/s }
+      - { title: "Uploads completed",     query: "sum(rate(files_uploads_completed_total[5m])) by (result)", unit: req/s }
+      - { title: "Chunks",                query: "sum(rate(upload_chunks_total[5m])) by (result)", unit: req/s }
+      - { title: "Staging bytes",         query: "upload_staging_bytes", unit: bytes }
+      - { title: "Staging disk free",     query: "system_filesystem_usage{state=\"free\"}", unit: bytes, threshold: ">10 GiB" }
+      - { title: "S3 commit failures",    query: "sum(rate(s3_requests_total{result=\"error\"}[5m])) by (operation)", unit: req/s }
+      - { title: "ClamAV scans",          query: "sum(rate(clamav_scans_total[5m])) by (result)", unit: req/s }
+      - { title: "ClamAV up",             query: "clamav_up", unit: bool }
+
+  - name: Downloads & links
+    panels:
+      - { title: "Downloads by source",   query: "sum(rate(files_downloads_total[5m])) by (source)", unit: req/s }
+      - { title: "Download bytes",        query: "sum(rate(files_download_bytes_total[5m])) by (source)", unit: B/s }
+      - { title: "Grants issued/redeemed",query: "sum(rate(link_grants_total[5m])) by (source)", unit: req/s }
+      - { title: "Key failures",          query: "sum(rate(link_key_attempts_total{result=\"failed\"}[5m]))", unit: req/s }
+      - { title: "Lockouts",              query: "sum(increase(link_lockouts_total[5m])) by (scope)", unit: count }
+      - { title: "Completion lost",       query: "sum(increase(download_completion_lost_total[5m])) by (source)", unit: count }
+
+  - name: Jobs/outbox
+    panels:
+      - { title: "Job runs",            query: "sum(rate(job_runs_total[5m])) by (job, result)", unit: req/s }
+      - { title: "Job duration",        query: "histogram_quantile(0.95, sum(rate(job_duration_seconds_bucket[5m])) by (le, job))", unit: s }
+      - { title: "Job last success",    query: "time() - job_last_success_timestamp_seconds", unit: s }
+      - { title: "Outbox lag",          query: "outbox_lag_seconds", unit: s, threshold: "<60 s" }
+      - { title: "Pending deletions",   query: "files_pending_deletion", unit: count }
+      - { title: "Deletion failures",   query: "sum(rate(files_deletion_failures_total[5m])) by (reason)", unit: req/s }
+      - { title: "Notifications sent",  query: "sum(rate(notifications_sent_total[5m])) by (status)", unit: req/s }
+      - { title: "Backup freshness",    query: "time() - backup_last_success_timestamp_seconds", unit: s, threshold: "<26 h" }
+
+  - name: Host
+    panels:
+      - { title: "CPU",               query: "system_cpu_utilization", unit: percent }
+      - { title: "Memory used",       query: "system_memory_usage", unit: bytes }
+      - { title: "Disk free",         query: "system_filesystem_usage{state=\"free\"}", unit: bytes }
+      - { title: "Swap",              query: "system_memory_usage{state=\"used\"}", unit: bytes }
+      - { title: "Network",           query: "rate(system_network_io[5m])", unit: B/s }
+      - { title: "Container restarts",query: "increase(container_restarts_total[15m])", unit: count }
+      - { title: "Container CPU/mem", query: "sum(rate(container_cpu_usage_seconds_total[5m])) by (name)", unit: cores }
+
+  - name: Cost/usage
+    panels:
+      - { title: "Stored bytes",      query: "sum over files (not exported) — see /v1/admin/usage", unit: bytes, note: "Sourced from the /v1/admin/usage endpoint (storage.totalBytes) and AWS Cost Explorer, not Prometheus." }
+      - { title: "S3 storage (AWS)",  query: "aws_billing (Cost Explorer)", unit: GiB, note: "AWS Cost Explorer / S3 bucket metrics." }
+      - { title: "Egress (AWS)",      query: "aws_billing (Cost Explorer)", unit: GiB, note: "AWS Cost Explorer." }
+      - { title: "Downloads 7d/30d",  query: "— see /v1/admin/usage", unit: bytes, note: "downloads.last7Days / last30Days." }

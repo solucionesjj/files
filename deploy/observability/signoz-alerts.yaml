@@ -1,0 +1,177 @@
+# Files — SigNoz alert rules (launch gate 6).
+#
+# Import via SigNoz: Settings → Alert Channels → create a notification channel first
+# (see deploy/observability/README.md), then Alerts → New Alert → PromQL and paste each
+# `expr`/`for` below. Every alert carries `severity` (P1 pages on-call, P2 notifies the
+# channel) and an `on_call` route label; every alert maps to a runbook action in
+# docs/08-operations/runbooks.md and a dashboard in deploy/observability/signoz-dashboards.yaml.
+#
+# Metric sources (observability-and-slos.md §2):
+#   - http_server_*            → OTel ASP.NET Core (API) via OTLP
+#   - files_*, clamav_*, ...   → System.Diagnostics.Metrics (Files.Lifecycle + HTTP metrics) via OTLP
+#   - job_last_success_*, ...  → Files.Lifecycle gauge via OTLP
+#   - system.*                 → otelcol hostmetrics receiver (deploy/otel-collector.yaml)
+#   - container.*              → otelcol docker_stats receiver (deploy/otel-collector.yaml)
+#   - probe_success / cert     → external synthetic monitor (documented in README.md)
+
+groups:
+  - name: files-host
+    rules:
+      - alert: HostDown
+        expr: probe_success{target="files.sacservices.cloud"} == 0
+        for: 5m
+        labels: { severity: P1, on_call: files-oncall }
+        annotations:
+          summary: "External HTTPS health check failing"
+          runbook: "runbooks.md#host-unreachable"
+          dashboard: "Host"
+
+      - alert: ContainerRestartLoop
+        expr: increase(container_restarts_total[15m]) > 3
+        for: 5m
+        labels: { severity: P1, on_call: files-oncall }
+        annotations:
+          summary: "A container is restarting in a loop"
+          runbook: "runbooks.md#container-down"
+          dashboard: "Host"
+
+      - alert: DiskCritical
+        expr: system_filesystem_usage{state="free"} < 10737418240
+        for: 5m
+        labels: { severity: P1, on_call: files-oncall }
+        annotations:
+          summary: "Staging/data disk free space below the 10 GiB reserve"
+          runbook: "runbooks.md#disk-pressure"
+          dashboard: "Host"
+
+      - alert: DiskWarning
+        expr: (1 - system_filesystem_usage{state="free"} / system_filesystem_usage{state="total"}) > 0.8
+        for: 15m
+        labels: { severity: P2, on_call: files-oncall }
+        annotations:
+          summary: "Disk usage above 80%"
+          runbook: "runbooks.md#disk-pressure"
+          dashboard: "Host"
+
+      - alert: ClamAvDown
+        expr: clamav_up == 0 or increase(clamav_scans_total{result="failed"}[15m]) > 3
+        for: 5m
+        labels: { severity: P1, on_call: files-oncall }
+        annotations:
+          summary: "ClamAV is down or failing scans"
+          runbook: "runbooks.md#clamav-failures"
+          dashboard: "Uploads"
+
+      - alert: FilesStuckProcessing
+        expr: files_processing > 10
+        for: 30m
+        labels: { severity: P2, on_call: files-oncall }
+        annotations:
+          summary: "Files stuck in processing for >30m"
+          runbook: "runbooks.md#clamav-failures"
+          dashboard: "Uploads"
+
+      - alert: TlsExpiringSoon
+        expr: cert_expiry_seconds{target="files.sacservices.cloud"} < 1209600
+        for: 5m
+        labels: { severity: P1, on_call: files-oncall }
+        annotations:
+          summary: "TLS certificate expires in <14 days"
+          runbook: "runbooks.md#tls"
+          dashboard: "Host"
+
+  - name: files-api
+    rules:
+      - alert: ApiHigh5xxRate
+        expr: (sum(rate(http_server_requests_total{status_class="5xx"}[5m])) / sum(rate(http_server_requests_total[5m]))) > 0.01
+        for: 5m
+        labels: { severity: P1, on_call: files-oncall }
+        annotations:
+          summary: "API 5xx rate above 1% for 5 minutes"
+          runbook: "runbooks.md#api-errors"
+          dashboard: "Edge/API RED"
+
+      - alert: S3Errors
+        expr: (sum(rate(s3_requests_total{result="error"}[5m])) / sum(rate(s3_requests_total[5m]))) > 0.05
+        for: 5m
+        labels: { severity: P1, on_call: files-oncall }
+        annotations:
+          summary: "S3 request error rate above 5%"
+          runbook: "runbooks.md#s3-outage"
+          dashboard: "Uploads"
+
+      - alert: StagingWritesFailing
+        expr: rate(upload_chunks_total{result="error"}[5m]) > 5
+        for: 5m
+        labels: { severity: P1, on_call: files-oncall }
+        annotations:
+          summary: "Staging chunk writes failing"
+          runbook: "runbooks.md#disk-pressure"
+          dashboard: "Uploads"
+
+      - alert: DeletionFailures
+        expr: files_pending_deletion > 5 or increase(files_deletion_failures_total[15m]) > 0
+        for: 15m
+        labels: { severity: P1, on_call: files-oncall }
+        annotations:
+          summary: "Deletion backlog above 5 or deletion failures occurring"
+          runbook: "runbooks.md#deletion-failures"
+          dashboard: "Jobs/outbox"
+
+      - alert: ReconciliationDrift
+        expr: increase(reconcile_missing_db_total[24h]) > 0
+        for: 5m
+        labels: { severity: P1, on_call: files-oncall }
+        annotations:
+          summary: "DB→S3 reconciliation found missing objects"
+          runbook: "runbooks.md#reconciliation"
+          dashboard: "Jobs/outbox"
+
+  - name: files-jobs
+    rules:
+      - alert: OutboxLag
+        expr: outbox_lag_seconds > 60
+        for: 10m
+        labels: { severity: P2, on_call: files-oncall }
+        annotations:
+          summary: "Outbox lag above 60s"
+          runbook: "runbooks.md#outbox-lag"
+          dashboard: "Jobs/outbox"
+
+      - alert: JobStale
+        expr: time() - job_last_success_timestamp_seconds > 2 * 3600
+        for: 10m
+        labels: { severity: P2, on_call: files-oncall }
+        annotations:
+          summary: "A background job's last success is older than 2× its schedule"
+          runbook: "runbooks.md#outbox-lag"
+          dashboard: "Jobs/outbox"
+
+      - alert: NotificationFailures
+        expr: increase(notification_delivery_failures_total[1h]) > 10
+        for: 5m
+        labels: { severity: P2, on_call: files-oncall }
+        annotations:
+          summary: "More than 10 permanent notification failures in 1h"
+          runbook: "runbooks.md#email-failures"
+          dashboard: "Jobs/outbox"
+
+      - alert: BackupMissingOrStale
+        expr: time() - backup_last_success_timestamp_seconds > 93600
+        for: 15m
+        labels: { severity: P1, on_call: files-oncall }
+        annotations:
+          summary: "Latest backup is older than 26h"
+          runbook: "runbooks.md#backup-failure"
+          dashboard: "Jobs/outbox"
+
+  - name: files-abuse
+    rules:
+      - alert: KeyAbuse
+        expr: increase(link_key_attempts_total{result="failed"}[1h]) > 100 or increase(link_lockouts_total[1h]) > 3
+        for: 5m
+        labels: { severity: P2, on_call: files-oncall }
+        annotations:
+          summary: "Download-key brute force or lockout spike"
+          runbook: "runbooks.md#download-abuse"
+          dashboard: "Downloads & links"

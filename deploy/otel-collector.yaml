@@ -9,6 +9,23 @@ receivers:
         endpoint: 0.0.0.0:4317
       http:
         endpoint: 0.0.0.0:4318
+  # Host and container metrics for the single-host SLO/alert set (observability-and-slos.md §2).
+  hostmetrics:
+    collection_interval: 30s
+    scrapers:
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+      memory:
+      disk:
+      filesystem:
+      network:
+      load:
+  docker_stats:
+    endpoint: unix:///var/run/docker.sock
+    collection_interval: 30s
+    timeout: 20s
 
 processors:
   memory_limiter:
@@ -39,7 +56,7 @@ service:
       processors: [memory_limiter, attributes/redact, batch]
       exporters: [debug, otlphttp/signoz]
     metrics:
-      receivers: [otlp]
+      receivers: [otlp, hostmetrics, docker_stats]
       processors: [memory_limiter, batch]
       exporters: [debug, otlphttp/signoz]
     logs:

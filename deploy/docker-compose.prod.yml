@@ -146,6 +146,7 @@ services:
       SIGNOZ_OTLP_ENDPOINT: ${SIGNOZ_OTLP_ENDPOINT:-}
     volumes:
       - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
