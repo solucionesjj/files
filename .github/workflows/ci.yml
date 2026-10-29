@@ -40,6 +40,9 @@ jobs:
       - name: Validate docker compose (production, example env)
         run: FILES_ENV_FILE=env.prod.example docker compose --env-file deploy/env.prod.example -f deploy/docker-compose.prod.yml config -q
 
+      - name: Static security guards
+        run: ./scripts/check-security-static.sh
+
   backend:
     name: Backend build and tests
     runs-on: ubuntu-latest
@@ -144,3 +147,29 @@ jobs:
       - uses: actions/checkout@v4
       - name: Apply and verify schema
         run: ./scripts/db-verify.sh
+
+  security-scanners:
+    name: Secret + dependency scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: gitleaks secret scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trivy filesystem scan (vuln + secret)
+        run: ./scripts/scan-deps.sh
+
+      - name: Trivy config scan (Dockerfiles)
+        run: |
+          docker run --rm -v "$PWD":/src aquasec/trivy:latest config --severity HIGH,CRITICAL /src
+
+  performance-smoke:
+    name: Load/soak smoke (k6)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate k6 scenarios (smoke)
+        run: ./scripts/perf-smoke.sh

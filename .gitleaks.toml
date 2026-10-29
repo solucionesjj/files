@@ -1,0 +1,15 @@
+# gitleaks configuration (I-03 / NFR-009). Extends the default rule set and allowlists only the
+# committed placeholder templates — never a real secret. Regenerate with:
+#   ./scripts/scan-secrets.sh --baseline   (then review and fold any new findings here)
+title = "Files gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documented placeholder templates only. .env.example and deploy/env.prod.example carry fake dev-only values (generate real peppers with `openssl rand -base64 32`); the real secrets live in the gitignored /opt/files/.env. No other file is allowlisted."
+# Path allowlist entries are regular expressions matched against the file path.
+paths = [
+  '''\.env\.example$''',
+  '''deploy/env\.prod\.example$''',
+]
