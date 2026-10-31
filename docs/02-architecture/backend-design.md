@@ -6,7 +6,7 @@
 src/
   Files.Domain/            # entities, value objects, enums, invariants, domain events
   Files.Application/       # use cases, DTOs, validators, ports, authorization policies
-  Files.Infrastructure/    # EF Core, Dapper, S3, SMTP/Graph, ClamAV, crypto, telemetry, outbox
+  Files.Infrastructure/    # EF Core, Dapper, S3, SMTP, ClamAV, crypto, telemetry, outbox
   Files.Api/               # minimal API endpoints, auth wiring, middleware, health
   Files.Worker/            # Quartz jobs, outbox dispatcher, advisory locks
 tests/
@@ -72,10 +72,8 @@ Domain references no NuGet package except a primitives-free base. Application ma
   per session (a retry reuses staged bytes).
 - Cryptography: Argon2id (`Konscious.Security.Cryptography.Argon2` or libsodium bindings) for
   link keys; SHA-256 for link/grant tokens; no API keys (Entra app tokens only).
-- `SmtpEmailSender` (MailKit, STARTTLS 587) behind `IEmailSender`; `GraphEmailSender` is an
-  optional adapter selected by `Notifications__Provider`.
-- `DirectoryClient` (Graph) implementing `IDirectorySearch`: tenant-scoped user/group search and
-  group membership checks with a 5-minute cache; only object ID, display name, and email returned.
+- `SmtpEmailSender` (MailKit, STARTTLS 587) behind `IEmailSender`; SMTP AUTH is the only send path
+  (ADR-0009/ADR-0014: no Graph mail fallback or directory search).
 - `ClamAvScanner` implementing `IClamAvScanner`: streams the staging file to `clamd` (INSTREAM),
   enforces timeouts, and returns clean/infected/failed; no file content is logged.
 - OpenTelemetry instrumentation and redaction.
@@ -136,7 +134,6 @@ Environment variables use `__` separators. Full template in `.env.example`.
 | `Entra__TenantId` | GUID | Required; tokens from other tenants rejected. |
 | `Entra__ApiClientId` | GUID | API app registration (audience). |
 | `Entra__ApiAudience` | `api://<api-client-id>` | Accepted audience. |
-| `Entra__PortalClientId` | GUID | SPA app registration (used for CORS/known clients). |
 | `Entra__RequiredScope` | `Files.Access` | Delegated scope for user tokens. |
 | `Auth__LinkKeyPepper` | 32+ random bytes base64 | Rotatable; see runbook. |
 | `S3__Region` | `us-east-2` | |
@@ -159,19 +156,16 @@ Environment variables use `__` separators. Full template in `.env.example`.
 | `Abuse__KeyAttemptWindowMinutes` | `15` | |
 | `Abuse__KeyLockoutMinutes` | `15` | |
 | `Abuse__MaxFailuresPerLinkPerHour` | `100` | |
-| `Notifications__Provider` | `Smtp` | `Smtp` (M365 SMTP AUTH) or `Graph` fallback. |
 | `Notifications__FromAddress` | `files@...` | |
 | `Smtp__Host` | `smtp.office365.com` | STARTTLS on 587. |
 | `Smtp__Port` | `587` | |
 | `Smtp__UseStartTls` | `true` | Certificate validation required. |
 | `Smtp__Username` | mailbox address | |
 | `Smtp__Password` | secret | App password/password; never logged. |
-| `Graph__*` | — | Deferred (ADR-0014): no Graph directory or mail fallback in v1. |
 | `ClamAV__Host` / `ClamAV__Port` | `clamav` / `3310` | Internal Docker network. |
 | `ClamAV__ScanTimeoutSeconds` | `900` | 5 GiB may take minutes. |
-| `Features__MalwareScanning` | `true` | Scan before S3 commit. |
-| `Features__PublicLinks` | `true` | Global switch. |
-| `Features__MalwareScanning` | `false` | |
+| `Features__MalwareScanning` | `true` | Enforced: scan before S3 commit. |
+| `Features__PublicLinks` | `true` | Reported in `/v1/config` only; creation is governed by `platform_settings.public_links_enabled`. |
 | `Cors__AllowedOrigins__0` | `https://files...` | Exact origins. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://otel-collector:4317` | |
 

@@ -114,7 +114,7 @@ SELECT * FROM outbox_messages WHERE state='dead' ORDER BY created_at DESC LIMIT 
 1. Check `notification_delivery_failures_total{reason}` and worker logs for SMTP responses.
 2. Authentication failures: verify the Microsoft 365 mailbox has SMTP AUTH enabled, the
    `Smtp__Username` is the full address, and the password/app password is valid; MFA may require
-   an app password or the Graph fallback.
+   an app password.
 3. 4xx transient/5xx: retries continue; reduce batch size if throttled. 5xx invalid recipient:
    fail permanently and alert.
 4. Reset permanent `failed` events with attempts<5 to `scheduled` after fixing the cause.

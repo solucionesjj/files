@@ -42,7 +42,6 @@ public class ApiSmokeTests
         config.GetProperty("retention").GetProperty("defaultDays").GetInt32().Should().Be(30);
         config.GetProperty("retention").GetProperty("maxDays").GetInt32().Should().Be(365);
         config.GetProperty("links").GetProperty("publicTtlDays").GetInt32().Should().Be(15);
-        config.GetProperty("links").GetProperty("privateTtlDays").GetInt32().Should().Be(30);
     }
 
     [Fact]

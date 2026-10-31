@@ -122,7 +122,6 @@ permanently with `no_recipient` (visible in notification events).
     "TenantId": "<tenant-guid>",
     "ApiClientId": "<api-app-guid>",
     "ApiAudience": "api://<api-app-guid>",
-    "PortalClientId": "<spa-app-guid>",
     "RequiredScope": "Files.Access",
     "RequireTenantMatch": true,
     "ClockSkewSeconds": 120

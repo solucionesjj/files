@@ -19,4 +19,4 @@ public sealed record I18nInfo(string DefaultLocale, IReadOnlyList<string> Suppor
 
 public sealed record RetentionInfo(int DefaultDays, int MaxDays);
 
-public sealed record LinksInfo(int PublicTtlDays, int PrivateTtlDays);
+public sealed record LinksInfo(int PublicTtlDays);

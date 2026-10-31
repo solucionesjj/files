@@ -50,8 +50,7 @@ Fill at least: `FILES_DOMAIN=files.sacservices.cloud`, `POSTGRES_PASSWORD`,
 mailbox credentials (`Smtp__*`), and the S3 values: `S3__Region`, `S3__Bucket` (the existing
 bucket) and `S3__AccessKeyId` / `S3__SecretAccessKey` (the static key that the host uses — there is
 no instance role). Keep `S3__UseSsl=true`. The mailbox must have SMTP AUTH enabled (POP is only for
-receiving). For private-link ACLs, grant the Graph app `User.ReadBasic.All`,
-`Group.ReadBasic.All`, and `GroupMember.Read.All` (admin consent) and set `Graph__*`.
+receiving).
 
 ## 4. Start PostgreSQL and migrate
 

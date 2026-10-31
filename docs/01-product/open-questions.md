@@ -71,8 +71,7 @@ they unblock S13–S14.
 |---|---|---|
 | AWS / S3 | Existing host (Ubuntu 24.04, public IP, SSH) and an **existing S3 bucket**, both managed outside this repo; **no Terraform**. The host authenticates to S3 with a **static access key**. `us-east-2`. | Bucket name + `S3__AccessKeyId`/`S3__SecretAccessKey`; the bucket policy already restricts access to the host (not modified by Files). |
 | Host access | Administration over **SSH via the public IP**; the firewall/security group is already configured and left untouched. | Nothing (SSH key delivered by the infra team). |
-| Entra ID | Tenant and app registrations already exist. | `Entra__TenantId`, `Entra__ApiClientId`, `Entra__PortalClientId`. |
-| Graph ACL | `User.ReadBasic.All`, `Group.ReadBasic.All`, `GroupMember.Read.All` will be granted with admin consent. | Confirm consent before M4. |
+| Entra ID | Tenant and app registrations already exist. | `Entra__TenantId`, `Entra__ApiClientId`. |
 | Email | SMTP AUTH is enabled on `notificationsagent@ecs-la.com`; the app password is delivered out of band. | App password in `/opt/files/.env`; verify a send in M6. |
 | DNS/TLS | Infra team creates the `A` record for `files.sacservices.cloud` once the host's public IP is known. | Confirmation that the record exists. |
 | Environments | **Production only**; development/test run 100 % locally (LocalStack). Gate 9 relaxed to a rehearsal on a disposable instance/local PostgreSQL 18. | Run and record that rehearsal before S14. |

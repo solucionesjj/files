@@ -42,7 +42,6 @@ public static class ConfigurationValidator
         ValidatePositiveIntIfPresent(configuration, "ClamAV__ScanTimeoutSeconds", errors);
 
         ValidatePositiveIntIfPresent(configuration, "Links__PublicTtlDays", errors);
-        ValidatePositiveIntIfPresent(configuration, "Links__PrivateTtlDays", errors);
         RequireNonEmpty(configuration, "Auth__LinkKeyPepper", errors);
         ValidatePositiveIntIfPresent(configuration, "Auth__LinkKeyPepperVersion", errors);
 

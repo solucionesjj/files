@@ -54,8 +54,7 @@ public static class ApiEndpoints
                 DefaultDays: configuration.GetValue("Retention:DefaultDays", 30),
                 MaxDays: configuration.GetValue("Retention:MaxDays", 365)),
             Links: new LinksInfo(
-                PublicTtlDays: configuration.GetValue("Links:PublicTtlDays", 15),
-                PrivateTtlDays: configuration.GetValue("Links:PrivateTtlDays", 30)));
+                PublicTtlDays: configuration.GetValue("Links:PublicTtlDays", 15)));
 
     private static string GetVersion()
     {

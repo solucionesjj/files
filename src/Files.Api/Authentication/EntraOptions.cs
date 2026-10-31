@@ -16,8 +16,6 @@ public sealed class EntraOptions
 
     public string? ApiAudience { get; set; }
 
-    public string? PortalClientId { get; set; }
-
     public string? RequiredScope { get; set; } = "Files.Access";
 
     public bool RequireTenantMatch { get; set; } = true;

@@ -12,7 +12,6 @@ namespace Files.Application.Configuration;
 /// </summary>
 public sealed record LinksOptions(
     int PublicTtlDays,
-    int PrivateTtlDays,
     string LinkKeyPepper,
     int LinkKeyPepperVersion,
     int MaxKeyAttemptsPerWindow,
@@ -21,7 +20,6 @@ public sealed record LinksOptions(
     int MaxFailuresPerLinkPerHour)
 {
     public const int DefaultPublicTtlDays = 15;
-    public const int DefaultPrivateTtlDays = 30;
     public const int DefaultLinkKeyPepperVersion = 1;
     public const int DefaultMaxKeyAttemptsPerWindow = 5;
     public const int DefaultKeyAttemptWindowMinutes = 15;
@@ -30,7 +28,6 @@ public sealed record LinksOptions(
 
     public static LinksOptions FromConfiguration(IConfiguration configuration) => new(
         PublicTtlDays: configuration.GetValue("Links:PublicTtlDays", DefaultPublicTtlDays),
-        PrivateTtlDays: configuration.GetValue("Links:PrivateTtlDays", DefaultPrivateTtlDays),
         LinkKeyPepper: configuration["Auth:LinkKeyPepper"] ?? string.Empty,
         LinkKeyPepperVersion: configuration.GetValue("Auth:LinkKeyPepperVersion", DefaultLinkKeyPepperVersion),
         MaxKeyAttemptsPerWindow: configuration.GetValue("Abuse:MaxKeyAttemptsPerWindow", DefaultMaxKeyAttemptsPerWindow),

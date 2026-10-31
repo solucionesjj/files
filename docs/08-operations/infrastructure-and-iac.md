@@ -72,7 +72,7 @@ Full commands are in `deploy/README.md`.
 ## 6. Secrets and configuration
 
 - `/opt/files/.env` (0600, owned by the deploy user) contains:
-  `POSTGRES_PASSWORD`, `ConnectionStrings__FilesDb`, `Entra__*`, `Graph__*`,
+  `POSTGRES_PASSWORD`, `ConnectionStrings__FilesDb`, `Entra__*`,
   `Auth__LinkKeyPepper`, `Notifications__*`, `Storage__StagingPath`, `S3__Bucket`, `S3__Region`,
   `S3__AccessKeyId`, `S3__SecretAccessKey`, `OTEL_*`, feature flags.
 - The API/worker and the backup/restore scripts read the S3 static key from this file; it is never

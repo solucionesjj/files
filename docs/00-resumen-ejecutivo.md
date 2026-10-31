@@ -63,8 +63,8 @@ bootstrap del host + despliegue con Compose en `deploy/`.
    **API keys emitidas por Files**; los roles de usuario viven en Files.
 9. **Procesos en segundo plano:** outbox transaccional + Quartz en memoria + *advisory locks* de
    PostgreSQL; jobs idempotentes para notificar, vencer, borrar y reconciliar.
-10. **Correo:** buzón Microsoft 365; POP solo para recibir, **SMTP AUTH 587** para enviar (Graph
-    opcional). SMTP AUTH confirmado habilitado; la app password queda pendiente de entrega (OQ-01).
+10. **Correo:** buzón Microsoft 365; POP solo para recibir, **SMTP AUTH 587** para enviar. SMTP
+    AUTH confirmado habilitado; la app password queda pendiente de entrega (OQ-01).
 11. **Infraestructura:** una VM Ubuntu 24.04 **preexistente** (IP pública, SSH) en `us-east-2` y un
     bucket S3 **preexistente**; no se crea infraestructura (sin Terraform). `files.sacservices.cloud`
     (Network Solutions) apunta a la IP pública; Caddy es la única entrada pública (80/443),
@@ -95,8 +95,7 @@ Las decisiones de producto (OQ-01…OQ-26) están cerradas y los datos operativo
 |---|---|---|
 | Correo | Buzón `notificationsagent@ecs-la.com`; POP solo recepción, SMTP AUTH 587 para envío. **SMTP AUTH confirmado habilitado** (2026-10-24). | Recibir la app password fuera del chat y depositarla en `/opt/files/.env`. |
 | Nube/S3 | AWS `us-east-2`, bucket `ecs-files-production`. **Una VM Ubuntu 24.04 existente (IP pública, SSH) + un bucket S3 existente**; no se crea infraestructura (sin Terraform). | La access key estática (`S3__AccessKeyId`/`S3__SecretAccessKey`); la policy del bucket ya restringe el acceso a esta VM. |
-| Entra ID | Tenant y app registrations ya existen. | `Entra__TenantId`, `Entra__ApiClientId`, `Entra__PortalClientId`. |
-| Graph (ACL) | Permisos `User.ReadBasic.All`, `Group.ReadBasic.All`, `GroupMember.Read.All` aprobados con consentimiento de admin. | Confirmar la concesión antes de M4. |
+| Entra ID | Tenant y app registrations ya existen. | `Entra__TenantId`, `Entra__ApiClientId`. |
 | Dominio/TLS | `files.sacservices.cloud` en Network Solutions; Caddy/Let's Encrypt. El equipo de infra crea el registro `A` hacia la IP pública de la VM. | Confirmación de que el registro existe. |
 | Acceso al host | Administración por **SSH vía IP pública**; el firewall/security group ya está configurado y **no se toca**. | Nada (clave SSH entregada por el equipo de infra). |
 | Entornos | **Solo producción**; sin staging separado (2026-10-24). El gate 9 se relaja a un ensayo sobre instancia desechable. | Ejecutar y registrar el ensayo de migraciones/rollback antes de S14. |
