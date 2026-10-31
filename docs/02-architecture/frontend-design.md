@@ -58,7 +58,10 @@ Lazy-load every feature route. Preload the shell only.
 - Sign-out clears MSAL cache and redirects to the Entra logout endpoint with
   `postLogoutRedirectUri`.
 - Runtime config (`/assets/config.json`) supplies `apiBaseUrl`, `tenantId`, `clientId`,
-  `apiScope`, `environment`, `features.publicLinks`. It must not contain secrets.
+  `apiScope`, `environment`, `features.publicLinks`. It must not contain secrets. In production
+  `deploy/deploy.sh` generates it from the environment (`Entra__TenantId`, `Portal__ClientId`,
+  `Entra__ApiAudience`/`Entra__RequiredScope`, `Portal__BaseUrl`); locally it is the committed
+  `web/src/assets/config.json`.
 
 ## 4. API access
 

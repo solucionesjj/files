@@ -46,8 +46,8 @@ $EDITOR /opt/files/.env
 ```
 
 Fill at least: `FILES_DOMAIN=files.sacservices.cloud`, `POSTGRES_PASSWORD`,
-`ConnectionStrings__FilesDb` (same password), Entra IDs/audience, peppers, the Microsoft 365 SMTP
-mailbox credentials (`Smtp__*`), and the S3 values: `S3__Region`, `S3__Bucket` (the existing
+`ConnectionStrings__FilesDb` (same password), Entra IDs/audience, `Portal__ClientId` (the SPA app
+registration), peppers, the Microsoft 365 SMTP mailbox credentials (`Smtp__*`), and the S3 values: `S3__Region`, `S3__Bucket` (the existing
 bucket) and `S3__AccessKeyId` / `S3__SecretAccessKey` (the static key that the host uses — there is
 no instance role). Keep `S3__UseSsl=true`. The mailbox must have SMTP AUTH enabled (POP is only for
 receiving).
@@ -75,6 +75,12 @@ cd ..
 docker compose --env-file /opt/files/.env -f deploy/docker-compose.prod.yml \
   up -d --build api worker caddy
 ```
+
+> `deploy/deploy.sh` (recommended, §7) also writes `/var/lib/files/portal/assets/config.json` from
+> the environment (`Entra__TenantId`, `Portal__ClientId`, `Entra__ApiAudience`/`Entra__RequiredScope`,
+> `Portal__BaseUrl`), so the SPA gets the real Entra tenant/client IDs at deploy time. The manual
+> build above ships the committed placeholder, so populate `web/src/assets/config.json` first if
+> you use it.
 
 Caddy obtains the TLS certificate after `files.sacservices.cloud` resolves to the host's public IP
 and ports 80/443 are reachable. ClamAV signatures may take a few minutes on first start; wait for

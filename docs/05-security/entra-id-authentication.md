@@ -130,7 +130,8 @@ permanently with `no_recipient` (visible in notification events).
 ```
 
 The SPA receives only `tenantId`, `clientId`, `apiScope`, and `apiBaseUrl` via
-`/assets/config.json`. No secrets.
+`/assets/config.json`; `deploy/deploy.sh` builds it from `Entra__TenantId`, `Portal__ClientId`,
+`Entra__ApiAudience`/`Entra__RequiredScope`, and `Portal__BaseUrl`. No secrets.
 
 ## 8. Failure modes
 
